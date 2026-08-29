@@ -11,10 +11,18 @@ import {
   updateBusiness,
 } from "@/features/businesses/repository";
 
+import {
+  ACTIVATION_CHECK_LABELS,
+  activationChecklistSchema,
+  type ActivationChecklist,
+} from "./activation";
 import { assertRouteActivation, assertRouteTransition } from "./lifecycle";
 import { findRouteByBusinessAndSlug, findRouteById, insertRoute, updateRoute } from "./repository";
 import { routeStatusSchema } from "./schema";
 import { SERVICE_TEMPLATES, getTemplateForCategory } from "./templates";
+
+export { ACTIVATION_CHECK_LABELS, activationChecklistSchema } from "./activation";
+export type { ActivationChecklist } from "./activation";
 
 /** `POST /api/businesses/:slug/routes` payload (FR-ROUTE-001, FR-ROUTE-002). */
 export const createRouteRequestSchema = z.object({
@@ -69,8 +77,15 @@ export async function createRoute(
 /** `PATCH /api/routes/:id/status` payload. */
 export const changeRouteStatusRequestSchema = z.object({
   status: routeStatusSchema,
+  checklist: activationChecklistSchema.optional(),
 });
 export type ChangeRouteStatusRequest = z.infer<typeof changeRouteStatusRequestSchema>;
+
+export interface ChangeActor {
+  operator: Operator | null;
+  /** True when a valid `x-manage-token` for the route's business was presented. */
+  canManage?: boolean;
+}
 
 function routeHasRequiredFields(route: QuoteRouteRow): boolean {
   return (
@@ -89,7 +104,8 @@ export async function changeRouteStatus(
   db: Database,
   routeId: string,
   target: ChangeRouteStatusRequest["status"],
-  operator: Operator | null,
+  actor: ChangeActor,
+  checklist?: ActivationChecklist,
 ): Promise<QuoteRouteRow> {
   const route = await findRouteById(db, routeId);
   if (!route) throw new HttpError(404, "ROUTE_NOT_FOUND", "No route with that id.");
@@ -99,23 +115,44 @@ export async function changeRouteStatus(
   const business = await findBusinessById(db, route.businessId);
   if (!business) throw new HttpError(404, "BUSINESS_NOT_FOUND", "Route has no business.");
 
+  // A supplier (manage token) may pause their own route (fail-safe, BR-006) and
+  // submit a draft for review. Every other transition is operator-only.
+  const supplierAllowed =
+    target === "PAUSED" || (route.status === "DRAFT" && target === "PENDING_VERIFICATION");
+  if (!actor.operator && !(supplierAllowed && actor.canManage)) {
+    throw new HttpError(
+      401,
+      "OPERATOR_REQUIRED",
+      `Moving a route to ${target} requires an operator.`,
+    );
+  }
+
   const now = new Date();
   const routePatch: Partial<QuoteRouteRow> = { status: target };
 
   if (target === "ACTIVE") {
-    // AC-SUP-003 / BR-002: operator-only, consenting business, complete route.
+    if (!checklist || !Object.values(checklist).every(Boolean)) {
+      throw new HttpError(
+        409,
+        "CHECKLIST_INCOMPLETE",
+        "Every pre-activation check must be confirmed before a route goes live.",
+        { labels: ACTIVATION_CHECK_LABELS },
+      );
+    }
     assertRouteActivation({
-      byOperator: operator !== null,
+      byOperator: actor.operator !== null,
       businessHasConsent: business.consentAt !== null,
       businessVerifiedByOperator: business.verifiedByOperatorAt !== null,
       routeHasRequiredFields: routeHasRequiredFields(route),
     });
     routePatch.verifiedAt = now;
+    routePatch.priceUpdatedAt = now;
+    routePatch.activationChecklist = checklist;
 
     if (!business.verifiedByOperatorAt) {
       await updateBusiness(db, business.id, {
         verifiedByOperatorAt: now,
-        verifiedByOperatorLabel: operator?.label ?? null,
+        verifiedByOperatorLabel: actor.operator?.label ?? null,
         status: "ACTIVE",
       });
     }
@@ -131,7 +168,12 @@ export async function changeRouteStatus(
     type: "route.status_changed",
     businessId: business.id,
     routeId: route.id,
-    data: { from: route.status, to: target, operator: operator?.label ?? null },
+    data: {
+      from: route.status,
+      to: target,
+      by: actor.operator ? `operator:${actor.operator.label}` : "supplier",
+      checklist: target === "ACTIVE" ? checklist : undefined,
+    },
   });
 
   return updated;

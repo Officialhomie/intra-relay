@@ -63,6 +63,12 @@ export const businesses = pgTable("businesses", {
   /** Public EVM/Celo address. Format-validated; ownership verified out of band. */
   payoutAddress: text("payout_address").notNull(),
   quoteCurrency: quoteCurrencyEnum("quote_currency").notNull(),
+  /** Capability token: lets the supplier manage their own routes without an
+   *  account (ADR-008). Never a wallet secret — a random opaque string. */
+  manageToken: text("manage_token")
+    .notNull()
+    .default(sql`replace(gen_random_uuid()::text, '-', '')`)
+    .$defaultFn(() => randomUUID().replace(/-/g, "")),
   /** Set when the business consents to quote display (BR-002). */
   consentAt: timestamp("consent_at", { withTimezone: true }),
   /** Set by an operator on verification (AC-SUP-003). */
@@ -90,7 +96,11 @@ export const quoteRoutes = pgTable(
     payoutAddress: text("payout_address").notNull(),
     endpoint: text("endpoint").notNull(),
     status: routeStatusEnum("status").notNull().default("DRAFT"),
+    /** Freshness: when the supplier last confirmed the price data is current. */
+    priceUpdatedAt: timestamp("price_updated_at", { withTimezone: true }),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    /** Operator's recorded pre-activation checks (AC-SUP-003 + PRD activation). */
+    activationChecklist: jsonb("activation_checklist").$type<Record<string, boolean>>(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -124,11 +134,15 @@ export const quotes = pgTable("quotes", {
   amountMax: numeric("amount_max", { precision: 14, scale: 2 }),
   currency: quoteCurrencyEnum("currency").notNull(),
   turnaround: text("turnaround").notNull(),
+  availabilityNote: text("availability_note"),
+  deliveryCharge: numeric("delivery_charge", { precision: 14, scale: 2 }),
   assumptions: text("assumptions"),
   confidence: quoteConfidenceEnum("confidence"),
   fixed: boolean("fixed").notNull().default(false),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   status: quoteStatusEnum("status").notNull().default("RECEIVED"),
+  /** Set when a supplier declines out of area / capacity. */
+  declineReason: text("decline_reason"),
   createdAt: createdAt(),
 });
 

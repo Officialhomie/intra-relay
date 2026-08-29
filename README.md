@@ -12,12 +12,14 @@ never executes a buyer's final supplier payment.
 [`docs/`](docs/) before changing code. [`docs/PRD.md`](docs/PRD.md) is the source
 of truth.**
 
-Current state: onboarding UI + buyer request UI, and the **first persistent
-backend** — PostgreSQL via Drizzle, with the `businesses`, `quote_routes`,
-`tasks`, `quotes`, `recommendations`, `feedback`, `service_payments`, and
-`audit_events` entities and their lifecycle invariants. See
-[`docs/API.md`](docs/API.md). No payment settlement yet (x402 is `UNAVAILABLE`
-until official access — ADR-004).
+Current state: the **end-to-end flyer-printing workflow** on a PostgreSQL
+(Drizzle) backend — buyer request → printer selection → structured request →
+supplier quote or decline → operator-verified activation → buyer's
+human-controlled WhatsApp handoff → feedback. Eight persisted entities
+(`businesses`, `quote_routes`, `tasks`, `quotes`, `recommendations`, `feedback`,
+`service_payments`, `audit_events`) with enforced lifecycle invariants
+([`docs/API.md`](docs/API.md)). No payment settlement yet — x402 is `UNAVAILABLE`
+until official access (ADR-004). Visual system: ADR-009.
 
 ## Tech stack
 
@@ -33,16 +35,17 @@ until official access — ADR-004).
 
 ## Documentation
 
-| Document                                                       | Purpose                                            |
-| -------------------------------------------------------------- | -------------------------------------------------- |
-| [`CLAUDE.md`](CLAUDE.md)                                       | Operating rules for AI agents working in this repo |
-| [`docs/PRD.md`](docs/PRD.md)                                   | Product source of truth                            |
-| [`docs/TECHNICAL_SPEC.md`](docs/TECHNICAL_SPEC.md)             | Architecture and API contract                      |
-| [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md)   | Phased delivery plan                               |
-| [`docs/BUSINESS_ONBOARDING.md`](docs/BUSINESS_ONBOARDING.md)   | Supplier onboarding guide                          |
-| [`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md) | Setup, gates, conventions, external blockers       |
-| [`docs/DECISIONS.md`](docs/DECISIONS.md)                       | Architecture decision log                          |
-| [`docs/API.md`](docs/API.md)                                   | MVP backend endpoints, headers, invariants         |
+| Document                                                       | Purpose                                               |
+| -------------------------------------------------------------- | ----------------------------------------------------- |
+| [`CLAUDE.md`](CLAUDE.md)                                       | Operating rules for AI agents working in this repo    |
+| [`docs/PRD.md`](docs/PRD.md)                                   | Product source of truth                               |
+| [`docs/TECHNICAL_SPEC.md`](docs/TECHNICAL_SPEC.md)             | Architecture and API contract                         |
+| [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md)   | Phased delivery plan                                  |
+| [`docs/BUSINESS_ONBOARDING.md`](docs/BUSINESS_ONBOARDING.md)   | Supplier onboarding guide                             |
+| [`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md) | Setup, gates, conventions, external blockers          |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md)                       | Architecture decision log                             |
+| [`docs/API.md`](docs/API.md)                                   | MVP backend endpoints, headers, invariants            |
+| [`docs/design/`](docs/design/)                                 | Supplied style references (ADR-009 picks Ease Health) |
 
 ## Requirements
 
@@ -120,13 +123,16 @@ npm run lint && npm run format:check && npm run test && npm run build
 
 ## Routes
 
-| Path                | Purpose                                           |
-| ------------------- | ------------------------------------------------- |
-| `/`                 | Placeholder landing page                          |
-| `/request`          | Placeholder (buyer flyer brief — later phase)     |
-| `/supplier/onboard` | Supplier onboarding form + reviewable draft route |
-| `/operator`         | Placeholder (route verification — later phase)    |
-| `/docs`             | Placeholder                                       |
+| Path                       | Purpose                                                                               |
+| -------------------------- | ------------------------------------------------------------------------------------- |
+| `/`                        | Landing page                                                                          |
+| `/request`                 | Buyer: describe a flyer job → pick a printer → live task                              |
+| `/tasks/:id`               | Buyer: status, quote, freshness, audit timeline, WhatsApp handoff, feedback           |
+| `/supplier/onboard`        | Supplier onboarding form + reviewable draft route                                     |
+| `/supplier/:slug/review`   | Supplier: business details, route status/freshness, pause action (`?t=<manageToken>`) |
+| `/supplier/:slug/requests` | Supplier: incoming structured requests → send a quote or decline                      |
+| `/operator`                | Operator: verify + activate routes (pre-flight checklist), pause                      |
+| `/docs`                    | Placeholder                                                                           |
 
 ## Project structure
 

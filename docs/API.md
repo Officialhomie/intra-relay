@@ -6,14 +6,15 @@ envelope `{ "success": true, "data": … }` or
 
 ## Conventions
 
-| Concern                  | Rule                                                                                                                                                                                  |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Content type             | `application/json`                                                                                                                                                                    |
-| Writes (`POST`, `PATCH`) | require an **`Idempotency-Key`** header (8–200 chars). Repeat with the same key + body → the stored response is replayed; same key + different body → `409 IDEMPOTENCY_KEY_CONFLICT`. |
-| Buyer identity           | opaque **`x-session-id`** header (≥ 8 chars). A task is readable/submittable only by its own session. No account, no wallet login.                                                    |
-| Operator identity        | **`x-operator-key`** header matching an `OPERATOR_API_KEYS` entry. Required to activate a route and to record a quote.                                                                |
-| Money                    | amounts are strings (Postgres `numeric`) to preserve precision.                                                                                                                       |
-| Prohibited data          | no endpoint accepts or returns a private key, seed phrase, password, BVN/NIN, card, or bank credential. Wallet values are public addresses only.                                      |
+| Concern                  | Rule                                                                                                                                                                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Content type             | `application/json`                                                                                                                                                                                                                  |
+| Writes (`POST`, `PATCH`) | require an **`Idempotency-Key`** header (8–200 chars). Repeat with the same key + body → the stored response is replayed; same key + different body → `409 IDEMPOTENCY_KEY_CONFLICT`.                                               |
+| Buyer identity           | opaque **`x-session-id`** header (≥ 8 chars). A task is readable/submittable only by its own session. No account, no wallet login.                                                                                                  |
+| Operator identity        | **`x-operator-key`** header matching an `OPERATOR_API_KEYS` entry. Required to activate/reactivate a route and to read the operator queue.                                                                                          |
+| Supplier identity        | **`x-manage-token`** header matching a business's `manageToken` (ADR-008). Authorises fail-safe supplier actions on that business only: pause a route, submit for review, respond to / decline its requests. Never a wallet secret. |
+| Money                    | amounts are strings (Postgres `numeric`) to preserve precision.                                                                                                                                                                     |
+| Prohibited data          | no endpoint accepts or returns a private key, seed phrase, password, BVN/NIN, card, or bank credential. Wallet values are public addresses only.                                                                                    |
 
 ## Endpoints
 
@@ -22,8 +23,9 @@ envelope `{ "success": true, "data": … }` or
 Body: the onboarding payload (`businessName`, `contactName`,
 `contactChannelType`, `contactChannelValue`, `category`, `city`, `country`,
 `quoteCurrency`, `payoutAddress`, `consentToQuoteDisplay: true`). Creates a
-business in `PENDING_VERIFICATION` with `consentAt` set. `409 BUSINESS_EXISTS`
-on a duplicate slug.
+business in `PENDING_VERIFICATION` with `consentAt` set. The response includes a
+one-time **`manageToken`** — hand the supplier `…/supplier/<slug>/review?t=<manageToken>`.
+`409 BUSINESS_EXISTS` on a duplicate slug.
 
 ### `POST /api/businesses/:slug/routes` → 201
 
@@ -33,13 +35,18 @@ already has that route.
 
 ### `PATCH /api/routes/:id/status` → 200
 
-Body: `{ "status": "DRAFT" | "PENDING_VERIFICATION" | "ACTIVE" | "PAUSED" | "ARCHIVED" }`.
-Enforces the lifecycle graph
+Body: `{ "status": …, "checklist"?: {…} }`. Enforces the lifecycle graph
 (`DRAFT → PENDING_VERIFICATION → ACTIVE ⇄ PAUSED`, any → `ARCHIVED`).
-Moving to **`ACTIVE`** requires a valid operator key, a consenting business, and
-a complete route; it stamps `verifiedAt` and marks the business
-operator-verified. `409 INVALID_ROUTE_TRANSITION` / `401 OPERATOR_REQUIRED` /
-`409 CONSENT_MISSING` otherwise.
+
+- **`PAUSED`** / **`DRAFT → PENDING_VERIFICATION`**: operator key **or** the
+  business manage token (`x-manage-token`).
+- **`ACTIVE`** (incl. reactivating a paused route): operator key only, plus a
+  `checklist` with all six checks `true` — `consentRecorded`,
+  `contactChannelTested`, `publicAddressVerified`, `priceSourceDated`,
+  `slaAgreed`, `sampleRequestTested`. Stamps `verifiedAt`, `priceUpdatedAt`,
+  the checklist, and marks the business operator-verified.
+- Errors: `409 INVALID_ROUTE_TRANSITION`, `401 OPERATOR_REQUIRED`,
+  `409 CHECKLIST_INCOMPLETE`, `409 CONSENT_MISSING`.
 
 ### `POST /api/tasks` → 201
 
@@ -60,22 +67,39 @@ recorded (no x402 access yet).
 ### `GET /api/tasks/:id` → 200
 
 Headers: `x-session-id` (must match). Returns
-`{ task, quotes, payments, recommendation, feedback, timeline }` where
-`timeline` is the ordered audit trail. `403 FORBIDDEN` on a session mismatch.
+`{ task, route, supplier, quotes, payments, recommendation, feedback, timeline }`.
+`route` carries freshness (`priceUpdatedAt`, `verifiedAt`, SLA). `supplier`
+(name + contact channel + city) is `null` until a recommendation exists.
+`403 FORBIDDEN` on a session mismatch.
 
-### `POST /api/routes/:id/quotes` → 201
+### `POST /api/routes/:id/quotes` → 201 (quote) / 200 (decline)
 
-Headers: `x-operator-key`. Body: `{ taskId, amountMin, amountMax?, turnaround,
-assumptions?, confidence?, fixed?, expiresAt? }`. The route must be `ACTIVE`
-(`409 ROUTE_UNAVAILABLE` otherwise — no quote, no payment). Creates the quote,
-builds a `Recommendation` with a **pre-filled WhatsApp order message that is
-never sent**, and moves the task `AWAITING_QUOTE → RECOMMENDED → HANDOFF_READY`.
-`409 QUOTE_EXISTS` on a second quote for the same task.
+Headers: operator key **or** the business manage token — else
+`401 SUPPLIER_AUTH_REQUIRED`. The route must be `ACTIVE` (`409 ROUTE_UNAVAILABLE`
+otherwise — no quote, no payment).
+
+- **Quote:** `{ taskId, amountMin, amountMax?, deliveryCharge?, turnaround,
+availabilityNote?, assumptions?, confidence?, fixed?, expiresAt? }`. Builds a
+  `Recommendation` with a **pre-filled WhatsApp order message that is never
+  sent**; moves the task `AWAITING_QUOTE → RECOMMENDED → HANDOFF_READY`.
+  `409 QUOTE_EXISTS` on a second response for the same task.
+- **Decline:** `{ decline: true, taskId, reason }`. Records a `DECLINED` quote
+  and moves the task to `FAILED` (`failureReason: "SUPPLIER_DECLINED"`).
 
 ### `POST /api/feedback` → 201
 
 Body: `{ taskId, useful: boolean, comment? }`. `404 TASK_NOT_FOUND` if the task
 does not exist.
+
+### `GET /api/operator/routes` → 200
+
+Headers: `x-operator-key` (`401 OPERATOR_REQUIRED` otherwise). The operator
+review queue: every non-archived route with its business.
+
+### `GET /api/routes/active` → 200
+
+Public. ACTIVE routes a buyer can send a request to
+(`?routeSlug=flyer-printing` by default).
 
 ## Not exposed yet
 

@@ -134,3 +134,54 @@ Status values: `Accepted`, `Superseded by ADR-NNN`, `Deprecated`.
   or UI copy may treat them as a real supplier. Real suppliers only enter
   through onboarding + operator verification.
 - **Requirements:** CLAUDE §4.1; `IMPLEMENTATION_PLAN` Phase 1.
+
+---
+
+## ADR-008 — MVP access model for supplier and operator surfaces
+
+- **Date:** 2026-08-30
+- **Status:** Accepted
+- **Context:** The end-to-end workflow needs suppliers to pause their own routes
+  and respond to quote requests, and operators to verify and activate routes —
+  but there are no user accounts yet (ADR-005 keeps suppliers off code/keys).
+- **Decision:** Two lightweight capabilities, neither a wallet secret:
+  - **Operator key** — `x-operator-key` matched against `OPERATOR_API_KEYS`
+    (`label:secret` pairs, server env only). Required to verify/activate a
+    route, reactivate a paused route, and read the operator queue. `/operator`
+    holds the key in `sessionStorage` for the tab only; it is never logged.
+  - **Business manage token** — a random opaque string generated per business
+    (`businesses.manage_token`), returned once from `POST /api/businesses` and
+    carried in the supplier's review link as `?t=`. Presented as
+    `x-manage-token`. It authorises **fail-safe** actions only: pausing the
+    business's own route (which can only _reduce_ availability, BR-006),
+    submitting a route for verification, and responding to / declining that
+    business's incoming requests.
+  - Every state change that could _increase_ exposure — activation,
+    reactivation — is operator-only.
+- **Consequences:** No harmful action is unauthenticated. Token comparison is
+  constant-time. Real supplier sessions are a later phase; this model is
+  forward-compatible (swap the token check for a session check).
+- **Requirements:** PRD §4 (roles), `AC-SUP-003`, `BR-002`, `BR-006`,
+  `NFR-SEC-002`, `FR-REC-001`.
+
+---
+
+## ADR-009 — "Calm clinic" visual system (Ease Health reference)
+
+- **Date:** 2026-08-30
+- **Status:** Accepted
+- **Context:** Five style references were supplied (`docs/design/`). Three are
+  dark "gallery/observatory" aesthetics built for marketing pages; Intra is a
+  utility used by students and small-business owners on inexpensive phones in
+  daylight, with accessibility mandated (NFR-A11Y-001, NFR-UX-001).
+- **Decision:** Adopt the **Ease Health** reference (`docs/design/DESIGN (5).md`):
+  warm off-white canvas, one deep forest green (`#0f3e17`) for every action and
+  trust signal, flat surfaces with hairline borders and tint-based elevation
+  (no drop shadows), light serif for headings + grotesque for operational text,
+  geometric radii (7px / 14px / 999px), muted "medical-label" status pills that
+  always pair an icon/dot with text. Tokens live in `src/styles/tokens.css`;
+  dark mode is dropped to match the light-first intent.
+- **Consequences:** Faire Octave / Fraunces are substituted with a system serif
+  stack (no web-font fetch at build). Status colours are muted but still
+  present, because unavailable/error/warning states are required by the PRD.
+- **Requirements:** `NFR-UX-001`, `NFR-A11Y-001`, PRD §7 (UI states).

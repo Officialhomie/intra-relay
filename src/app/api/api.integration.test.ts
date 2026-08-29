@@ -102,7 +102,7 @@ describe("API route handlers", () => {
     await patchRouteStatus(
       new Request(`http://localhost/api/routes/${route.id}/status`, {
         method: "PATCH",
-        headers: { "content-type": "application/json", ...idem("pv") },
+        headers: { "content-type": "application/json", ...idem("pv"), ...op },
         body: JSON.stringify({ status: "PENDING_VERIFICATION" }),
       }),
       params({ id: route.id }),
@@ -125,7 +125,17 @@ describe("API route handlers", () => {
         new Request(`http://localhost/api/routes/${route.id}/status`, {
           method: "PATCH",
           headers: { "content-type": "application/json", ...idem("act"), ...op },
-          body: JSON.stringify({ status: "ACTIVE" }),
+          body: JSON.stringify({
+            status: "ACTIVE",
+            checklist: {
+              consentRecorded: true,
+              contactChannelTested: true,
+              publicAddressVerified: true,
+              priceSourceDated: true,
+              slaAgreed: true,
+              sampleRequestTested: true,
+            },
+          }),
         }),
         params({ id: route.id }),
       ),

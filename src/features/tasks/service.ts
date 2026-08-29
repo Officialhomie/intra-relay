@@ -12,8 +12,8 @@ import type {
 import { HttpError } from "@/lib/http/response";
 import { appendAuditEvent, listTaskAuditEvents } from "@/features/audit/repository";
 import { flyerPrintingInputSchema } from "@/features/routes/flyer-printing";
-import { findRouteByBusinessAndSlug } from "@/features/routes/repository";
-import { findBusinessBySlug } from "@/features/businesses/repository";
+import { findRouteByBusinessAndSlug, findRouteById } from "@/features/routes/repository";
+import { findBusinessById, findBusinessBySlug } from "@/features/businesses/repository";
 import { loadUsableRoute } from "@/features/routes/service";
 import { recordServicePaymentIntent } from "@/features/payments/service";
 
@@ -157,8 +157,27 @@ export async function submitTask(
   return awaiting;
 }
 
+/** Supplier contact + route freshness the buyer is allowed to see (no secrets). */
+export interface TaskSupplier {
+  name: string;
+  contactChannelType: string;
+  contactChannelValue: string;
+  city: string;
+  country: string;
+}
+export interface TaskRouteInfo {
+  slug: string;
+  name: string;
+  status: string;
+  responseSlaMinutes: number;
+  priceUpdatedAt: Date | null;
+  verifiedAt: Date | null;
+}
+
 export interface TaskView {
   task: TaskRow;
+  route: TaskRouteInfo | null;
+  supplier: TaskSupplier | null;
   quotes: QuoteRow[];
   payments: ServicePaymentRow[];
   recommendation: RecommendationRow | null;
@@ -183,5 +202,34 @@ export async function getTaskView(
     listTaskAuditEvents(db, taskId),
   ]);
 
-  return { task, quotes, payments, recommendation, feedback, timeline };
+  let route: TaskRouteInfo | null = null;
+  let supplier: TaskSupplier | null = null;
+  if (task.routeId) {
+    const routeRow = await findRouteById(db, task.routeId);
+    if (routeRow) {
+      route = {
+        slug: routeRow.slug,
+        name: routeRow.name,
+        status: routeRow.status,
+        responseSlaMinutes: routeRow.responseSlaMinutes,
+        priceUpdatedAt: routeRow.priceUpdatedAt,
+        verifiedAt: routeRow.verifiedAt,
+      };
+      // Supplier contact is only revealed once there is a recommendation to act on.
+      if (recommendation) {
+        const businessRow = await findBusinessById(db, routeRow.businessId);
+        if (businessRow) {
+          supplier = {
+            name: businessRow.name,
+            contactChannelType: businessRow.contactChannelType,
+            contactChannelValue: businessRow.contactChannelValue,
+            city: businessRow.city,
+            country: businessRow.country,
+          };
+        }
+      }
+    }
+  }
+
+  return { task, route, supplier, quotes, payments, recommendation, feedback, timeline };
 }

@@ -6,7 +6,7 @@ import { createTestDatabase } from "@/lib/db/testing";
 import { auditEvents, businesses } from "@/lib/db/schema";
 import { HttpError } from "@/lib/http/response";
 import { createBusiness } from "@/features/businesses/service";
-import { businessInput, TEST_OPERATOR } from "@/test-support/factories";
+import { FULL_CHECKLIST, businessInput, TEST_OPERATOR } from "@/test-support/factories";
 
 import { changeRouteStatus, createRoute, loadUsableRoute } from "./service";
 
@@ -58,14 +58,25 @@ describe("route lifecycle + activation invariant", () => {
     const route = await createRoute(db, business.slug, {});
     expect(route.status).toBe("DRAFT");
 
-    await changeRouteStatus(db, route.id, "PENDING_VERIFICATION", null);
+    await changeRouteStatus(db, route.id, "PENDING_VERIFICATION", {
+      operator: null,
+      canManage: true,
+    });
 
-    await expect(changeRouteStatus(db, route.id, "ACTIVE", null)).rejects.toMatchObject({
+    await expect(
+      changeRouteStatus(db, route.id, "ACTIVE", { operator: null }, FULL_CHECKLIST),
+    ).rejects.toMatchObject({
       code: "OPERATOR_REQUIRED",
       status: 401,
     });
 
-    const activated = await changeRouteStatus(db, route.id, "ACTIVE", TEST_OPERATOR);
+    const activated = await changeRouteStatus(
+      db,
+      route.id,
+      "ACTIVE",
+      { operator: TEST_OPERATOR },
+      FULL_CHECKLIST,
+    );
     expect(activated.status).toBe("ACTIVE");
     expect(activated.verifiedAt).not.toBeNull();
 
@@ -77,7 +88,9 @@ describe("route lifecycle + activation invariant", () => {
   it("rejects an illegal DRAFT → ACTIVE jump", async () => {
     const business = await createBusiness(db, businessInput());
     const route = await createRoute(db, business.slug, {});
-    await expect(changeRouteStatus(db, route.id, "ACTIVE", TEST_OPERATOR)).rejects.toMatchObject({
+    await expect(
+      changeRouteStatus(db, route.id, "ACTIVE", { operator: TEST_OPERATOR }, FULL_CHECKLIST),
+    ).rejects.toMatchObject({
       code: "INVALID_ROUTE_TRANSITION",
     });
   });
@@ -102,8 +115,13 @@ describe("route lifecycle + activation invariant", () => {
       })
       .returning();
     const route = await createRoute(db, business.slug, {});
-    await changeRouteStatus(db, route.id, "PENDING_VERIFICATION", null);
-    await expect(changeRouteStatus(db, route.id, "ACTIVE", TEST_OPERATOR)).rejects.toMatchObject({
+    await changeRouteStatus(db, route.id, "PENDING_VERIFICATION", {
+      operator: null,
+      canManage: true,
+    });
+    await expect(
+      changeRouteStatus(db, route.id, "ACTIVE", { operator: TEST_OPERATOR }, FULL_CHECKLIST),
+    ).rejects.toMatchObject({
       code: "CONSENT_MISSING",
     });
   });
@@ -111,9 +129,12 @@ describe("route lifecycle + activation invariant", () => {
   it("a PAUSED route is not usable and does not trigger payment (AC-ROUTE-002)", async () => {
     const business = await createBusiness(db, businessInput());
     const route = await createRoute(db, business.slug, {});
-    await changeRouteStatus(db, route.id, "PENDING_VERIFICATION", null);
-    await changeRouteStatus(db, route.id, "ACTIVE", TEST_OPERATOR);
-    await changeRouteStatus(db, route.id, "PAUSED", TEST_OPERATOR);
+    await changeRouteStatus(db, route.id, "PENDING_VERIFICATION", {
+      operator: null,
+      canManage: true,
+    });
+    await changeRouteStatus(db, route.id, "ACTIVE", { operator: TEST_OPERATOR }, FULL_CHECKLIST);
+    await changeRouteStatus(db, route.id, "PAUSED", { operator: TEST_OPERATOR });
 
     await expect(loadUsableRoute(db, route.id)).rejects.toMatchObject({
       code: "ROUTE_UNAVAILABLE",

@@ -31,6 +31,12 @@ export function getOperator(request: Request): Operator | null {
   return null;
 }
 
+/** Supplier capability token (ADR-008). Not a wallet secret. */
+export function getManageToken(request: Request): string | null {
+  const value = request.headers.get("x-manage-token")?.trim();
+  return value && value.length >= 8 ? value : null;
+}
+
 export function requireOperator(request: Request): Operator {
   const operator = getOperator(request);
   if (!operator) {

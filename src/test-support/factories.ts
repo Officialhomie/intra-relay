@@ -1,10 +1,23 @@
 import type { Database } from "@/lib/db/client";
 import { createBusiness, type CreateBusinessRequest } from "@/features/businesses/service";
-import { changeRouteStatus, createRoute } from "@/features/routes/service";
+import {
+  changeRouteStatus,
+  createRoute,
+  type ActivationChecklist,
+} from "@/features/routes/service";
 import type { Operator } from "@/lib/http/operator";
 
 export const TEST_OPERATOR: Operator = { label: "test-op" };
 export const VALID_ADDRESS = `0x${"a".repeat(40)}`;
+
+export const FULL_CHECKLIST: ActivationChecklist = {
+  consentRecorded: true,
+  contactChannelTested: true,
+  publicAddressVerified: true,
+  priceSourceDated: true,
+  slaAgreed: true,
+  sampleRequestTested: true,
+};
 
 export function businessInput(
   overrides: Partial<CreateBusinessRequest> = {},
@@ -39,7 +52,16 @@ export async function createActiveRoute(
 ) {
   const business = await createBusiness(db, businessInput(overrides));
   const draft = await createRoute(db, business.slug, {});
-  await changeRouteStatus(db, draft.id, "PENDING_VERIFICATION", null);
-  const route = await changeRouteStatus(db, draft.id, "ACTIVE", TEST_OPERATOR);
+  await changeRouteStatus(db, draft.id, "PENDING_VERIFICATION", {
+    operator: null,
+    canManage: true,
+  });
+  const route = await changeRouteStatus(
+    db,
+    draft.id,
+    "ACTIVE",
+    { operator: TEST_OPERATOR },
+    FULL_CHECKLIST,
+  );
   return { business, route };
 }

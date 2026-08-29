@@ -82,6 +82,15 @@ async function main() {
       endpoint: `/v1/${slug}/${template.id}/quote`,
       status: "ACTIVE",
       verifiedAt: now,
+      priceUpdatedAt: now,
+      activationChecklist: {
+        consentRecorded: true,
+        contactChannelTested: true,
+        publicAddressVerified: true,
+        priceSourceDated: true,
+        slaAgreed: true,
+        sampleRequestTested: true,
+      },
     })
     .returning();
 

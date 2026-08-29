@@ -31,6 +31,7 @@ CREATE TABLE "businesses" (
 	"country" text NOT NULL,
 	"payout_address" text NOT NULL,
 	"quote_currency" "quote_currency" NOT NULL,
+	"manage_token" text DEFAULT replace(gen_random_uuid()::text, '-', '') NOT NULL,
 	"consent_at" timestamp with time zone,
 	"verified_by_operator_at" timestamp with time zone,
 	"verified_by_operator_label" text,
@@ -71,7 +72,9 @@ CREATE TABLE "quote_routes" (
 	"payout_address" text NOT NULL,
 	"endpoint" text NOT NULL,
 	"status" "route_status" DEFAULT 'DRAFT' NOT NULL,
+	"price_updated_at" timestamp with time zone,
 	"verified_at" timestamp with time zone,
+	"activation_checklist" jsonb,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -84,11 +87,14 @@ CREATE TABLE "quotes" (
 	"amount_max" numeric(14, 2),
 	"currency" "quote_currency" NOT NULL,
 	"turnaround" text NOT NULL,
+	"availability_note" text,
+	"delivery_charge" numeric(14, 2),
 	"assumptions" text,
 	"confidence" "quote_confidence",
 	"fixed" boolean DEFAULT false NOT NULL,
 	"expires_at" timestamp with time zone,
 	"status" "quote_status" DEFAULT 'RECEIVED' NOT NULL,
+	"decline_reason" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint

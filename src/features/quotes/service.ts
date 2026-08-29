@@ -19,17 +19,26 @@ export const submitQuoteRequestSchema = z
     taskId: z.string().min(1),
     amountMin: z.coerce.number().nonnegative(),
     amountMax: z.coerce.number().nonnegative().optional(),
+    deliveryCharge: z.coerce.number().nonnegative().optional(),
     turnaround: z.string().trim().min(1).max(120),
+    availabilityNote: z.string().trim().max(300).optional(),
     assumptions: z.string().trim().max(500).optional(),
     confidence: quoteConfidenceSchema.optional(),
     fixed: z.boolean().optional(),
     expiresAt: z.coerce.date().optional(),
   })
   .refine((value) => value.amountMax === undefined || value.amountMax >= value.amountMin, {
-    message: "amountMax must be greater than or equal to amountMin.",
+    message: "The maximum must be greater than or equal to the minimum.",
     path: ["amountMax"],
   });
 export type SubmitQuoteRequest = z.infer<typeof submitQuoteRequestSchema>;
+
+/** `POST /api/routes/:id/quotes` with `decline: true`. */
+export const declineRequestSchema = z.object({
+  taskId: z.string().min(1),
+  reason: z.string().trim().min(3).max(300),
+});
+export type DeclineRequest = z.infer<typeof declineRequestSchema>;
 
 export interface QuoteResult {
   quote: QuoteRow;
@@ -37,31 +46,22 @@ export interface QuoteResult {
   task: TaskRow;
 }
 
-export async function submitQuote(
-  db: Database,
-  routeId: string,
-  input: SubmitQuoteRequest,
-): Promise<QuoteResult> {
+async function loadAwaitingTask(db: Database, routeId: string, taskId: string) {
   const route = await findRouteById(db, routeId);
   if (!route) throw new HttpError(404, "ROUTE_NOT_FOUND", "No route with that id.");
-
-  // AC-ROUTE-002: a PAUSED (or otherwise non-ACTIVE) route accepts no quote and
-  // triggers no payment request.
+  // AC-ROUTE-002: a PAUSED / non-ACTIVE route accepts nothing and triggers no 402.
   if (route.status !== "ACTIVE") {
     throw new HttpError(409, "ROUTE_UNAVAILABLE", `This route is ${route.status}.`);
   }
 
-  const task = await findTaskById(db, input.taskId);
+  const task = await findTaskById(db, taskId);
   if (!task) throw new HttpError(404, "TASK_NOT_FOUND", "No task with that id.");
   if (task.routeId && task.routeId !== routeId) {
     throw new HttpError(409, "TASK_ROUTE_MISMATCH", "This task is bound to a different route.");
   }
-
-  const existing = await findRecommendationByTask(db, task.id);
-  if (existing) {
-    throw new HttpError(409, "QUOTE_EXISTS", "This task already has a quote and recommendation.");
+  if (await findRecommendationByTask(db, task.id)) {
+    throw new HttpError(409, "QUOTE_EXISTS", "This task already has a response.");
   }
-
   if (task.status !== "AWAITING_QUOTE") {
     throw new HttpError(
       409,
@@ -69,6 +69,15 @@ export async function submitQuote(
       `Task is ${task.status}, not AWAITING_QUOTE.`,
     );
   }
+  return { route, task };
+}
+
+export async function submitQuote(
+  db: Database,
+  routeId: string,
+  input: SubmitQuoteRequest,
+): Promise<QuoteResult> {
+  const { route, task } = await loadAwaitingTask(db, routeId, input.taskId);
 
   const business = await findBusinessById(db, route.businessId);
   if (!business) throw new HttpError(404, "BUSINESS_NOT_FOUND", "Route has no business.");
@@ -78,8 +87,10 @@ export async function submitQuote(
     routeId: route.id,
     amountMin: input.amountMin.toFixed(2),
     amountMax: input.amountMax?.toFixed(2) ?? null,
+    deliveryCharge: input.deliveryCharge?.toFixed(2) ?? null,
     currency: route.quoteCurrency,
     turnaround: input.turnaround,
+    availabilityNote: input.availabilityNote ?? null,
     assumptions: input.assumptions ?? null,
     confidence: input.confidence ?? null,
     fixed: input.fixed ?? false,
@@ -120,4 +131,43 @@ export async function submitQuote(
   });
 
   return { quote, recommendation, task: handoffReady };
+}
+
+/** Supplier declines out of area / capacity — the task fails safely, no quote. */
+export async function declineRequest(
+  db: Database,
+  routeId: string,
+  input: DeclineRequest,
+): Promise<{ quote: QuoteRow; task: TaskRow }> {
+  const { route, task } = await loadAwaitingTask(db, routeId, input.taskId);
+
+  const quote = await insertQuote(db, {
+    taskId: task.id,
+    routeId: route.id,
+    amountMin: "0.00",
+    currency: route.quoteCurrency,
+    turnaround: "n/a",
+    status: "DECLINED",
+    declineReason: input.reason,
+  });
+  await appendAuditEvent(db, {
+    type: "quote.declined",
+    taskId: task.id,
+    routeId: route.id,
+    quoteId: quote.id,
+    data: { reason: input.reason },
+  });
+
+  assertTaskTransition(task.status, "FAILED");
+  const failed = await updateTask(db, task.id, {
+    status: "FAILED",
+    failureReason: "SUPPLIER_DECLINED",
+  });
+  await appendAuditEvent(db, {
+    type: "task.failed",
+    taskId: task.id,
+    data: { reason: "SUPPLIER_DECLINED" },
+  });
+
+  return { quote, task: failed };
 }

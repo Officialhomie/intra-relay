@@ -86,7 +86,7 @@ describe("buyer task flow (F-TASK, F-REC, F-PAY)", () => {
       structuredInput: COMPLETE_FLYER_BRIEF,
       route: { routeId: route.id },
     });
-    await changeRouteStatus(db, route.id, "PAUSED", TEST_OPERATOR);
+    await changeRouteStatus(db, route.id, "PAUSED", { operator: TEST_OPERATOR });
 
     await expect(submitTask(db, task.id, SESSION)).rejects.toMatchObject({
       code: "ROUTE_UNAVAILABLE",
@@ -100,7 +100,7 @@ describe("buyer task flow (F-TASK, F-REC, F-PAY)", () => {
 
   it("refuses to bind a task to a non-ACTIVE route at creation", async () => {
     const { route } = await createActiveRoute(db);
-    await changeRouteStatus(db, route.id, "PAUSED", TEST_OPERATOR);
+    await changeRouteStatus(db, route.id, "PAUSED", { operator: TEST_OPERATOR });
     await expect(
       createTask(db, SESSION, {
         structuredInput: COMPLETE_FLYER_BRIEF,
@@ -141,7 +141,7 @@ describe("buyer task flow (F-TASK, F-REC, F-PAY)", () => {
       route: { routeId: route.id },
     });
     await submitTask(db, task.id, SESSION);
-    await changeRouteStatus(db, route.id, "PAUSED", TEST_OPERATOR);
+    await changeRouteStatus(db, route.id, "PAUSED", { operator: TEST_OPERATOR });
     await expect(
       submitQuote(db, route.id, { taskId: task.id, amountMin: 15000, turnaround: "same day" }),
     ).rejects.toMatchObject({ code: "ROUTE_UNAVAILABLE" });

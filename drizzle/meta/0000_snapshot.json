@@ -1,5 +1,5 @@
 {
-  "id": "7771e9ad-f94d-43dc-a4b8-af7e5fe74e1d",
+  "id": "7ebf4c3b-645e-4258-a359-6e4be75cfe33",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -145,6 +145,13 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true
+        },
+        "manage_token": {
+          "name": "manage_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "replace(gen_random_uuid()::text, '-', '')"
         },
         "consent_at": {
           "name": "consent_at",
@@ -412,9 +419,21 @@
           "notNull": true,
           "default": "'DRAFT'"
         },
+        "price_updated_at": {
+          "name": "price_updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "verified_at": {
           "name": "verified_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "activation_checklist": {
+          "name": "activation_checklist",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -520,6 +539,18 @@
           "primaryKey": false,
           "notNull": true
         },
+        "availability_note": {
+          "name": "availability_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "delivery_charge": {
+          "name": "delivery_charge",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "assumptions": {
           "name": "assumptions",
           "type": "text",
@@ -553,6 +584,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'RECEIVED'"
+        },
+        "decline_reason": {
+          "name": "decline_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
