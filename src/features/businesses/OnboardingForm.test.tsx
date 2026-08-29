@@ -6,32 +6,46 @@ import { OnboardingForm } from "./OnboardingForm";
 
 const VALID_ADDRESS = `0x${"a".repeat(40)}`;
 
-async function fillValidExceptAddress(user: ReturnType<typeof userEvent.setup>) {
+type User = ReturnType<typeof userEvent.setup>;
+
+async function fillBusinessStep(user: User) {
   await user.type(screen.getByRole("textbox", { name: "Business name" }), "Campus Prints NG");
   await user.type(screen.getByRole("textbox", { name: "Authorised contact" }), "Ada Obi");
   await user.type(screen.getByRole("textbox", { name: "Order channel details" }), "+2348012345678");
   await user.type(screen.getByRole("textbox", { name: "City" }), "Lagos");
-  await user.click(screen.getByRole("checkbox", { name: /consent/i }));
+  // Country is prefilled.
+}
+
+async function advance(user: User) {
+  await user.click(screen.getByRole("button", { name: /continue/i }));
 }
 
 describe("OnboardingForm (F-SUP)", () => {
-  let user: ReturnType<typeof userEvent.setup>;
+  let user: User;
 
   beforeEach(() => {
     user = userEvent.setup();
     render(<OnboardingForm />);
   });
 
-  it("collects the required business fields (FR-SUP-001)", () => {
+  it("collects the required business fields across its steps (FR-SUP-001)", async () => {
     expect(screen.getByRole("textbox", { name: "Business name" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Authorised contact" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Category" })).toBeInTheDocument();
+    await fillBusinessStep(user);
+    await advance(user);
+
+    expect(screen.getByRole("combobox", { name: "Business category" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Quote currency" })).toBeInTheDocument();
+    await advance(user);
+
     expect(screen.getByRole("textbox", { name: "Public Celo payout address" })).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /consent/i })).toBeInTheDocument();
   });
 
-  it("never asks for prohibited sensitive data (FR-SUP-003, NFR-SEC-001)", () => {
+  it("never asks for prohibited sensitive data (FR-SUP-003, NFR-SEC-001)", async () => {
+    await fillBusinessStep(user);
+    await advance(user);
+    await advance(user);
+
     expect(
       screen.queryByRole("textbox", {
         name: /seed phrase|mnemonic|private key|bvn|nin|card number|bank/i,
@@ -41,30 +55,36 @@ describe("OnboardingForm (F-SUP)", () => {
     expect(document.querySelector('input[type="password"]')).toBeNull();
   });
 
-  it("blocks submission and names the missing fields when empty (AC-SUP-001, FR-TASK-003 style)", async () => {
-    await user.click(screen.getByRole("button", { name: /create draft route/i }));
-
-    expect(await screen.findByText(/please fix the highlighted fields/i)).toBeInTheDocument();
-    expect(screen.getByText(/enter the business name/i)).toBeInTheDocument();
+  it("does not advance an incomplete step and names the missing field (AC-SUP-001)", async () => {
+    await advance(user);
+    expect(await screen.findByText(/enter the business name/i)).toBeInTheDocument();
+    // Still on the first step.
+    expect(screen.getByRole("textbox", { name: "Business name" })).toBeInTheDocument();
     expect(screen.queryByText(/draft created/i)).toBeNull();
   });
 
-  it("blocks onboarding on an invalid payout address (AC-SUP-001)", async () => {
-    await fillValidExceptAddress(user);
+  it("blocks the draft on an invalid payout address (AC-SUP-001)", async () => {
+    await fillBusinessStep(user);
+    await advance(user);
+    await advance(user);
     await user.type(screen.getByRole("textbox", { name: "Public Celo payout address" }), "0x123");
-    await user.click(screen.getByRole("button", { name: /create draft route/i }));
+    await user.click(screen.getByRole("checkbox", { name: /consent/i }));
+    await user.click(screen.getByRole("button", { name: /create my capability draft/i }));
 
     expect(await screen.findByText(/valid public EVM\/Celo address/i)).toBeInTheDocument();
     expect(screen.queryByText(/draft created/i)).toBeNull();
   });
 
   it("creates a reviewable, non-live draft on a valid submission (AC-SUP-002, AC-SUP-003)", async () => {
-    await fillValidExceptAddress(user);
+    await fillBusinessStep(user);
+    await advance(user);
+    await advance(user);
     await user.type(
       screen.getByRole("textbox", { name: "Public Celo payout address" }),
       VALID_ADDRESS,
     );
-    await user.click(screen.getByRole("button", { name: /create draft route/i }));
+    await user.click(screen.getByRole("checkbox", { name: /consent/i }));
+    await user.click(screen.getByRole("button", { name: /create my capability draft/i }));
 
     expect(await screen.findByText(/draft created/i)).toBeInTheDocument();
     expect(screen.getByText("campus-prints-ng")).toBeInTheDocument();

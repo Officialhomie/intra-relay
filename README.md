@@ -12,8 +12,12 @@ never executes a buyer's final supplier payment.
 [`docs/`](docs/) before changing code. [`docs/PRD.md`](docs/PRD.md) is the source
 of truth.**
 
-Current state: scaffold plus **Phase 1 supplier-onboarding foundations**
-(`/supplier/onboard`). No database, no payment flow.
+Current state: onboarding UI + buyer request UI, and the **first persistent
+backend** — PostgreSQL via Drizzle, with the `businesses`, `quote_routes`,
+`tasks`, `quotes`, `recommendations`, `feedback`, `service_payments`, and
+`audit_events` entities and their lifecycle invariants. See
+[`docs/API.md`](docs/API.md). No payment settlement yet (x402 is `UNAVAILABLE`
+until official access — ADR-004).
 
 ## Tech stack
 
@@ -21,6 +25,8 @@ Current state: scaffold plus **Phase 1 supplier-onboarding foundations**
 - TypeScript (strict)
 - Tailwind CSS 3
 - Zod validation, React Hook Form
+- [Drizzle ORM](https://orm.drizzle.team/) — PostgreSQL; embedded
+  [PGlite](https://pglite.dev/) for dev/tests, `pg` for production (ADR-006)
 - ESLint + Prettier
 - Vitest + React Testing Library
 - Design tokens as CSS variables (`src/styles/tokens.css`)
@@ -36,6 +42,7 @@ Current state: scaffold plus **Phase 1 supplier-onboarding foundations**
 | [`docs/BUSINESS_ONBOARDING.md`](docs/BUSINESS_ONBOARDING.md)   | Supplier onboarding guide                          |
 | [`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md) | Setup, gates, conventions, external blockers       |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md)                       | Architecture decision log                          |
+| [`docs/API.md`](docs/API.md)                                   | MVP backend endpoints, headers, invariants         |
 
 ## Requirements
 
@@ -50,9 +57,15 @@ npm install
 
 # 2. Create your local env file from the template
 cp .env.example .env.local
+
+# 3. Set up the local database (embedded PostgreSQL — no server to install)
+npm run db:migrate
+npm run db:seed      # optional: synthetic demo data (local only)
 ```
 
 `.env.example` contains non-secret placeholders only. Never commit `.env.local`.
+Leave `DATABASE_URL` unset locally to use the embedded PGlite database in
+`./.pglite`.
 
 ## Run
 
@@ -76,6 +89,18 @@ npm run format        # Prettier, write
 npm run test        # Vitest, single run
 npm run test:watch  # Vitest, watch mode
 ```
+
+## Database
+
+```bash
+npm run db:generate  # generate a SQL migration after editing src/lib/db/schema.ts
+npm run db:migrate   # apply migrations (PGlite locally, or DATABASE_URL if set)
+npm run db:seed      # synthetic demo data — local PGlite only, refuses in prod
+npm run db:studio    # Drizzle Studio
+```
+
+Schema: `src/lib/db/schema.ts`. Migrations: `drizzle/` (committed). Production
+runs `db:migrate` in the deploy pipeline — never at request time.
 
 ## Build
 
@@ -107,12 +132,17 @@ npm run lint && npm run format:check && npm run test && npm run build
 
 ```
 src/
-  app/         App Router routes, layouts, and route-level metadata
-  components/  Reusable presentational components + `ui/` primitives
-  features/    Feature modules — `businesses/`, `routes/`
-  lib/         Framework-agnostic helpers (address, slug, utils) and constants
-  types/       Cross-feature TypeScript types
-  styles/      Global CSS and design tokens
+  app/           App Router pages + `app/api/*` route handlers
+  components/     Reusable presentational components + `ui/` primitives
+  features/       Feature modules — each with schema / lifecycle / repository / service
+                  (businesses, routes, tasks, quotes, feedback, payments, audit)
+  lib/db/         Drizzle schema, client (driver selection), migrate/seed, test helper
+  lib/http/       Response envelope, Zod body parsing, idempotency, operator auth
+  lib/            Framework-agnostic helpers (address, slug, utils)
+  test-support/   Test factories (not collected by Vitest)
+  types/          Cross-feature TypeScript types
+  styles/         Global CSS and design tokens
+drizzle/         Generated SQL migrations (committed)
 ```
 
 ## Continuous integration

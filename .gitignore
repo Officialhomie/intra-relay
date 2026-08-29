@@ -10,6 +10,9 @@
 # production
 /build
 
+# local database (embedded PGlite dev data)
+/.pglite/
+
 # misc
 .DS_Store
 *.pem

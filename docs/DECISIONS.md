@@ -95,3 +95,42 @@ Status values: `Accepted`, `Superseded by ADR-NNN`, `Deprecated`.
   checks come with the Celo phase (viem).
 - **Requirements:** `FR-SUP-001`..`FR-SUP-005`, `AC-SUP-001`..`AC-SUP-003`,
   `FR-SUP-003`, `NFR-SEC-001`, `BR-002`.
+
+---
+
+## ADR-006 — Drizzle ORM + PGlite for the first persistent backend
+
+- **Date:** 2026-08-29
+- **Status:** Accepted
+- **Context:** `docs/TECHNICAL_SPEC.md` §2 calls for "Postgres with Prisma or
+  Drizzle". The dev environment has no PostgreSQL server and no running Docker
+  daemon, and CI should not need external infrastructure.
+- **Decision:** Use **Drizzle ORM** with **`@electric-sql/pglite`** (a real
+  PostgreSQL compiled to WASM, in-process) for local development and tests, and
+  the **`pg`** driver against a real PostgreSQL server in production. `getDb()`
+  selects the driver from `DATABASE_URL`. The query surface is identical, so
+  repositories are written once. Migrations are generated with `drizzle-kit`
+  into `drizzle/` and applied with `npm run db:migrate`.
+- **Consequences:** `npm run test` and `npm run build` need no database server;
+  each integration test gets a fresh in-memory Postgres. Production still uses a
+  managed PostgreSQL (Neon/RDS/etc.). No Prisma codegen step. Swapping ORM or
+  adding another datastore requires a new ADR.
+- **Requirements:** `TECHNICAL_SPEC` §2, §5; `INF-001`; `NFR-REL-001`.
+
+---
+
+## ADR-007 — Synthetic, dev-only seed data
+
+- **Date:** 2026-08-29
+- **Status:** Accepted
+- **Context:** A seed dataset speeds local work, but Intra must never present
+  fabricated merchant data as real (CLAUDE §4.1).
+- **Decision:** `npm run db:seed` inserts one business named
+  `"[DEMO SEED] Campus Prints"` with a burn payout address
+  (`0x000…0001`), plus one ACTIVE flyer route. It refuses to run when
+  `NODE_ENV=production` or when `DATABASE_URL` points at a real Postgres, and it
+  is idempotent.
+- **Consequences:** Seed rows are unmistakably synthetic. No test, API response,
+  or UI copy may treat them as a real supplier. Real suppliers only enter
+  through onboarding + operator verification.
+- **Requirements:** CLAUDE §4.1; `IMPLEMENTATION_PLAN` Phase 1.

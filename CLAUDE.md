@@ -152,17 +152,21 @@ If a change to one is necessary, state **why** in the commit body / notes and
 keep the diff minimal. Replacing a placeholder route with its real feature
 implementation is expected and does not need this justification.
 
-### 6.2 Do not add blockchain / payment / infra packages early
+### 6.2 Do not add blockchain / payment packages early
 
-Do **not** install `viem`, any Celo SDK, x402 / `buy` client libraries,
-database/ORM libraries, auth providers, or AI SDKs until:
+Do **not** install `viem`, any Celo SDK, x402 / `buy` client libraries, auth
+providers, or AI SDKs until:
 
 1. the corresponding phase in `docs/IMPLEMENTATION_PLAN.md` is explicitly
    started by Victor, **and**
 2. official documentation and real credentials/access are available.
 
-Phase-one dependencies only: `zod`, `react-hook-form`, `@hookform/resolvers`,
-`lucide-react`, `clsx`, `tailwind-merge`, and the Vitest test stack.
+**Persistence phase is started** (`docs/DECISIONS.md` ADR-006). The database
+stack is fixed: `drizzle-orm` + `drizzle-kit`, `@electric-sql/pglite` (embedded
+Postgres for dev/test), and `pg` (production driver). Do not swap ORMs or add
+another database/cache library without a new ADR. Schema changes go through
+`npm run db:generate` (a committed migration), never a hand-edited migration or
+`db:push` against a shared database.
 
 ### 6.3 Definition of done
 

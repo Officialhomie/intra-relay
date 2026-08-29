@@ -66,7 +66,8 @@ export type BusinessOnboardingInput = z.infer<typeof businessOnboardingSchema>;
  * Persisted business shape (PRD §10). Not stored in Phase 1 — this only types
  * the draft object a supplier reviews.
  */
-export const businessStatusSchema = z.enum(["DRAFT", "PENDING_VERIFICATION", "ACTIVE", "PAUSED"]);
+export const BUSINESS_STATUSES = ["DRAFT", "PENDING_VERIFICATION", "ACTIVE", "PAUSED"] as const;
+export const businessStatusSchema = z.enum(BUSINESS_STATUSES);
 export type BusinessStatus = z.infer<typeof businessStatusSchema>;
 
 export const businessSchema = z.object({

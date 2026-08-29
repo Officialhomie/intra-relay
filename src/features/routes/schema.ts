@@ -30,7 +30,7 @@ export const routeInputFieldSchema = z.object({
 });
 export type RouteInputField = z.infer<typeof routeInputFieldSchema>;
 
-export const QUOTE_CURRENCIES = ["NGN", "USD", "cUSD", "USDC", "USDT"] as const;
+export const QUOTE_CURRENCIES = ["NGN", "USD", "USDm", "cUSD", "cNGN", "USDC", "USDT"] as const;
 export const quoteCurrencySchema = z.enum(QUOTE_CURRENCIES);
 export type QuoteCurrency = z.infer<typeof quoteCurrencySchema>;
 

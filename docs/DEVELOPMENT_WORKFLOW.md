@@ -16,16 +16,30 @@ cp .env.example .env.local   # non-secret placeholders only
 
 ### Commands
 
-| Command                | Purpose                             |
-| ---------------------- | ----------------------------------- |
-| `npm run dev`          | Dev server at http://localhost:3000 |
-| `npm run build`        | Production build (also type-checks) |
-| `npm run start`        | Serve a production build            |
-| `npm run lint`         | ESLint (`next lint`)                |
-| `npm run format`       | Prettier — write                    |
-| `npm run format:check` | Prettier — check only               |
-| `npm run test`         | Vitest — single run                 |
-| `npm run test:watch`   | Vitest — watch mode                 |
+| Command                | Purpose                                          |
+| ---------------------- | ------------------------------------------------ |
+| `npm run dev`          | Dev server at http://localhost:3000              |
+| `npm run build`        | Production build (also type-checks)              |
+| `npm run start`        | Serve a production build                         |
+| `npm run lint`         | ESLint (`next lint`)                             |
+| `npm run format`       | Prettier — write                                 |
+| `npm run format:check` | Prettier — check only                            |
+| `npm run test`         | Vitest — single run                              |
+| `npm run test:watch`   | Vitest — watch mode                              |
+| `npm run db:generate`  | Generate a SQL migration from the Drizzle schema |
+| `npm run db:migrate`   | Apply migrations to the configured database      |
+| `npm run db:seed`      | Load synthetic dev seed data (local PGlite only) |
+| `npm run db:studio`    | Open Drizzle Studio                              |
+
+### Database
+
+Local dev and tests use an **embedded PostgreSQL (PGlite)** — there is no
+server to install. With `DATABASE_URL` unset, the app and the `db:*` scripts
+target `./.pglite` (git-ignored). Set `DATABASE_URL` to a real PostgreSQL
+server for staging/production and run `npm run db:migrate` in the deploy
+pipeline; migrations never run at request time. Schema lives in
+`src/lib/db/schema.ts`; change it, then `npm run db:generate` and commit the new
+file in `drizzle/`. See `docs/DECISIONS.md` ADR-006.
 
 ---
 
@@ -169,13 +183,15 @@ Stack: **Vitest** + **React Testing Library** + **jsdom** +
 These are outside our control and gate specific phases. Track status here; do
 not build past a blocker with fabricated stand-ins.
 
-| Blocker                              | Needed for                                                                | Status                              | Rule while blocked                                                                                                 |
-| ------------------------------------ | ------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **ERC-8004 Agent ID**                | Celo Builders registration; any claimed onchain agent identity            | Not obtained                        | No registration-dependent claims; no hard-coded Agent ID.                                                          |
-| **Celo ERC-8021 attribution tag**    | Crediting any mainnet transaction on the hackathon leaderboard (`BR-007`) | Not issued (issued at registration) | Keep an attribution helper behind a config value; no tag literal in code; no claimed tagged tx.                    |
-| **x402 facilitator access / config** | Real paid service settlement (`FR-PAY-002/003`)                           | Not configured                      | Return `503 PAYMENT_SERVICE_UNAVAILABLE`; payment state `UNAVAILABLE`; never a fake `X-PAYMENT` verify or receipt. |
-| **`buy` private beta**               | Buyer-side agent-service marketplace path                                 | Applied / not granted               | Keep x402/`buy` behind an adapter interface; the free request→quote→handoff flow must work without it.             |
-| **AskBots CLI / access**             | Secondary track (AskBots CLI Growth), external agent reviews              | Not set up                          | Do not stub reviews; wire the review cycle only once the CLI and account exist.                                    |
+| Blocker                                 | Needed for                                                                | Status                              | Rule while blocked                                                                                                            |
+| --------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **ERC-8004 Agent ID**                   | Celo Builders registration; any claimed onchain agent identity            | Not obtained                        | No registration-dependent claims; no hard-coded Agent ID.                                                                     |
+| **Celo ERC-8021 attribution tag**       | Crediting any mainnet transaction on the hackathon leaderboard (`BR-007`) | Not issued (issued at registration) | Keep an attribution helper behind a config value; no tag literal in code; no claimed tagged tx.                               |
+| **x402 facilitator access / config**    | Real paid service settlement (`FR-PAY-002/003`)                           | Not configured                      | Return `503 PAYMENT_SERVICE_UNAVAILABLE`; payment state `UNAVAILABLE`; never a fake `X-PAYMENT` verify or receipt.            |
+| **`buy` private beta**                  | Buyer-side agent-service marketplace path                                 | Applied / not granted               | Keep x402/`buy` behind an adapter interface; the free request→quote→handoff flow must work without it.                        |
+| **AskBots CLI / access**                | Secondary track (AskBots CLI Growth), external agent reviews              | Not set up                          | Do not stub reviews; wire the review cycle only once the CLI and account exist.                                               |
+| **Managed PostgreSQL (`DATABASE_URL`)** | Any hosted/preview deployment (dev + tests use embedded PGlite)           | Not provisioned                     | Provision Postgres (Neon/RDS/etc.), set `DATABASE_URL`, run `npm run db:migrate` in the deploy step. Local work is unblocked. |
+| **`OPERATOR_API_KEYS`**                 | Verifying/activating a route and recording quotes in a hosted env         | Not set (per-env)                   | Set `label:secret` pairs in the deployment environment. With none set, no request can act as an operator.                     |
 
 When a blocker clears: start the phase, add its real credentials to the
 deployment environment (not `.env.example`), record an ADR, and remove the

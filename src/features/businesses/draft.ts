@@ -1,11 +1,6 @@
 import { normalizeEvmAddress } from "@/lib/address";
 import { slugify } from "@/lib/slug";
-import {
-  FLYER_PRINTING_INPUT_FIELDS,
-  FLYER_PRINTING_QUERY_FEE_USD,
-  FLYER_PRINTING_ROUTE_SLUG,
-  FLYER_PRINTING_SLA_MINUTES,
-} from "@/features/routes/flyer-printing";
+import { getTemplateForCategory } from "@/features/routes/templates";
 import type { QuoteRoute } from "@/features/routes/schema";
 import type { Business, BusinessOnboardingInput } from "./schema";
 
@@ -50,17 +45,18 @@ export function buildOnboardingDraft(input: BusinessOnboardingInput): Onboarding
     status: "DRAFT",
   };
 
+  const template = getTemplateForCategory(input.category);
   const route: QuoteRoute = {
-    name: "Campus flyer printing quote",
-    slug: FLYER_PRINTING_ROUTE_SLUG,
-    description: "Current quote for A5/A4 flyers delivered near campus.",
+    name: template.name,
+    slug: template.id,
+    description: template.description,
     businessSlug: slug,
-    inputFields: [...FLYER_PRINTING_INPUT_FIELDS],
-    queryFeeUsd: FLYER_PRINTING_QUERY_FEE_USD,
-    responseSlaMinutes: FLYER_PRINTING_SLA_MINUTES,
+    inputFields: [...template.inputFields],
+    queryFeeUsd: template.queryFeeUsd,
+    responseSlaMinutes: template.responseSlaMinutes,
     quoteCurrency: input.quoteCurrency,
     payoutAddress,
-    endpoint: `/v1/${slug}/${FLYER_PRINTING_ROUTE_SLUG}/quote`,
+    endpoint: `/v1/${slug}/${template.id}/quote`,
     status: "DRAFT",
   };
 
