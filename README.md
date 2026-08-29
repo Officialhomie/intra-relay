@@ -44,7 +44,8 @@ until official access (ADR-004). Visual system: ADR-009.
 | [`docs/BUSINESS_ONBOARDING.md`](docs/BUSINESS_ONBOARDING.md)   | Supplier onboarding guide                             |
 | [`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md) | Setup, gates, conventions, external blockers          |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md)                       | Architecture decision log                             |
-| [`docs/API.md`](docs/API.md)                                   | MVP backend endpoints, headers, invariants            |
+| [`docs/API.md`](docs/API.md)                                   | Internal MVP backend endpoints, headers, invariants   |
+| [`docs/CAPABILITY_API.md`](docs/CAPABILITY_API.md)             | Public agent-readable `/v1` capability + quote API    |
 | [`docs/design/`](docs/design/)                                 | Supplied style references (ADR-009 picks Ease Health) |
 
 ## Requirements
@@ -123,16 +124,18 @@ npm run lint && npm run format:check && npm run test && npm run build
 
 ## Routes
 
-| Path                       | Purpose                                                                               |
-| -------------------------- | ------------------------------------------------------------------------------------- |
-| `/`                        | Landing page                                                                          |
-| `/request`                 | Buyer: describe a flyer job → pick a printer → live task                              |
-| `/tasks/:id`               | Buyer: status, quote, freshness, audit timeline, WhatsApp handoff, feedback           |
-| `/supplier/onboard`        | Supplier onboarding form + reviewable draft route                                     |
-| `/supplier/:slug/review`   | Supplier: business details, route status/freshness, pause action (`?t=<manageToken>`) |
-| `/supplier/:slug/requests` | Supplier: incoming structured requests → send a quote or decline                      |
-| `/operator`                | Operator: verify + activate routes (pre-flight checklist), pause                      |
-| `/docs`                    | Placeholder                                                                           |
+| Path                          | Purpose                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------- |
+| `/`                           | Landing page                                                                          |
+| `/request`                    | Buyer: describe a flyer job → pick a printer → live task                              |
+| `/tasks/:id`                  | Buyer: status, quote, freshness, audit timeline, WhatsApp handoff, feedback           |
+| `/supplier/onboard`           | Supplier onboarding form + reviewable draft route                                     |
+| `/supplier/:slug/review`      | Supplier: business details, route status/freshness, pause action (`?t=<manageToken>`) |
+| `/supplier/:slug/requests`    | Supplier: incoming structured requests → send a quote or decline                      |
+| `/operator`                   | Operator: verify + activate routes (pre-flight checklist), pause                      |
+| `/docs`                       | Placeholder                                                                           |
+| `GET /v1/:slug/capabilities`  | Public agent capability document (see `docs/CAPABILITY_API.md`)                       |
+| `POST /v1/:slug/:route/quote` | Public agent quote request                                                            |
 
 ## Project structure
 

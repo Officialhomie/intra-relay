@@ -23,7 +23,9 @@ function hashPayload(payload: unknown): string {
  *
  * A repeat with the same key + same body replays the stored response. A repeat
  * with the same key but a different body is rejected (409). Only successful
- * (2xx) responses are recorded.
+ * (2xx) responses are recorded, unless `cacheErrors` is set — used where a
+ * failing response still has a durable side effect (e.g. a created Task with a
+ * PAYMENT_SERVICE_UNAVAILABLE result) that must replay identically.
  */
 export async function runIdempotent(
   db: Database,
@@ -31,6 +33,7 @@ export async function runIdempotent(
   key: string,
   requestPayload: unknown,
   run: () => Promise<IdempotentResult>,
+  options: { cacheErrors?: boolean } = {},
 ): Promise<Response> {
   const requestHash = hashPayload(requestPayload);
 
@@ -53,7 +56,7 @@ export async function runIdempotent(
 
   const result = await run();
 
-  if (result.status >= 200 && result.status < 300) {
+  if ((result.status >= 200 && result.status < 300) || options.cacheErrors) {
     const inserted = await db
       .insert(idempotencyKeys)
       .values({

@@ -101,10 +101,17 @@ review queue: every non-archived route with its business.
 Public. ACTIVE routes a buyer can send a request to
 (`?routeSlug=flyer-printing` by default).
 
+## Public capability API (`/v1`)
+
+The agent-readable REST surface — `GET /v1/:businessSlug/capabilities` and
+`POST /v1/:businessSlug/:routeSlug/quote` — is documented separately in
+[`docs/CAPABILITY_API.md`](CAPABILITY_API.md).
+
 ## Not exposed yet
 
-- `POST /api/payments/x402/callback` and the agent-side paid quote route
-  (`/v1/:businessSlug/:routeSlug/quote`) arrive with the payment phase and real
-  facilitator credentials (`docs/DECISIONS.md` ADR-004). Until then every
-  service payment is `UNAVAILABLE` and no settlement is fabricated.
+- `POST /api/payments/x402/callback` and the real x402 402 → authorise → settle
+  flow (the `/v1` quote route currently returns `PAYMENT_SERVICE_UNAVAILABLE`
+  for paid routes) arrive with the payment phase and real facilitator
+  credentials (`docs/DECISIONS.md` ADR-004).
+- `GET /v1/tasks/:id` (agent-side result read) and MCP — later.
 - `POST /api/operator/metrics` (adoption export) — later phase.

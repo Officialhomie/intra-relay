@@ -185,3 +185,36 @@ Status values: `Accepted`, `Superseded by ADR-NNN`, `Deprecated`.
   stack (no web-font fetch at build). Status colours are muted but still
   present, because unavailable/error/warning states are required by the PRD.
 - **Requirements:** `NFR-UX-001`, `NFR-A11Y-001`, PRD §7 (UI states).
+
+---
+
+## ADR-010 — Public capability API: REST now, structured unavailability, no MCP
+
+- **Date:** 2026-08-30
+- **Status:** Accepted
+- **Context:** Agents need to discover a business's routes and request a quote
+  (`TECHNICAL_SPEC` §4). MCP is deferred (ADR-002). x402 / cPay is unavailable
+  (ADR-004).
+- **Decision:**
+  - Two public, unauthenticated endpoints under `/v1`: a capability document and
+    a quote request. Documented in `docs/CAPABILITY_API.md`.
+  - The quote route is **asynchronous**: a valid request creates a `Task`
+    (`AWAITING_QUOTE`) + audit events; a supplier responds out of band. There is
+    no synchronous quote and no agent-side result read yet.
+  - A route is "quote-ready" only when `ACTIVE`, operator-verified, **and**
+    fresh — its `priceUpdatedAt` within **14 days** (`PRICE_FRESHNESS_MAX_AGE_MS`).
+    Otherwise the endpoint returns a structured `409 ROUTE_UNAVAILABLE` and
+    creates nothing (AC-ROUTE-002).
+  - For a **paid** route with no facilitator configured, the endpoint returns
+    `503 PAYMENT_SERVICE_UNAVAILABLE` (the `Task` is still created) and never a
+    402, `X-PAYMENT` verification, receipt, or tx hash (ADR-004).
+  - `Idempotency-Key` is required; the outcome (including the created task id)
+    replays exactly on retry, even for the `503` path (`runIdempotent`'s
+    `cacheErrors`).
+  - The order contact channel appears in the capability document only for
+    `ACTIVE` routes.
+- **Consequences:** The same route data will back a future MCP adapter and the
+  real x402 flow without breaking this contract. Contract tests live in
+  `src/app/v1/v1.contract.test.ts`.
+- **Requirements:** `FR-ROUTE-001`, `FR-ROUTE-004`, `AC-ROUTE-002`,
+  `FR-PAY-004`, `BR-001`, `BR-003`; `TECHNICAL_SPEC` §4.
