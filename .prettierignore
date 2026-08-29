@@ -6,3 +6,10 @@ pnpm-lock.yaml
 package-lock.json
 yarn.lock
 next-env.d.ts
+
+# Authored product docs — kept verbatim as the source of truth, not reflowed
+# by Prettier (its markdown table alignment would create large, noisy diffs).
+docs/PRD.md
+docs/TECHNICAL_SPEC.md
+docs/IMPLEMENTATION_PLAN.md
+docs/BUSINESS_ONBOARDING.md
