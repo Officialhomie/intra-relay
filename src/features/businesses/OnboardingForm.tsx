@@ -18,6 +18,8 @@ import { buildOnboardingDraft, type OnboardingDraft } from "./draft";
 import {
   BUSINESS_CATEGORIES,
   CONTACT_CHANNEL_TYPES,
+  QUOTE_RESPONSE_TIMES,
+  QUOTE_RESPONSE_TIME_LABELS,
   businessOnboardingSchema,
   type BusinessOnboardingInput,
 } from "./schema";
@@ -31,6 +33,18 @@ const CHANNEL_OPTIONS = CONTACT_CHANNEL_TYPES.map((value) => ({
   label: value === "whatsapp" ? "WhatsApp" : value[0].toUpperCase() + value.slice(1),
 }));
 const CURRENCY_OPTIONS = QUOTE_CURRENCIES.map((value) => ({ value, label: value }));
+const RESPONSE_TIME_OPTIONS = QUOTE_RESPONSE_TIMES.map((value) => ({
+  value,
+  label: QUOTE_RESPONSE_TIME_LABELS[value],
+}));
+
+const CHANNEL_VALUE_HINT: Record<string, string> = {
+  whatsapp:
+    "The WhatsApp number a buyer messages to place the final order, e.g. +234 801 234 5678.",
+  email: "The email address that receives final orders.",
+  phone: "The phone number that receives final orders.",
+};
+
 const DEFAULT_VALUES: BusinessOnboardingInput = {
   businessName: "",
   contactName: "",
@@ -39,22 +53,31 @@ const DEFAULT_VALUES: BusinessOnboardingInput = {
   category: "printing",
   city: "",
   country: "Nigeria",
+  serviceSummary: "",
+  serviceArea: "",
+  operatingHours: "",
+  turnaround: "",
+  quoteResponseTime: "2h",
   quoteCurrency: "NGN",
+  wantsPaidQueries: true,
   payoutAddress: "",
   consentToQuoteDisplay: false,
 };
+
 const STEP_FIELDS: (keyof BusinessOnboardingInput)[][] = [
   ["businessName", "contactName", "contactChannelType", "contactChannelValue", "city", "country"],
-  ["category", "quoteCurrency"],
-  ["payoutAddress", "consentToQuoteDisplay"],
+  ["serviceArea", "operatingHours", "turnaround"],
+  ["category", "serviceSummary", "quoteResponseTime", "quoteCurrency"],
+  ["wantsPaidQueries", "payoutAddress", "consentToQuoteDisplay"],
 ];
 const STEP_COPY = [
-  { label: "Business", helper: "Who should agents contact?" },
-  { label: "Service", helper: "Choose your first capability." },
-  { label: "Review", helper: "Set up safe payment and consent." },
+  { label: "Business", helper: "Who buyers and agents reach." },
+  { label: "Area & hours", helper: "Where and when you work." },
+  { label: "Your service", helper: "What agents can ask for." },
+  { label: "Consent", helper: "Fees, consent, and review." },
 ] as const;
 
-/** A three-minute, non-technical merchant setup (NFR-UX-001, F-SUP). */
+/** A few-minute, non-technical merchant setup for one WhatsApp-native service (NFR-UX-001, F-SUP). */
 export function OnboardingForm() {
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<OnboardingDraft | null>(null);
@@ -72,6 +95,8 @@ export function OnboardingForm() {
     mode: "onBlur",
   });
   const selectedCategory = watch("category");
+  const channelType = watch("contactChannelType");
+  const wantsPaidQueries = watch("wantsPaidQueries");
   const template = getTemplateForCategory(selectedCategory);
 
   async function goNext() {
@@ -81,10 +106,10 @@ export function OnboardingForm() {
   async function onSubmit(values: BusinessOnboardingInput) {
     setSubmitError(null);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 350));
+      await new Promise((resolve) => setTimeout(resolve, 300));
       setDraft(buildOnboardingDraft(values));
     } catch {
-      setSubmitError("Something went wrong preparing your draft. Please try again.");
+      setSubmitError("Something went wrong preparing your Capability Card. Please try again.");
     }
   }
   function handleStartOver() {
@@ -98,7 +123,7 @@ export function OnboardingForm() {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-6">
-      <ol aria-label="Onboarding progress" className="grid grid-cols-3 gap-2">
+      <ol aria-label="Onboarding progress" className="grid grid-cols-4 gap-2">
         {STEP_COPY.map((item, index) => {
           const complete = index < step;
           const active = index === step;
@@ -106,7 +131,7 @@ export function OnboardingForm() {
             <li key={item.label} className="min-w-0">
               <div className="flex items-center gap-2">
                 <span
-                  className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${complete ? "bg-primary text-primary-contrast" : active ? "bg-primary text-primary-contrast" : "border border-border bg-surface text-muted"}`}
+                  className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${complete || active ? "bg-primary text-primary-contrast" : "border border-border bg-surface text-muted"}`}
                 >
                   {complete ? <Check aria-hidden className="size-3.5" /> : index + 1}
                 </span>
@@ -127,10 +152,10 @@ export function OnboardingForm() {
           <legend className="sr-only">Business details</legend>
           <div>
             <h2 className="text-xl font-semibold tracking-tight">
-              Tell agents who they are speaking to
+              Tell agents and buyers who they are dealing with
             </h2>
             <p className="mt-1 text-sm text-muted">
-              These details become your business identity, not a public home address.
+              This becomes your business identity. We never ask for a home or street address.
             </p>
           </div>
           <TextField
@@ -145,7 +170,7 @@ export function OnboardingForm() {
             label="Authorised contact"
             required
             autoComplete="name"
-            hint="The person who can confirm a quote or pause the route."
+            hint="The person who can confirm a quote or pause the service. This name is never shown to agents."
             error={errors.contactName?.message}
             {...register("contactName")}
           />
@@ -153,13 +178,17 @@ export function OnboardingForm() {
             label="Order channel"
             required
             options={CHANNEL_OPTIONS}
+            hint="Most campus businesses use WhatsApp."
             error={errors.contactChannelType?.message}
             {...register("contactChannelType")}
           />
           <TextField
-            label="Order channel details"
+            label={channelType === "whatsapp" ? "WhatsApp number" : "Order channel details"}
             required
-            hint="A WhatsApp number, email, or phone number that receives final orders."
+            inputMode={channelType === "email" ? "email" : "tel"}
+            autoComplete={channelType === "email" ? "email" : "tel"}
+            placeholder={channelType === "whatsapp" ? "+234 801 234 5678" : undefined}
+            hint={CHANNEL_VALUE_HINT[channelType] ?? "The channel that receives final orders."}
             error={errors.contactChannelValue?.message}
             {...register("contactChannelValue")}
           />
@@ -183,12 +212,43 @@ export function OnboardingForm() {
       ) : null}
 
       {step === 1 ? (
-        <fieldset className="space-y-5">
-          <legend className="sr-only">First service capability</legend>
+        <fieldset className="space-y-4">
+          <legend className="sr-only">Service area and hours</legend>
           <div>
-            <h2 className="text-xl font-semibold tracking-tight">
-              Choose your first agent-ready service
-            </h2>
+            <h2 className="text-xl font-semibold tracking-tight">Where and when you work</h2>
+            <p className="mt-1 text-sm text-muted">
+              An agent uses this to know if you can help before it asks for a quote.
+            </p>
+          </div>
+          <TextField
+            label="Service area"
+            required
+            hint="Areas you deliver to or accept pick-up from, e.g. UNILAG campus and Akoka."
+            error={errors.serviceArea?.message}
+            {...register("serviceArea")}
+          />
+          <TextField
+            label="Opening hours"
+            required
+            hint="e.g. Mon–Sat, 9am–6pm."
+            error={errors.operatingHours?.message}
+            {...register("operatingHours")}
+          />
+          <TextField
+            label="Typical turnaround"
+            required
+            hint="How long a normal job takes once you confirm it, e.g. same day if approved before noon."
+            error={errors.turnaround?.message}
+            {...register("turnaround")}
+          />
+        </fieldset>
+      ) : null}
+
+      {step === 2 ? (
+        <fieldset className="space-y-5">
+          <legend className="sr-only">Your first service</legend>
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight">Your first agent-ready service</h2>
             <p className="mt-1 text-sm text-muted">
               Start with one service you can quote reliably. You can add more later.
             </p>
@@ -219,67 +279,97 @@ export function OnboardingForm() {
                 </div>
                 <p className="text-sm text-muted">{template.description}</p>
                 <p className="pt-2 text-xs text-muted">
-                  Agents will ask: {template.inputFields.map((field) => field.label).join(" · ")}
+                  Agents will send: {template.inputFields.map((field) => field.label).join(" · ")}
                 </p>
               </div>
             </div>
           </section>
+          <TextField
+            label="What can this service do?"
+            required
+            hint="One or two sentences in your words, e.g. A5/A4 flyer printing, full-colour or black-and-white, bulk discounts over 200 copies."
+            error={errors.serviceSummary?.message}
+            {...register("serviceSummary")}
+          />
+          <SelectField
+            label="How quickly do you reply to a quote request?"
+            required
+            options={RESPONSE_TIME_OPTIONS}
+            hint="Be honest — agents and buyers see this as your response time."
+            error={errors.quoteResponseTime?.message}
+            {...register("quoteResponseTime")}
+          />
           <SelectField
             label="Quote currency"
             required
             options={CURRENCY_OPTIONS}
-            hint="This is the currency you use to quote the final customer order. It is separate from any tiny Celo query fee."
+            hint="The currency you quote the customer's job in. Separate from any tiny agent query fee."
             error={errors.quoteCurrency?.message}
             {...register("quoteCurrency")}
           />
           {template.availability !== "mvp" ? (
             <Callout tone="info" title="You can prepare this route today">
-              The template is ready for review, but flyer printing is the first category we will
-              activate and test with real buyers during the hackathon.
+              The template is ready for review, but flyer printing is the first category Intra
+              activates and tests with real buyers.
             </Callout>
           ) : null}
         </fieldset>
       ) : null}
 
-      {step === 2 ? (
+      {step === 3 ? (
         <fieldset className="space-y-4">
-          <legend className="sr-only">Consent and payment setup</legend>
+          <legend className="sr-only">Query fee, consent, and review</legend>
           <div>
             <h2 className="text-xl font-semibold tracking-tight">
-              Keep your route safe and in your control
+              Keep your service safe and in your control
             </h2>
             <p className="mt-1 text-sm text-muted">
-              A query fee, if enabled, pays for useful business information—not a customer&apos;s
-              final order.
+              Onboarding does <strong>not</strong> give your business an AI agent, an MCP server, or
+              automated order acceptance. You review every quote and the customer approves every
+              order.
             </p>
           </div>
-          <Callout tone="info" title="Public address only">
-            We never ask for a seed phrase, private key, BVN, NIN, bank login, or card details. Your
+          <Callout tone="info" title="What we never ask for">
+            A seed phrase, private key, password, BVN, NIN, bank login, or card details. Your
             business keeps control of every final customer payment.
           </Callout>
-          <TextField
-            label="Public Celo payout address"
-            required
-            inputMode="text"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            placeholder="0x…"
-            hint="The public address that can receive agent query fees. We verify it before activation."
-            error={errors.payoutAddress?.message}
-            {...register("payoutAddress")}
+          <CheckboxField
+            label="Let AI agents pay a small fee (about $0.02) to request a quote. This pays for the information, never the customer's order."
+            error={errors.wantsPaidQueries?.message}
+            {...register("wantsPaidQueries")}
           />
+          {wantsPaidQueries ? (
+            <TextField
+              label="Public Celo payout address"
+              required
+              inputMode="text"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder="0x…"
+              hint="Public address only — it receives the agent query fee. An operator verifies it before activation. Not needed to receive customer orders."
+              error={errors.payoutAddress?.message}
+              {...register("payoutAddress")}
+            />
+          ) : (
+            <p className="text-xs text-muted">
+              No payout address needed. Agents request a quote for free; you can add a fee later
+              with your operator.
+            </p>
+          )}
           <CheckboxField
             label="I consent to Intra requesting a quote for my business and showing that quote to a buyer."
             error={errors.consentToQuoteDisplay?.message}
             {...register("consentToQuoteDisplay")}
           />
           <section className="rounded-lg border border-border p-4 text-sm">
-            <p className="font-medium">Before your route goes live</p>
+            <p className="font-medium">Before your service goes live</p>
             <ul className="mt-2 space-y-1.5 text-muted">
-              <li>1. You review your generated capability card.</li>
-              <li>2. Intra verifies your contact, consent, and public payout address.</li>
-              <li>3. You test a sample request, then approve activation.</li>
+              <li>1. You review the plain-language Capability Card on the next screen.</li>
+              <li>2. An operator verifies your contact, consent, and payout address.</li>
+              <li>
+                3. Only then does the route become ACTIVE. You can pause it any time in one tap.
+              </li>
             </ul>
           </section>
         </fieldset>
@@ -291,7 +381,7 @@ export function OnboardingForm() {
         </Callout>
       ) : null}
       {submitError ? (
-        <Callout tone="warning" title="Could not create the draft">
+        <Callout tone="warning" title="Could not create the Capability Card">
           {submitError}
         </Callout>
       ) : null}
@@ -313,13 +403,13 @@ export function OnboardingForm() {
           </Button>
         ) : (
           <Button type="submit" pending={isSubmitting}>
-            {isSubmitting ? "Preparing draft…" : "Create my capability draft"}
+            {isSubmitting ? "Preparing…" : "Preview my Capability Card"}
           </Button>
         )}
       </div>
       <p className="text-xs text-muted">
         This creates a <strong>draft</strong>. It does not publish a route, accept payment, or send
-        messages to customers.
+        any message to a customer.
       </p>
     </form>
   );

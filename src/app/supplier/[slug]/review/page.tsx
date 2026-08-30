@@ -12,6 +12,7 @@ import { getDb } from "@/lib/db/client";
 import { shortenEvmAddress } from "@/lib/address";
 import { formatDateTime, relativeTime } from "@/lib/format";
 import { manageTokenMatchesBusinessSlug } from "@/features/businesses/access";
+import { PRICE_FRESHNESS_MAX_AGE_DAYS, routeFreshness } from "@/features/routes/freshness";
 import { getSupplierWorkspace } from "@/features/routes/reads";
 import { PauseRouteButton } from "@/features/supplier/PauseRouteButton";
 
@@ -108,11 +109,34 @@ export default async function SupplierReviewPage({
 
       <section className="space-y-4">
         <h2 className="text-lg font-light tracking-tight">Capability routes</h2>
+
+        <Card className="text-xs text-muted">
+          <p className="text-sm font-medium text-foreground">What each state means</p>
+          <dl className="mt-2 space-y-1.5">
+            <StateRow state="Draft">Being prepared. Not visible to anyone.</StateRow>
+            <StateRow state="Pending verification">
+              An operator is checking your details before it can go live.
+            </StateRow>
+            <StateRow state="Active">
+              Live. Agents can request a quote and see your Capability Card and order contact.
+            </StateRow>
+            <StateRow state="Paused">
+              Stopped by you or an operator. No new requests until an operator reactivates it.
+            </StateRow>
+            <StateRow state="Stale">
+              Still Active, but your price/availability is older than {PRICE_FRESHNESS_MAX_AGE_DAYS}{" "}
+              days, so Intra treats it as unavailable until you reconfirm it with your operator.
+            </StateRow>
+          </dl>
+        </Card>
+
         {routes.length === 0 ? (
           <Card className="text-sm text-muted">No routes yet for this business.</Card>
         ) : (
           routes.map((route) => {
             const fields = Array.isArray(route.inputSchema) ? route.inputSchema : [];
+            const fresh = routeFreshness(route);
+            const stale = route.status === "ACTIVE" && fresh.stale;
             return (
               <Card key={route.id} as="article" className="space-y-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -120,14 +144,27 @@ export default async function SupplierReviewPage({
                     <CardTitle>{route.name}</CardTitle>
                     <p className="mt-1 max-w-prose text-sm text-muted">{route.description}</p>
                   </div>
-                  <StatusPill tone={routeStatusTone(route.status)}>
-                    {route.status.replace(/_/g, " ")}
-                  </StatusPill>
+                  <div className="flex flex-wrap gap-1.5">
+                    <StatusPill tone={routeStatusTone(route.status)}>
+                      {route.status.replace(/_/g, " ")}
+                    </StatusPill>
+                    {stale ? <StatusPill tone="warning">Stale</StatusPill> : null}
+                  </div>
                 </div>
+
+                {stale ? (
+                  <Callout tone="warning" title="Price data is stale">
+                    This route is Active but its price/availability has not been confirmed in{" "}
+                    {PRICE_FRESHNESS_MAX_AGE_DAYS} days. Agents cannot request a quote until an
+                    operator reconfirms it.
+                  </Callout>
+                ) : null}
 
                 <DataList>
                   <DataRow label="Query fee">
-                    ${Number(route.queryFeeUsd).toFixed(2)} per request
+                    {Number(route.queryFeeUsd) > 0
+                      ? `$${Number(route.queryFeeUsd).toFixed(2)} per request`
+                      : "Free (no agent query fee)"}
                   </DataRow>
                   <DataRow label="Response SLA">{route.responseSlaMinutes} minutes</DataRow>
                   <DataRow label="Agent endpoint">
@@ -135,9 +172,12 @@ export default async function SupplierReviewPage({
                   </DataRow>
                   <DataRow label="Price freshness">
                     {route.priceUpdatedAt ? (
-                      <span className="inline-flex items-center gap-1.5">
-                        <Clock3 aria-hidden className="size-4 text-muted" />
+                      <span
+                        className={`inline-flex items-center gap-1.5 ${stale ? "text-warning" : ""}`}
+                      >
+                        <Clock3 aria-hidden className="size-4" />
                         Confirmed {relativeTime(route.priceUpdatedAt)}
+                        {stale ? " · needs reconfirming" : ""}
                       </span>
                     ) : (
                       "Not yet confirmed"
@@ -150,9 +190,13 @@ export default async function SupplierReviewPage({
 
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-subtle">
-                    Agents will ask for
+                    What agents can see when this route is Active
                   </p>
-                  <ul className="mt-2 flex flex-wrap gap-2">
+                  <ul className="mt-2 space-y-1 text-xs text-muted">
+                    <li>Your business name, category, and city/country.</li>
+                    <li>This service, its description, and the details an agent must send:</li>
+                  </ul>
+                  <ul className="mt-1.5 flex flex-wrap gap-2">
                     {fields.map((field) => (
                       <li
                         key={field.key}
@@ -162,6 +206,14 @@ export default async function SupplierReviewPage({
                         {field.required ? "" : " (optional)"}
                       </li>
                     ))}
+                  </ul>
+                  <ul className="mt-2 space-y-1 text-xs text-muted">
+                    <li>Response SLA and whether a query fee applies.</li>
+                    <li>
+                      Your{" "}
+                      {CHANNEL_LABEL[business.contactChannelType] ?? business.contactChannelType}{" "}
+                      order contact — only while the route is Active, verified, and fresh.
+                    </li>
                   </ul>
                 </div>
 
@@ -180,6 +232,15 @@ export default async function SupplierReviewPage({
           })
         )}
       </section>
+    </div>
+  );
+}
+
+function StateRow({ state, children }: { state: string; children: React.ReactNode }) {
+  return (
+    <div className="sm:flex sm:gap-3">
+      <dt className="font-medium text-foreground sm:w-44 sm:shrink-0">{state}</dt>
+      <dd className="text-muted">{children}</dd>
     </div>
   );
 }

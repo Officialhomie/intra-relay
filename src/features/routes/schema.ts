@@ -44,7 +44,8 @@ export const quoteRouteSchema = z.object({
   queryFeeUsd: z.number().nonnegative(),
   responseSlaMinutes: z.number().int().positive(),
   quoteCurrency: quoteCurrencySchema,
-  payoutAddress: z.string().regex(EVM_ADDRESS_REGEX),
+  /** Null on a draft route whose merchant did not enable paid agent queries. */
+  payoutAddress: z.string().regex(EVM_ADDRESS_REGEX).nullable(),
   endpoint: z.string().min(1),
   status: routeStatusSchema,
 });

@@ -3,18 +3,42 @@ import { z } from "zod";
 import type { Database } from "@/lib/db/client";
 import type { BusinessRow } from "@/lib/db/schema";
 import { HttpError } from "@/lib/http/response";
-import { normalizeEvmAddress } from "@/lib/address";
+import { EVM_ADDRESS_REGEX, normalizeEvmAddress } from "@/lib/address";
 import { slugify } from "@/lib/slug";
+import { quoteCurrencySchema } from "@/features/routes/schema";
 import { appendAuditEvent } from "@/features/audit/repository";
 
 import { findBusinessBySlug, insertBusiness } from "./repository";
-import { businessOnboardingSchema } from "./schema";
+import { businessCategorySchema, contactChannelTypeSchema } from "./schema";
 
 /**
  * `POST /api/businesses` payload (FR-SUP-001, FR-SUP-002).
- * Reuses the shared onboarding schema; no field for prohibited data (FR-SUP-003).
+ *
+ * Exactly the fields `createBusiness` persists — no field for prohibited data
+ * (FR-SUP-003). The onboarding form's extra service metadata and its
+ * `wantsPaidQueries` toggle are draft-only; this endpoint always requires a
+ * valid public payout address (a `businesses` row cannot exist without one).
  */
-export const createBusinessRequestSchema = businessOnboardingSchema;
+export const createBusinessRequestSchema = z.object({
+  businessName: z.string().trim().min(2, "Enter the business name.").max(80),
+  contactName: z.string().trim().min(2, "Enter the authorised contact's name.").max(80),
+  contactChannelType: contactChannelTypeSchema,
+  contactChannelValue: z.string().trim().min(3).max(120),
+  category: businessCategorySchema,
+  city: z.string().trim().min(2).max(80),
+  country: z.string().trim().min(2).max(80),
+  quoteCurrency: quoteCurrencySchema,
+  payoutAddress: z
+    .string()
+    .trim()
+    .regex(
+      EVM_ADDRESS_REGEX,
+      "Enter a valid public EVM/Celo address (0x followed by 40 characters).",
+    ),
+  consentToQuoteDisplay: z.boolean().refine((value) => value === true, {
+    message: "You must consent to Intra requesting and displaying a quote for your business.",
+  }),
+});
 export type CreateBusinessRequest = z.infer<typeof createBusinessRequestSchema>;
 
 export async function createBusiness(
