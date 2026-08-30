@@ -38,3 +38,6 @@ next-env.d.ts
 .idea
 .vscode
 Thumbs.db
+
+# local tooling (Claude Code preview launcher, etc.)
+.claude/

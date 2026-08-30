@@ -49,7 +49,7 @@ export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(funct
         aria-describedby={describedBy || undefined}
         className={cn(
           "w-full rounded-md border border-border bg-bg px-3 py-2.5 text-base outline-none focus-visible:border-foreground",
-          error && "border-red-500 focus-visible:border-red-500",
+          error && "border-danger focus-visible:border-danger",
           className,
         )}
         {...props}
@@ -66,7 +66,7 @@ export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(funct
         ))}
       </select>
       {error ? (
-        <p id={errorId} className="text-xs text-red-600 dark:text-red-400">
+        <p id={errorId} className="text-xs text-danger">
           {error}
         </p>
       ) : null}

@@ -18,5 +18,13 @@ export default defineConfig({
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     css: false,
     clearMocks: true,
+    // Integration suites each spin up a fresh embedded PGlite (WASM Postgres)
+    // and run migrations in beforeEach. Under full fork parallelism that
+    // cold-start can exceed the default 10s hook timeout on an 8-core machine,
+    // so cap parallelism and give hooks/tests room. See docs/DEVELOPMENT_WORKFLOW.md.
+    pool: "forks",
+    maxWorkers: 4,
+    hookTimeout: 30_000,
+    testTimeout: 15_000,
   },
 });

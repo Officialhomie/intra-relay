@@ -90,6 +90,6 @@ describe("OnboardingForm (F-SUP)", () => {
     expect(screen.getByText("campus-prints-ng")).toBeInTheDocument();
     expect(screen.getByText("/supplier/campus-prints-ng/review")).toBeInTheDocument();
     expect(screen.getByText(/this route is a draft/i)).toBeInTheDocument();
-    expect(screen.getByText(/not stored anywhere/i)).toBeInTheDocument();
+    expect(screen.getByText(/nothing is saved until you submit it/i)).toBeInTheDocument();
   });
 });

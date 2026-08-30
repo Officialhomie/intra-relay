@@ -30,7 +30,7 @@ export const CheckboxField = forwardRef<HTMLInputElement, CheckboxFieldProps>(
           </label>
         </div>
         {error ? (
-          <p id={errorId} className="text-xs text-red-600 dark:text-red-400">
+          <p id={errorId} className="text-xs text-danger">
             {error}
           </p>
         ) : null}

@@ -151,9 +151,10 @@ Stack: **Vitest** + **React Testing Library** + **jsdom** +
 - **Every test names the requirement ID** it verifies.
 - Test the **failure path**, not only the happy path — this is a DoD item, not
   optional.
-- Integration/contract/E2E and mainnet-settlement tests arrive with their
-  phases (see `docs/TECHNICAL_SPEC.md` §7); do not stub a fake facilitator to
-  make a green test.
+- The x402 adapter is tested against fixtures and an in-repo `FakeFacilitator`
+  (`src/features/payments/adapter/__fixtures__/`, ADR-011) — that is the unit
+  boundary. What must **never** be faked is a green test that implies a real
+  Celo settlement, a real tx hash, or live facilitator verification.
 - Do not weaken an assertion to get a pass. Fix the code or raise the conflict.
 
 ---

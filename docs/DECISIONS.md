@@ -257,3 +257,43 @@ Status values: `Accepted`, `Superseded by ADR-NNN`, `Deprecated`.
   `service_payments.task_id` nullable; `0002` adds `idempotency_keys.response_headers`.
 - **Requirements:** `FR-PAY-001..005`, `BR-005`, `BR-007`, `NFR-SEC-001/002`,
   `TECHNICAL_SPEC` §4/§6; `docs/PAYMENTS.md`.
+
+---
+
+## ADR-012 — Demo & deployment hardening
+
+- **Date:** 2026-08-30
+- **Status:** Accepted
+- **Context:** Preparing the flyer-printing MVP for the hackathon demo and a
+  hosted deployment. No new product scope — polish, resilience, and docs only.
+- **Decision:**
+  - **Error surfaces.** Added App Router `error.tsx` (segment boundary) and
+    `global-error.tsx` (root-layout boundary) so an unhandled render/data error
+    shows a calm, non-technical recovery screen instead of a blank page. Copy
+    reassures the buyer that no request was sent.
+  - **Offline awareness.** A global `OfflineBanner` (client) watches
+    `navigator.onLine` and warns that new requests need a connection. The
+    typed `apiRequest` helper already maps a failed `fetch` to a friendly
+    `NETWORK` error; the banner makes the state visible before the user acts.
+  - **Metadata.** `layout.tsx` now sets full Open Graph + Twitter card metadata
+    from `src/lib/site.ts`, plus a generated `opengraph-image` (Next `ImageResponse`)
+    in the "calm clinic" palette. `site.description` replaces the scaffold string.
+  - **Palette consolidation.** The landing, `/docs`, and `/request` headers used
+    raw Tailwind `blue-*` / `amber-*` / `zinc-*` / `dark:` classes left over from
+    the scaffold. All replaced with design tokens (ADR-009). The app has no dark
+    mode, so stray `dark:` variants are removed rather than themed.
+  - **Test stability.** `vitest.config.ts` caps `maxWorkers: 4` and raises
+    `hookTimeout` to 30s. Each integration suite spins up a fresh embedded PGlite
+    (WASM Postgres) with migrations in `beforeEach`; under full fork parallelism
+    on an 8-core machine that cold start intermittently exceeded the default 10s
+    hook timeout. Files pass individually — this only removes the parallel-load
+    flake.
+  - **Docs.** Added `docs/DEMO_SCRIPT.md` (full walkthrough), `docs/CLAIMS.md`
+    (proven vs. conditional — the on-stage honesty line), and `docs/DEPLOYMENT.md`
+    (consolidated env / database / x402-enable guidance). Removed the unused
+    `PlaceholderPage` component and stale "scaffold / placeholder" wording.
+- **Consequences:** No schema, API, or lifecycle change. `X402_API_KEY` stays the
+  single switch between the honest unavailable state and live settlement.
+- **Requirements:** `NFR-UX-001` (loading / empty / error / unavailable states),
+  `NFR-A11Y-001`; `CLAUDE.md` §4.1 (no fabricated payment evidence) reinforced in
+  `docs/CLAIMS.md`.

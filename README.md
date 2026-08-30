@@ -12,16 +12,31 @@ never executes a buyer's final supplier payment.
 [`docs/`](docs/) before changing code. [`docs/PRD.md`](docs/PRD.md) is the source
 of truth.**
 
-Current state: the **end-to-end flyer-printing workflow** on a PostgreSQL
-(Drizzle) backend — buyer request → printer selection → structured request →
-supplier quote or decline → operator-verified activation → buyer's
-human-controlled WhatsApp handoff → feedback. Eight persisted entities
-(`businesses`, `quote_routes`, `tasks`, `quotes`, `recommendations`, `feedback`,
-`service_payments`, `audit_events`) with enforced lifecycle invariants
-([`docs/API.md`](docs/API.md)). Paid agent queries settle over **Celo x402**
-behind a provider-neutral adapter ([`docs/PAYMENTS.md`](docs/PAYMENTS.md),
-ADR-011) — `UNAVAILABLE` until `X402_API_KEY` is set, never a fabricated
-settlement. Visual system: ADR-009.
+## What works today
+
+The **end-to-end flyer-printing workflow** runs on a PostgreSQL (Drizzle)
+backend:
+
+supplier onboarding → operator verification & activation → buyer request →
+printer selection → structured brief → genuine supplier quote or safe decline →
+recommendation → buyer's human-controlled WhatsApp handoff → feedback.
+
+- Eight persisted entities (`businesses`, `quote_routes`, `tasks`, `quotes`,
+  `recommendations`, `feedback`, `service_payments`, `audit_events`) with
+  enforced lifecycle invariants and an append-only audit trail
+  ([`docs/API.md`](docs/API.md)).
+- A public, agent-readable capability + quote API at `/v1`
+  ([`docs/CAPABILITY_API.md`](docs/CAPABILITY_API.md)).
+- A provider-neutral **Celo x402** payment adapter for the small query fee
+  ([`docs/PAYMENTS.md`](docs/PAYMENTS.md), ADR-011). Paid routes return an
+  explicit `PAYMENT_SERVICE_UNAVAILABLE` state until `X402_API_KEY` is set in
+  the server environment — a settlement is only ever shown after the official
+  facilitator verifies a real transaction hash. Nothing is fabricated.
+
+What is proven end-to-end versus what is conditional on external Celo / cPay
+access is spelled out in
+[`docs/CLAIMS.md`](docs/CLAIMS.md). The demo walkthrough is
+[`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md). Visual system: ADR-009.
 
 ## Tech stack
 
@@ -49,6 +64,9 @@ settlement. Visual system: ADR-009.
 | [`docs/API.md`](docs/API.md)                                   | Internal MVP backend endpoints, headers, invariants   |
 | [`docs/CAPABILITY_API.md`](docs/CAPABILITY_API.md)             | Public agent-readable `/v1` capability + quote API    |
 | [`docs/PAYMENTS.md`](docs/PAYMENTS.md)                         | Celo x402 payment adapter — config, flow, deployment  |
+| [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)                   | Step-by-step hackathon demo walkthrough               |
+| [`docs/CLAIMS.md`](docs/CLAIMS.md)                             | Proven vs. conditional claims (be precise on stage)   |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)                     | Production deploy: env vars, database, x402 key       |
 | [`docs/design/`](docs/design/)                                 | Supplied style references (ADR-009 picks Ease Health) |
 
 ## Requirements
@@ -81,6 +99,14 @@ npm run dev
 ```
 
 The app runs at [http://localhost:3000](http://localhost:3000).
+
+## Demo
+
+Follow [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) for the full walkthrough:
+supplier onboarding → operator verification → buyer request → genuine quote →
+WhatsApp handoff, plus the optional verified Celo query-fee receipt. Before
+demoing, run `npm run db:migrate` on a clean `./.pglite` and set
+`OPERATOR_API_KEYS` in `.env.local` so you can act as the operator.
 
 ## Lint & format
 
@@ -136,7 +162,7 @@ npm run lint && npm run format:check && npm run test && npm run build
 | `/supplier/:slug/review`      | Supplier: business details, route status/freshness, pause action (`?t=<manageToken>`) |
 | `/supplier/:slug/requests`    | Supplier: incoming structured requests → send a quote or decline                      |
 | `/operator`                   | Operator: verify + activate routes (pre-flight checklist), pause                      |
-| `/docs`                       | Placeholder                                                                           |
+| `/docs`                       | Explainer: how a business capability maps to the agent route contract                 |
 | `GET /v1/:slug/capabilities`  | Public agent capability document (see `docs/CAPABILITY_API.md`)                       |
 | `POST /v1/:slug/:route/quote` | Public agent quote request                                                            |
 

@@ -12,7 +12,7 @@ const manifest = `{
   "status": "ACTIVE",
   "input_schema": ["size", "quantity", "colour", "deadline", "deliveryArea"],
   "returns": ["quote", "valid_until", "turnaround", "availability"],
-  "query_payment": { "protocol": "x402", "network": "Celo", "max_fee_usd": 0.02 },
+  "query_payment": { "protocol": "x402", "network": "eip155:42220", "asset": "USDC", "max_fee_usd": 0.05 },
   "final_order": { "approval_required": true, "channel": "whatsapp" }
 }`;
 
@@ -20,7 +20,7 @@ export default function DocsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <header className="space-y-2">
-        <p className="text-sm font-medium text-blue-700 dark:text-blue-400">Agent route contract</p>
+        <p className="text-sm font-medium text-primary">Agent route contract</p>
         <h1 className="text-3xl font-semibold tracking-tight">
           Businesses publish a capability. Agents handle the protocol.
         </h1>
@@ -67,9 +67,9 @@ export default function DocsPage() {
             request before any payment is requested.
           </Item>
           <Item number="03" title="Pay only when enabled">
-            The route returns HTTP 402. A server-side facilitator verifies the `X-PAYMENT`
-            authorisation and settles it on Celo. Until configured, Intra returns an explicit
-            unavailable state.
+            The route returns HTTP 402. The agent retries with a signed X-PAYMENT authorisation; a
+            server-side call to the official Celo facilitator verifies it and settles on-chain.
+            Until the facilitator key is configured, Intra returns an explicit unavailable state.
           </Item>
           <Item number="04" title="Receive a time-bound quote">
             The result contains price, currency, availability, turnaround, assumptions, expiry, and
@@ -81,16 +81,17 @@ export default function DocsPage() {
           </Item>
         </ol>
       </section>
-      <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
+      <section className="border-warning/25 rounded-xl border bg-warning-wash p-4 text-sm text-warning">
         <div className="flex gap-3">
           <Code2 aria-hidden className="mt-0.5 size-5 shrink-0" />
           <div>
-            <p className="font-medium">Hackathon implementation status</p>
+            <p className="font-medium">Payment status</p>
             <p className="mt-1 leading-relaxed">
-              The capability schema and merchant draft flow are implemented. Live x402/cPay
-              settlement is intentionally gated on official facilitator credentials and a verified
-              Celo transaction. No screenshot, preview, or database row is treated as a payment
-              receipt.
+              The capability API, quote workflow, and the Celo x402 payment adapter are implemented
+              and tested. Live settlement activates when the official facilitator API key is set in
+              the server environment; until then a paid route returns an explicit unavailable state.
+              No screenshot, preview, or database row is ever treated as a payment receipt — only a
+              facilitator-verified transaction hash.
             </p>
           </div>
         </div>
@@ -101,7 +102,7 @@ export default function DocsPage() {
 function Card({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
   return (
     <article className="rounded-xl border border-border p-4">
-      <div className="text-blue-700 dark:text-blue-400">{icon}</div>
+      <div className="text-primary">{icon}</div>
       <h2 className="mt-4 font-medium">{title}</h2>
       <p className="mt-2 text-sm leading-relaxed text-muted">{text}</p>
     </article>
@@ -110,7 +111,7 @@ function Card({ icon, title, text }: { icon: ReactNode; title: string; text: str
 function Item({ number, title, children }: { number: string; title: string; children: ReactNode }) {
   return (
     <li className="grid grid-cols-[2.5rem_1fr] gap-3">
-      <span className="font-mono text-xs text-blue-700 dark:text-blue-400">{number}</span>
+      <span className="font-mono text-xs text-primary">{number}</span>
       <div>
         <h3 className="font-medium">{title}</h3>
         <p className="mt-1 leading-relaxed text-muted">{children}</p>

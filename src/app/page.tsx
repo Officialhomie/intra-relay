@@ -33,10 +33,10 @@ export default function HomePage() {
   return (
     <div className="space-y-16 pb-8">
       <section className="relative overflow-hidden rounded-2xl border border-border bg-surface px-5 py-12 sm:px-10 sm:py-16">
-        <div className="absolute -right-24 -top-24 size-80 rounded-full bg-blue-500/10 blur-3xl" />
+        <div className="absolute -right-24 -top-24 size-80 rounded-full bg-primary-wash blur-3xl" />
         <div className="relative max-w-3xl space-y-6">
           <div className="inline-flex items-center gap-2 rounded-full border border-border bg-bg px-3 py-1.5 text-xs font-medium">
-            <Network aria-hidden className="size-3.5 text-blue-600" /> Built for agent-ready African
+            <Network aria-hidden className="size-3.5 text-primary" /> Built for agent-ready African
             businesses
           </div>
           <h1 className="max-w-3xl text-4xl font-semibold tracking-tight sm:text-6xl">
@@ -69,7 +69,7 @@ export default function HomePage() {
       <section className="grid gap-4 md:grid-cols-3">
         {steps.map((step) => (
           <article key={step.number} className="rounded-xl border border-border p-5">
-            <p className="font-mono text-xs text-blue-700 dark:text-blue-400">{step.number}</p>
+            <p className="font-mono text-xs text-primary">{step.number}</p>
             <h2 className="mt-5 text-lg font-semibold">{step.title}</h2>
             <p className="mt-2 text-sm leading-relaxed text-muted">{step.body}</p>
           </article>
@@ -77,9 +77,7 @@ export default function HomePage() {
       </section>
       <section className="grid gap-8 rounded-2xl border border-border p-5 sm:p-8 lg:grid-cols-[1.05fr_0.95fr]">
         <div className="space-y-4">
-          <p className="text-sm font-medium text-blue-700 dark:text-blue-400">
-            The product boundary
-          </p>
+          <p className="text-sm font-medium text-primary">The product boundary</p>
           <h2 className="text-3xl font-semibold tracking-tight">
             Not another shopping agent. The business layer agents can trust.
           </h2>
@@ -110,9 +108,7 @@ export default function HomePage() {
       </section>
       <section className="space-y-5">
         <div className="max-w-2xl">
-          <p className="text-sm font-medium text-blue-700 dark:text-blue-400">
-            Trust is the feature
-          </p>
+          <p className="text-sm font-medium text-primary">Trust is the feature</p>
           <h2 className="mt-2 text-3xl font-semibold tracking-tight">
             Every agent answer needs a business control behind it.
           </h2>
@@ -143,13 +139,13 @@ export default function HomePage() {
       <section className="rounded-2xl bg-primary p-6 text-primary-contrast sm:p-8">
         <div className="grid gap-6 lg:grid-cols-[1fr_auto]">
           <div>
-            <div className="flex items-center gap-2 text-sm text-white/70">
+            <div className="text-primary-contrast/75 flex items-center gap-2 text-sm">
               <Bot aria-hidden className="size-4" /> Hackathon MVP
             </div>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight">
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-primary-contrast">
               Start with printing. Prove agent-to-business commerce. Expand only after it works.
             </h2>
-            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/70">
+            <p className="text-primary-contrast/75 mt-3 max-w-2xl text-sm leading-relaxed">
               We are onboarding real businesses with a narrow, testable flyer-printing route.
               Design, catering, and delivery templates are prepared as drafts—not falsely presented
               as live.
@@ -157,7 +153,7 @@ export default function HomePage() {
           </div>
           <Link
             href="/docs"
-            className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-md bg-white px-4 text-sm font-medium text-zinc-900 hover:bg-zinc-100"
+            className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-md bg-bg px-4 text-sm font-medium text-foreground hover:bg-surface"
           >
             Read the route contract <ArrowRight aria-hidden className="size-4" />
           </Link>
@@ -170,7 +166,7 @@ export default function HomePage() {
 function Trust({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
   return (
     <article className="rounded-xl border border-border p-4">
-      <div className="text-blue-700 dark:text-blue-400">{icon}</div>
+      <div className="text-primary">{icon}</div>
       <h3 className="mt-4 font-medium">{title}</h3>
       <p className="mt-1.5 text-sm leading-relaxed text-muted">{text}</p>
     </article>

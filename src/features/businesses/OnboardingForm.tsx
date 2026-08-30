@@ -106,7 +106,7 @@ export function OnboardingForm() {
             <li key={item.label} className="min-w-0">
               <div className="flex items-center gap-2">
                 <span
-                  className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${complete ? "bg-emerald-600 text-white" : active ? "bg-primary text-primary-contrast" : "border border-border bg-surface text-muted"}`}
+                  className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${complete ? "bg-primary text-primary-contrast" : active ? "bg-primary text-primary-contrast" : "border border-border bg-surface text-muted"}`}
                 >
                   {complete ? <Check aria-hidden className="size-3.5" /> : index + 1}
                 </span>
@@ -205,14 +205,14 @@ export function OnboardingForm() {
             className="rounded-lg border border-border bg-surface p-4"
           >
             <div className="flex items-start gap-3">
-              <Sparkles aria-hidden className="mt-0.5 size-5 shrink-0 text-blue-600" />
+              <Sparkles aria-hidden className="mt-0.5 size-5 shrink-0 text-primary" />
               <div className="min-w-0 space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 id="template-heading" className="font-medium">
                     {template.name}
                   </h3>
                   <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${template.availability === "mvp" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${template.availability === "mvp" ? "bg-success-wash text-success" : "bg-warning-wash text-warning"}`}
                   >
                     {template.availability === "mvp" ? "Ready for MVP" : "Draft template"}
                   </span>

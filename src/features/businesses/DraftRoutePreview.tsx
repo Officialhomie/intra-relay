@@ -85,7 +85,8 @@ export function DraftRoutePreview({ draft, onStartOver }: DraftRoutePreviewProps
       </details>
 
       <Callout tone="info">
-        Demo only — this draft is shown for your review and is not stored anywhere.
+        This draft is for your review only. Nothing is saved until you submit it, and an operator
+        still has to verify your details before the route goes live.
       </Callout>
 
       <button
