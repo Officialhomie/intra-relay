@@ -32,6 +32,8 @@ Legend:
 | No prohibited data (seed phrase, private key, BVN/NIN, card, bank login) is requested, logged, or stored     | `businesses/schema.ts`, `CLAUDE.md` §4.2, schema has no such columns                              |
 | x402 payment **adapter**: 402 challenge, $0.05 server-side cap, immutable receipts, idempotent `X-PAYMENT`   | `features/payments/adapter/`, `x402.test.ts`, `v1.payment.contract.test.ts` (fake facilitator)    |
 | Honest unavailable state: a paid route with no facilitator key returns `503 PAYMENT_SERVICE_UNAVAILABLE`     | `quote-request.ts`, `v1.payment.contract.test.ts` "unconfigured adapter"                          |
+| Privacy-minimised experiment tracking: on-read aggregates, no session ids exposed, real vs demo kept apart   | `features/metrics/`, `report.test.ts`, `evidence.contract.test.ts`; rendered at `/evidence`       |
+| Buyer confirms the handoff was sent → unlocks post-handoff feedback (genuine action, not inferred)           | `POST /api/tasks/:id/handoff-confirm`, `TaskPage.test.tsx`, `report.test.ts`                      |
 
 ## Conditional (needs external Celo access — state the dependency out loud)
 

@@ -183,6 +183,47 @@ export interface TaskView {
   recommendation: RecommendationRow | null;
   feedback: FeedbackRow[];
   timeline: AuditEventRow[];
+  /** ISO time the buyer confirmed they sent the handoff message, or null. */
+  handoffConfirmedAt: string | null;
+}
+
+const HANDOFF_CONFIRMED_EVENT = "task.handoff_confirmed";
+
+/**
+ * The buyer confirms they have sent the pre-filled message to the printer.
+ * This is an explicit user action — Intra cannot observe WhatsApp — and it is
+ * what unlocks the post-handoff feedback form. Idempotent: a second call is a
+ * no-op. No task status change (HANDOFF_READY stays terminal).
+ */
+export async function confirmHandoff(
+  db: Database,
+  taskId: string,
+  sessionId: string,
+): Promise<{ handoffConfirmedAt: string }> {
+  const task = await findTaskById(db, taskId);
+  if (!task) throw new HttpError(404, "TASK_NOT_FOUND", "No task with that id.");
+  assertSession(task, sessionId);
+
+  if (task.status !== "HANDOFF_READY") {
+    throw new HttpError(
+      409,
+      "HANDOFF_NOT_READY",
+      "There is nothing to hand off yet — wait for the recommendation.",
+    );
+  }
+
+  const existing = (await listTaskAuditEvents(db, taskId)).find(
+    (event) => event.type === HANDOFF_CONFIRMED_EVENT,
+  );
+  if (existing) return { handoffConfirmedAt: existing.createdAt.toISOString() };
+
+  const event = await appendAuditEvent(db, {
+    type: HANDOFF_CONFIRMED_EVENT,
+    taskId: task.id,
+    routeId: task.routeId,
+    data: {},
+  });
+  return { handoffConfirmedAt: event.createdAt.toISOString() };
 }
 
 export async function getTaskView(
@@ -231,5 +272,19 @@ export async function getTaskView(
     }
   }
 
-  return { task, route, supplier, quotes, payments, recommendation, feedback, timeline };
+  const handoffConfirmedAt =
+    timeline.find((event) => event.type === HANDOFF_CONFIRMED_EVENT)?.createdAt.toISOString() ??
+    null;
+
+  return {
+    task,
+    route,
+    supplier,
+    quotes,
+    payments,
+    recommendation,
+    feedback,
+    timeline,
+    handoffConfirmedAt,
+  };
 }

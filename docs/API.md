@@ -67,10 +67,19 @@ recorded (no x402 access yet).
 ### `GET /api/tasks/:id` → 200
 
 Headers: `x-session-id` (must match). Returns
-`{ task, route, supplier, quotes, payments, recommendation, feedback, timeline }`.
-`route` carries freshness (`priceUpdatedAt`, `verifiedAt`, SLA). `supplier`
-(name + contact channel + city) is `null` until a recommendation exists.
-`403 FORBIDDEN` on a session mismatch.
+`{ task, route, supplier, quotes, payments, recommendation, feedback, timeline,
+handoffConfirmedAt }`. `route` carries freshness (`priceUpdatedAt`,
+`verifiedAt`, SLA). `supplier` (name + contact channel + city) is `null` until a
+recommendation exists. `handoffConfirmedAt` is the ISO time the buyer confirmed
+they sent the message, or `null`. `403 FORBIDDEN` on a session mismatch.
+
+### `POST /api/tasks/:id/handoff-confirm` → 200
+
+Headers: `x-session-id` (must match), `Idempotency-Key`. The buyer confirms they
+have sent the pre-filled message to the printer. Requires task status
+`HANDOFF_READY` (`409 HANDOFF_NOT_READY` otherwise). Appends a content-free
+`task.handoff_confirmed` audit event and unlocks the feedback form. Idempotent —
+a repeat returns the first `handoffConfirmedAt`. No task status change.
 
 ### `POST /api/routes/:id/quotes` → 201 (quote) / 200 (decline)
 
@@ -101,6 +110,21 @@ review queue: every non-archived route with its business.
 Public. ACTIVE routes a buyer can send a request to
 (`?routeSlug=flyer-printing` by default).
 
+### `GET /api/evidence` → 200
+
+Public. Privacy-minimised experiment tracking (MET-001, ADR-013): aggregates on
+read from existing tables — no analytics store, no session ids, no task content.
+`?format=csv` streams a `scope,section,metric,value` spreadsheet; the default and
+`?format=json` return the full report with separate `real` and `demo` scopes,
+integration statuses, and the feedback changelog. Rendered at `/evidence`.
+
+### `GET /api/operator/metrics` → 200
+
+Headers: `x-operator-key` (`401 OPERATOR_REQUIRED` otherwise). The same report as
+`/api/evidence` plus `recentEvents` — a content-free feed of the last 25 audit
+events (type + timestamp only). `?format=csv` supported. Rendered in the
+`/operator` **Metrics** tab.
+
 ## Public capability API (`/v1`)
 
 The agent-readable REST surface — `GET /v1/:businessSlug/capabilities` and
@@ -114,4 +138,3 @@ The agent-readable REST surface — `GET /v1/:businessSlug/capabilities` and
   for paid routes) arrive with the payment phase and real facilitator
   credentials (`docs/DECISIONS.md` ADR-004).
 - `GET /v1/tasks/:id` (agent-side result read) and MCP — later.
-- `POST /api/operator/metrics` (adoption export) — later phase.

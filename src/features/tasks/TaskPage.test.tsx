@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { apiRequest, ApiError } = vi.hoisted(() => {
@@ -83,6 +84,7 @@ const handoffView = {
   timeline: [
     { id: "e1", type: "task.handoff_ready", createdAt: new Date().toISOString(), data: {} },
   ],
+  handoffConfirmedAt: null,
 };
 
 describe("TaskPage — principal buyer view (S-003)", () => {
@@ -101,9 +103,37 @@ describe("TaskPage — principal buyer view (S-003)", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/Celo x402 \/ cPay access is not configured/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /copy message/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /send feedback/i })).toBeInTheDocument();
+    // Feedback is gated behind the buyer confirming they sent the handoff.
+    expect(
+      screen.getByRole("button", { name: /i've sent this to the printer/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /send feedback/i })).toBeNull();
     // No "pay" / "checkout" / "place order" controls.
     expect(screen.queryByRole("button", { name: /pay|checkout|place order/i })).toBeNull();
+  });
+
+  it("reveals the feedback form only after the buyer confirms the handoff", async () => {
+    const user = userEvent.setup();
+    apiRequest.mockResolvedValueOnce(handoffView); // initial load
+    apiRequest.mockResolvedValueOnce({ handoffConfirmedAt: new Date().toISOString() }); // POST confirm
+    apiRequest.mockResolvedValueOnce({
+      ...handoffView,
+      handoffConfirmedAt: new Date().toISOString(),
+      timeline: [
+        ...handoffView.timeline,
+        { id: "e2", type: "task.handoff_confirmed", createdAt: new Date().toISOString(), data: {} },
+      ],
+    }); // reload
+
+    render(<TaskPage taskId="t1" />);
+    await user.click(await screen.findByRole("button", { name: /i've sent this to the printer/i }));
+
+    expect(await screen.findByRole("button", { name: /send feedback/i })).toBeInTheDocument();
+    expect(screen.getByText(/you marked this as sent/i)).toBeInTheDocument();
+    const confirmCall = apiRequest.mock.calls.find((call) =>
+      String(call[0]).includes("/handoff-confirm"),
+    );
+    expect(confirmCall?.[1]).toMatchObject({ method: "POST" });
   });
 
   it("renders a settled x402 receipt with a Celoscan link (S-003 receipt timeline)", async () => {

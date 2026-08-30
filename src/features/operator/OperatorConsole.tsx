@@ -13,6 +13,7 @@ import { StatusPill, routeStatusTone } from "@/components/ui/StatusPill";
 import { ApiError, apiRequest } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
 import { ACTIVATION_CHECKS, ACTIVATION_CHECK_LABELS } from "@/features/routes/activation";
+import { MetricsPanel } from "./MetricsPanel";
 
 const KEY_STORAGE = "intra.operatorKey";
 
@@ -45,6 +46,7 @@ export function OperatorConsole() {
   const [items, setItems] = useState<QueueItem[] | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"queue" | "metrics">("queue");
 
   useEffect(() => {
     try {
@@ -140,40 +142,68 @@ export function OperatorConsole() {
         </Button>
       </div>
 
-      {status === "loading" && !items ? <LoadingPanel label="Loading route queue" /> : null}
+      <div
+        role="tablist"
+        aria-label="Operator views"
+        className="flex gap-1 rounded-md border border-border bg-surface p-1"
+      >
+        {(["queue", "metrics"] as const).map((value) => (
+          <button
+            key={value}
+            role="tab"
+            aria-selected={tab === value}
+            onClick={() => setTab(value)}
+            className={`min-h-9 flex-1 rounded-sm px-3 text-sm font-medium capitalize transition-colors ${
+              tab === value
+                ? "bg-primary text-primary-contrast"
+                : "text-muted hover:text-foreground"
+            }`}
+          >
+            {value === "queue" ? "Review queue" : "Metrics"}
+          </button>
+        ))}
+      </div>
 
-      {status === "error" ? (
-        <ErrorState
-          title="Could not load the queue"
-          description={loadError ?? undefined}
-          action={
-            <Button size="sm" variant="secondary" onClick={() => load(operatorKey)}>
-              Try again
-            </Button>
-          }
-        />
-      ) : null}
+      {tab === "metrics" ? <MetricsPanel operatorKey={operatorKey} /> : null}
 
-      {status === "ready" && items && items.length === 0 ? (
-        <EmptyState
-          icon={ShieldCheck}
-          title="Nothing needs review"
-          description="New routes from supplier onboarding will appear here for verification."
-        />
-      ) : null}
+      {tab === "queue" ? (
+        <>
+          {status === "loading" && !items ? <LoadingPanel label="Loading route queue" /> : null}
 
-      {items && items.length > 0 ? (
-        <ol className="space-y-4">
-          {items.map((item) => (
-            <li key={item.route.id}>
-              <OperatorRouteCard
-                item={item}
-                operatorKey={operatorKey}
-                onChanged={() => load(operatorKey)}
-              />
-            </li>
-          ))}
-        </ol>
+          {status === "error" ? (
+            <ErrorState
+              title="Could not load the queue"
+              description={loadError ?? undefined}
+              action={
+                <Button size="sm" variant="secondary" onClick={() => load(operatorKey)}>
+                  Try again
+                </Button>
+              }
+            />
+          ) : null}
+
+          {status === "ready" && items && items.length === 0 ? (
+            <EmptyState
+              icon={ShieldCheck}
+              title="Nothing needs review"
+              description="New routes from supplier onboarding will appear here for verification."
+            />
+          ) : null}
+
+          {items && items.length > 0 ? (
+            <ol className="space-y-4">
+              {items.map((item) => (
+                <li key={item.route.id}>
+                  <OperatorRouteCard
+                    item={item}
+                    operatorKey={operatorKey}
+                    onChanged={() => load(operatorKey)}
+                  />
+                </li>
+              ))}
+            </ol>
+          ) : null}
+        </>
       ) : null}
     </div>
   );

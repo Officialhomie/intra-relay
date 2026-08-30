@@ -69,6 +69,7 @@ interface TaskViewDto {
   recommendation: { rationale: string; orderMessage: string } | null;
   feedback: { id: string; useful: boolean; comment: string | null }[];
   timeline: { id: string; type: string; createdAt: string; data: Record<string, unknown> }[];
+  handoffConfirmedAt: string | null;
 }
 
 const EVENT_LABEL: Record<string, string> = {
@@ -84,6 +85,7 @@ const EVENT_LABEL: Record<string, string> = {
   "quote.declined": "Printer declined",
   "recommendation.created": "Recommendation prepared",
   "task.handoff_ready": "Ready for your WhatsApp handoff",
+  "task.handoff_confirmed": "You confirmed the message was sent",
   "task.failed": "Request could not be completed",
   "feedback.received": "Feedback recorded",
 };
@@ -165,7 +167,8 @@ export function TaskPage({ taskId }: { taskId: string }) {
     );
   }
 
-  const { task, route, supplier, quotes, payments, recommendation, timeline } = view;
+  const { task, route, supplier, quotes, payments, recommendation, timeline, handoffConfirmedAt } =
+    view;
   const quote = quotes[0] ?? null;
   const brief = task.structuredInput ?? {};
   const declined = quote?.status === "DECLINED";
@@ -272,9 +275,12 @@ export function TaskPage({ taskId }: { taskId: string }) {
 
       {recommendation && supplier && !declined ? (
         <HandoffCard
+          taskId={task.id}
           supplier={supplier}
           rationale={recommendation.rationale}
           message={recommendation.orderMessage}
+          confirmedAt={handoffConfirmedAt}
+          onConfirmed={load}
         />
       ) : null}
 
@@ -293,7 +299,7 @@ export function TaskPage({ taskId }: { taskId: string }) {
         </ol>
       </Card>
 
-      {task.status === "HANDOFF_READY" || task.status === "FAILED" ? (
+      {handoffConfirmedAt || task.status === "FAILED" ? (
         <FeedbackForm taskId={task.id} existing={view.feedback.length > 0} />
       ) : null}
     </div>
@@ -416,15 +422,23 @@ function PaymentReceipt({
 }
 
 function HandoffCard({
+  taskId,
   supplier,
   rationale,
   message,
+  confirmedAt,
+  onConfirmed,
 }: {
+  taskId: string;
   supplier: TaskViewDto["supplier"] & object;
   rationale: string;
   message: string;
+  confirmedAt: string | null;
+  onConfirmed: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const waHref =
     supplier.contactChannelType === "whatsapp"
       ? `https://wa.me/${supplier.contactChannelValue.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(message)}`
@@ -437,6 +451,23 @@ function HandoffCard({
       setTimeout(() => setCopied(false), 2500);
     } catch {
       setCopied(false);
+    }
+  }
+
+  async function markSent() {
+    setConfirming(true);
+    setConfirmError(null);
+    try {
+      await apiRequest(`/api/tasks/${taskId}/handoff-confirm`, {
+        method: "POST",
+        sessionId: getSessionId(),
+        body: {},
+      });
+      onConfirmed();
+    } catch (err) {
+      setConfirmError(err instanceof ApiError ? err.message : "Could not record that. Try again.");
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -484,6 +515,29 @@ function HandoffCard({
             <ExternalLink aria-hidden className="size-4" />
           </a>
         ) : null}
+      </div>
+
+      <div className="border-t border-border pt-4">
+        {confirmedAt ? (
+          <p className="inline-flex items-center gap-1.5 text-sm text-success">
+            <CheckCircle2 aria-hidden className="size-4" />
+            You marked this as sent on {formatDateTime(confirmedAt)}.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-sm text-muted">
+              Once you have sent the message to the printer, let us know so we can ask how it went.
+            </p>
+            <Button size="sm" pending={confirming} onClick={markSent}>
+              I&apos;ve sent this to the printer
+            </Button>
+            {confirmError ? (
+              <p role="alert" className="text-xs text-danger">
+                {confirmError}
+              </p>
+            ) : null}
+          </div>
+        )}
       </div>
     </Card>
   );

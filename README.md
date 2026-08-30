@@ -27,6 +27,10 @@ recommendation → buyer's human-controlled WhatsApp handoff → feedback.
   ([`docs/API.md`](docs/API.md)).
 - A public, agent-readable capability + quote API at `/v1`
   ([`docs/CAPABILITY_API.md`](docs/CAPABILITY_API.md)).
+- Privacy-minimised experiment tracking and a public
+  [`/evidence`](src/app/evidence/page.tsx) page (backlog MET-001) that keeps real
+  results, demo data, and unavailable integrations strictly separate, with a
+  CSV/JSON export.
 - A provider-neutral **Celo x402** payment adapter for the small query fee
   ([`docs/PAYMENTS.md`](docs/PAYMENTS.md), ADR-011). Paid routes return an
   explicit `PAYMENT_SERVICE_UNAVAILABLE` state until `X402_API_KEY` is set in
@@ -66,6 +70,7 @@ access is spelled out in
 | [`docs/PAYMENTS.md`](docs/PAYMENTS.md)                         | Celo x402 payment adapter — config, flow, deployment  |
 | [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)                   | Step-by-step hackathon demo walkthrough               |
 | [`docs/CLAIMS.md`](docs/CLAIMS.md)                             | Proven vs. conditional claims (be precise on stage)   |
+| [`docs/FEEDBACK_CHANGELOG.md`](docs/FEEDBACK_CHANGELOG.md)     | "What changed from feedback" — AskBots review rounds  |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)                     | Production deploy: env vars, database, x402 key       |
 | [`docs/design/`](docs/design/)                                 | Supplied style references (ADR-009 picks Ease Health) |
 
@@ -102,11 +107,83 @@ The app runs at [http://localhost:3000](http://localhost:3000).
 
 ## Demo
 
-Follow [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) for the full walkthrough:
-supplier onboarding → operator verification → buyer request → genuine quote →
-WhatsApp handoff, plus the optional verified Celo query-fee receipt. Before
-demoing, run `npm run db:migrate` on a clean `./.pglite` and set
-`OPERATOR_API_KEYS` in `.env.local` so you can act as the operator.
+Full walkthrough: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) — supplier
+onboarding → operator verification → buyer request → genuine quote → WhatsApp
+handoff → post-handoff feedback, plus the optional verified Celo query-fee
+receipt.
+
+```bash
+rm -rf .pglite && npm run db:migrate      # clean database
+printf 'OPERATOR_API_KEYS=demo:demo-operator-key-01\n' >> .env.local
+npm run db:seed                           # optional: one clearly-labelled [DEMO SEED] printer
+npm run dev
+```
+
+Then open, in this order: `/supplier/onboard` (show the guided form) → create
+the real business/route with the two `curl` calls in the demo script →
+`/operator` (sign in with `demo-operator-key-01`, run the checklist, activate) →
+`/request` (send a brief, pick the printer) → act as the supplier at
+`/supplier/<slug>/requests?t=<manageToken>` to send a quote → back on
+`/tasks/<id>`, copy the WhatsApp message, mark it sent, leave feedback →
+`/evidence` shows the run as **real** results, the seed as **demo** data.
+
+### Limitations
+
+- **No live Celo settlement without `X402_API_KEY`.** Paid routes return
+  `503 PAYMENT_SERVICE_UNAVAILABLE`; a receipt only ever renders `SETTLED` after
+  the official facilitator verifies a transaction hash. See
+  [`docs/CLAIMS.md`](docs/CLAIMS.md) for the full proven-vs-conditional split.
+- **Supplier onboarding does not write to the backend from the UI.** The form
+  produces a reviewable draft; an operator creates the real records
+  (`POST /api/businesses`, `.../routes`) — this matches the guided-onboarding
+  model (ADR-005/008).
+- **Quotes are asynchronous.** A supplier replies out of band within the SLA;
+  there is no synchronous quote.
+- **Local/dev uses embedded PGlite.** A hosted deployment needs `DATABASE_URL`
+  (see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)).
+- **`/evidence` is only as populated as the database.** On a fresh clone the
+  real scope is empty; that is the honest state, not a bug.
+- ERC-8004 Agent ID, ERC-8021 attribution tag, cPay, and AskBots CLI review
+  rounds are external and currently unavailable — the app never stands in for
+  them.
+
+### Test data policy
+
+- **No fabricated users, businesses, prices, payments, transactions, or
+  testimonials — anywhere, ever** (`CLAUDE.md` §4.1).
+- The only synthetic data is `npm run db:seed`: a single business named
+  `[DEMO SEED] …` with a burn payout address. Everything traceable to it is
+  classified **demo** and is never added to the real metrics
+  ([`src/features/metrics/classification.ts`](src/features/metrics/classification.ts)).
+- `db:seed` refuses to run when `DATABASE_URL` looks like a real PostgreSQL
+  server, and never runs in production.
+- Experiment tracking is **privacy-minimised**: it aggregates on read from rows
+  the product already stores. There is no analytics store and no new
+  per-event tracking. Buyer sessions are opaque random ids with no account
+  behind them; `/evidence` and the CSV/JSON export publish only counts and a
+  bucketed distribution — never a raw id, task content, address, or contact
+  detail.
+- "What changed from feedback" ([`docs/FEEDBACK_CHANGELOG.md`](docs/FEEDBACK_CHANGELOG.md))
+  lists only genuine shipped changes with a traceable artefact. AskBots review
+  rounds are appended there when that CLI is connected — not simulated.
+
+### Submission checklist
+
+- [ ] `npm run lint && npm run format:check && npm run test && npm run build` all green.
+- [ ] `rm -rf .pglite && npm run db:migrate` applies cleanly.
+- [ ] Demo rehearsed end to end against a clean database.
+- [ ] `/evidence` reviewed: real vs demo vs unavailable are clearly separated;
+      numbers match reality; CSV and JSON export download.
+- [ ] [`docs/CLAIMS.md`](docs/CLAIMS.md) current — every on-stage claim is either
+      proven or flagged conditional.
+- [ ] If Celo access was granted: `X402_NETWORK=eip155:42220`, a real settlement
+      verified on Celoscan, `X402_ATTRIBUTION_TAG` set, the tx recorded in
+      [`docs/FEEDBACK_CHANGELOG.md`](docs/FEEDBACK_CHANGELOG.md) / notes.
+- [ ] If Celo access was not granted: the demo shows the honest `503` /
+      `UNAVAILABLE` state and says so out loud.
+- [ ] No secret in `.env.example`, the client bundle, or git history.
+- [ ] README, [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md), and
+      [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) match the current build.
 
 ## Lint & format
 
@@ -163,8 +240,10 @@ npm run lint && npm run format:check && npm run test && npm run build
 | `/supplier/:slug/requests`    | Supplier: incoming structured requests → send a quote or decline                      |
 | `/operator`                   | Operator: verify + activate routes (pre-flight checklist), pause                      |
 | `/docs`                       | Explainer: how a business capability maps to the agent route contract                 |
+| `/evidence`                   | Public results: real vs demo vs unavailable, "what changed from feedback", exports    |
 | `GET /v1/:slug/capabilities`  | Public agent capability document (see `docs/CAPABILITY_API.md`)                       |
 | `POST /v1/:slug/:route/quote` | Public agent quote request                                                            |
+| `GET /api/evidence`           | Privacy-safe evidence export — `?format=csv` or `?format=json`                        |
 
 ## Project structure
 

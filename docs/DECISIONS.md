@@ -297,3 +297,43 @@ Status values: `Accepted`, `Superseded by ADR-NNN`, `Deprecated`.
 - **Requirements:** `NFR-UX-001` (loading / empty / error / unavailable states),
   `NFR-A11Y-001`; `CLAUDE.md` §4.1 (no fabricated payment evidence) reinforced in
   `docs/CLAIMS.md`.
+
+---
+
+## ADR-013 — Privacy-minimised experiment tracking + public evidence page
+
+- **Date:** 2026-08-30
+- **Status:** Accepted
+- **Context:** The hackathon needs credible adoption evidence (PRD §3 success
+  metrics, backlog MET-001) without adding surveillance, and without any risk of
+  presenting demo data or unavailable integrations as real results.
+- **Decision:**
+  - **No analytics store, no new event capture.** `buildEvidenceReport(db)`
+    (`src/features/metrics/report.ts`) aggregates on read from tables the product
+    already keeps: tasks, quotes, feedback, audit events, service payments.
+  - **Privacy stance.** Buyer sessions are opaque random ids with no account
+    behind them. The report and every export expose only counts and a bucketed
+    distribution — never a raw id, task content, address, or contact detail.
+  - **Real vs demo are separate scopes, never summed.** Any row tracing to a
+    `[DEMO SEED]` business (`classification.ts`) is `demo`; everything else is
+    `real`. `/evidence` renders three zones: real results, demo data, unavailable
+    integrations — plus the "what changed from feedback" log.
+  - **Settlements counted only when verified.** A payment counts only if the row
+    is `SETTLED` with a non-empty `txHash`. Zero is reported honestly.
+  - **Exports.** `GET /api/evidence?format=json|csv` is public and privacy-safe.
+    `GET /api/operator/metrics` is operator-gated and adds a content-free
+    recent-events feed (type + timestamp only).
+  - **Feedback changelog.** `src/features/metrics/feedback-changelog.ts` (mirrored
+    by `docs/FEEDBACK_CHANGELOG.md`) holds only genuine shipped changes with a
+    traceable artefact. AskBots rounds append there when the CLI is connected.
+  - **Post-handoff feedback.** The buyer explicitly confirms "I've sent this to
+    the printer" (a `task.handoff_confirmed` audit event, idempotent, no status
+    change); that unlocks the feedback form and gives a genuine
+    handoff-completed signal. Intra cannot observe WhatsApp, so this is a user
+    action, not an inference.
+- **Consequences:** One new audit event type, one new route
+  (`POST /api/tasks/:id/handoff-confirm`), `TaskView` gains `handoffConfirmedAt`.
+  No schema migration. `/evidence` reads live and is only as populated as the
+  database — an empty real scope on a fresh clone is the correct state.
+- **Requirements:** `MET-001`, `G-001..G-005`, PRD §3 success metrics, PRD §4
+  (operator "view metrics"); `CLAUDE.md` §4.1.
