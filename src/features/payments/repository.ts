@@ -5,6 +5,10 @@ import { servicePayments, type ServicePaymentRow } from "@/lib/db/schema";
 
 type NewServicePayment = typeof servicePayments.$inferInsert;
 
+/**
+ * All writes here INSERT — `service_payments` rows are immutable (BR-005).
+ * There is deliberately no update function.
+ */
 export async function insertServicePayment(
   db: Database,
   values: NewServicePayment,
@@ -18,4 +22,16 @@ export async function listPaymentsByTask(
   taskId: string,
 ): Promise<ServicePaymentRow[]> {
   return db.select().from(servicePayments).where(eq(servicePayments.taskId, taskId));
+}
+
+export async function findPaymentByAuthorizationKey(
+  db: Database,
+  authorizationKey: string,
+): Promise<ServicePaymentRow | null> {
+  const [row] = await db
+    .select()
+    .from(servicePayments)
+    .where(eq(servicePayments.authorizationKey, authorizationKey))
+    .limit(1);
+  return row ?? null;
 }

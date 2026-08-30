@@ -48,21 +48,26 @@ describe("assertSettlement (FR-PAY-003, BR-005)", () => {
 });
 
 describe("facilitatorConfigured (FR-PAY-004)", () => {
-  const original = { url: process.env.X402_FACILITATOR_URL, key: process.env.X402_FACILITATOR_KEY };
+  const keys = ["X402_API_KEY", "X402_NETWORK", "X402_ASSET"] as const;
+  const original = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
   afterEach(() => {
-    process.env.X402_FACILITATOR_URL = original.url;
-    process.env.X402_FACILITATOR_KEY = original.key;
+    for (const k of keys) {
+      if (original[k] === undefined) delete process.env[k];
+      else process.env[k] = original[k];
+    }
   });
 
-  it("is false unless both URL and key are set", () => {
-    delete process.env.X402_FACILITATOR_URL;
-    delete process.env.X402_FACILITATOR_KEY;
+  it("is false without X402_API_KEY, true once it (and a valid network/asset) are set", () => {
+    delete process.env.X402_API_KEY;
     expect(facilitatorConfigured()).toBe(false);
 
-    process.env.X402_FACILITATOR_URL = "https://example.test";
-    expect(facilitatorConfigured()).toBe(false);
+    process.env.X402_API_KEY = "x402-metering-key";
+    expect(facilitatorConfigured()).toBe(true); // defaults to eip155:42220 / USDC
+  });
 
-    process.env.X402_FACILITATOR_KEY = "secret";
-    expect(facilitatorConfigured()).toBe(true);
+  it("throws loudly on an unknown network", () => {
+    process.env.X402_API_KEY = "x402-metering-key";
+    process.env.X402_NETWORK = "eip155:1";
+    expect(() => facilitatorConfigured()).toThrow(/not a supported Celo x402 network/i);
   });
 });

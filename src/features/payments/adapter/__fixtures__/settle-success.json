@@ -1,0 +1,8 @@
+{
+  "_note": "Official x402 facilitator POST /settle response \u2014 settled on Celo mainnet. transaction is the real tx hash.",
+  "success": true,
+  "transaction": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "network": "eip155:42220",
+  "payer": "0x1111111111111111111111111111111111111111",
+  "amount": "20000"
+}

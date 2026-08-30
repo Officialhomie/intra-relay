@@ -60,7 +60,21 @@ const handoffView = {
       declineReason: null,
     },
   ],
-  payments: [{ id: "p1", status: "UNAVAILABLE", maxFeeUsd: "0.0200" }],
+  payments: [
+    {
+      id: "p1",
+      status: "UNAVAILABLE",
+      maxFeeUsd: "0.0500",
+      provider: null,
+      network: null,
+      assetSymbol: null,
+      amountAtomic: null,
+      txHash: null,
+      errorCode: null,
+      attributionTag: null,
+      settledAt: null,
+    },
+  ],
   recommendation: {
     rationale: "Single verified quote.",
     orderMessage: "Hi Campus Prints, ... Please confirm",
@@ -85,11 +99,52 @@ describe("TaskPage — principal buyer view (S-003)", () => {
     expect(
       screen.getByText(/Intra does not send this message and never pays a supplier/i),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Status: UNAVAILABLE/i)).toBeInTheDocument();
+    expect(screen.getByText(/Celo x402 \/ cPay access is not configured/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /copy message/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /send feedback/i })).toBeInTheDocument();
     // No "pay" / "checkout" / "place order" controls.
     expect(screen.queryByRole("button", { name: /pay|checkout|place order/i })).toBeNull();
+  });
+
+  it("renders a settled x402 receipt with a Celoscan link (S-003 receipt timeline)", async () => {
+    apiRequest.mockResolvedValueOnce({
+      ...handoffView,
+      payments: [
+        {
+          id: "p1",
+          status: "SETTLED",
+          maxFeeUsd: "0.0500",
+          provider: "x402",
+          network: "eip155:42220",
+          assetSymbol: "USDC",
+          amountAtomic: "20000",
+          txHash: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          errorCode: null,
+          attributionTag: "celo_demo_tag",
+          settledAt: new Date().toISOString(),
+        },
+      ],
+      timeline: [
+        {
+          id: "e1",
+          type: "payment.challenge_issued",
+          createdAt: new Date().toISOString(),
+          data: {},
+        },
+        { id: "e2", type: "payment.settled", createdAt: new Date().toISOString(), data: {} },
+        { id: "e3", type: "task.handoff_ready", createdAt: new Date().toISOString(), data: {} },
+      ],
+    });
+    render(<TaskPage taskId="t1" />);
+
+    expect(await screen.findByText(/agent service payment/i)).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /view on celoscan/i });
+    expect(link).toHaveAttribute(
+      "href",
+      "https://celoscan.io/tx/0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    );
+    expect(screen.getByText(/query fee only — never the customer order/i)).toBeInTheDocument();
+    expect(screen.getByText("celo_demo_tag")).toBeInTheDocument();
   });
 
   it("explains a declined request instead of showing a handoff", async () => {

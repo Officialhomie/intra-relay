@@ -3,7 +3,7 @@ import { quoteRoutes } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
 import { findBusinessBySlug } from "@/features/businesses/repository";
-import { facilitatorConfigured } from "@/features/payments/lifecycle";
+import { getPaymentAdapter, PAYMENT_MAX_FEE_USD } from "@/features/payments/adapter";
 
 import { routeFreshness } from "./freshness";
 import type { RouteInputField } from "./schema";
@@ -64,10 +64,15 @@ export interface RouteCapability {
   responseSchema: typeof QUOTE_RESPONSE_SCHEMA;
   payment: {
     queryFeeUsd: number;
+    /** The most an agent can be charged for this query, regardless of queryFeeUsd. */
+    maxFeeUsd: number;
     paid: boolean;
-    facilitator: "x402" | null;
+    provider: "x402" | "cpay" | null;
+    network?: string;
+    asset?: string;
     available: boolean;
     state: "AVAILABLE" | "PAYMENT_SERVICE_UNAVAILABLE";
+    scheme?: "402-x-payment";
     note: string;
   };
   payoutAddress: string;
@@ -99,7 +104,8 @@ export async function buildBusinessCapabilities(
 
   const routes = await db.select().from(quoteRoutes).where(eq(quoteRoutes.businessId, business.id));
 
-  const facilitator = facilitatorConfigured();
+  const adapter = getPaymentAdapter().describe();
+  const facilitator = adapter.available;
   const now = new Date();
 
   return {
@@ -140,13 +146,18 @@ export async function buildBusinessCapabilities(
         responseSchema: QUOTE_RESPONSE_SCHEMA,
         payment: {
           queryFeeUsd: fee,
+          maxFeeUsd: PAYMENT_MAX_FEE_USD,
           paid,
-          facilitator: paid ? "x402" : null,
+          provider: paid
+            ? ((adapter.provider === "none" ? "x402" : adapter.provider) as "x402")
+            : null,
+          ...(paid && facilitator ? { network: adapter.network, asset: adapter.asset } : {}),
           available: paymentAvailable,
           state: paymentAvailable ? "AVAILABLE" : "PAYMENT_SERVICE_UNAVAILABLE",
+          ...(paid && facilitator ? { scheme: "402-x-payment" as const } : {}),
           note: paid
             ? facilitator
-              ? "Paid route. The quote endpoint returns a facilitator-issued 402 challenge."
+              ? `Paid route. POST without X-PAYMENT returns a 402 with x402 requirements (max $${PAYMENT_MAX_FEE_USD} per query); retry with an X-PAYMENT authorisation to settle.`
               : "Paid route, but no x402 / cPay facilitator is configured. The quote endpoint returns PAYMENT_SERVICE_UNAVAILABLE and never a fabricated settlement (ADR-004)."
             : "Free route. The quote endpoint accepts the request without payment.",
         },

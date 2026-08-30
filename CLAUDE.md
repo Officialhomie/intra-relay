@@ -168,6 +168,14 @@ another database/cache library without a new ADR. Schema changes go through
 `npm run db:generate` (a committed migration), never a hand-edited migration or
 `db:push` against a shared database.
 
+**x402 payment phase is started** (ADR-011). Payments go through the
+`PaymentAdapter` interface in `src/features/payments/adapter/` — only
+`@x402/core` is allowed there, not `@x402/evm` / `viem`. Config and the exact
+Celo facilitator values live in `docs/PAYMENTS.md` + `adapter/networks.ts`; do
+not hard-code endpoints, chain ids, or token addresses elsewhere. Never
+fabricate a 402 settlement, `X-PAYMENT` verification, receipt, or tx hash; never
+log the authorisation payload; `service_payments` rows are insert-only.
+
 ### 6.3 Definition of done
 
 A change is complete only when, for each requirement ID it touches:

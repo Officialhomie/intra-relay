@@ -18,8 +18,10 @@ supplier quote or decline → operator-verified activation → buyer's
 human-controlled WhatsApp handoff → feedback. Eight persisted entities
 (`businesses`, `quote_routes`, `tasks`, `quotes`, `recommendations`, `feedback`,
 `service_payments`, `audit_events`) with enforced lifecycle invariants
-([`docs/API.md`](docs/API.md)). No payment settlement yet — x402 is `UNAVAILABLE`
-until official access (ADR-004). Visual system: ADR-009.
+([`docs/API.md`](docs/API.md)). Paid agent queries settle over **Celo x402**
+behind a provider-neutral adapter ([`docs/PAYMENTS.md`](docs/PAYMENTS.md),
+ADR-011) — `UNAVAILABLE` until `X402_API_KEY` is set, never a fabricated
+settlement. Visual system: ADR-009.
 
 ## Tech stack
 
@@ -46,6 +48,7 @@ until official access (ADR-004). Visual system: ADR-009.
 | [`docs/DECISIONS.md`](docs/DECISIONS.md)                       | Architecture decision log                             |
 | [`docs/API.md`](docs/API.md)                                   | Internal MVP backend endpoints, headers, invariants   |
 | [`docs/CAPABILITY_API.md`](docs/CAPABILITY_API.md)             | Public agent-readable `/v1` capability + quote API    |
+| [`docs/PAYMENTS.md`](docs/PAYMENTS.md)                         | Celo x402 payment adapter — config, flow, deployment  |
 | [`docs/design/`](docs/design/)                                 | Supplied style references (ADR-009 picks Ease Health) |
 
 ## Requirements

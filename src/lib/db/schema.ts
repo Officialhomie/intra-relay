@@ -173,20 +173,35 @@ export const feedback = pgTable("feedback", {
   createdAt: createdAt(),
 });
 
+/**
+ * Agent service-payment records. **Append-only / immutable** — a row is written
+ * once with its final status. A SETTLED row is never edited (BR-005).
+ */
 export const servicePayments = pgTable("service_payments", {
   id: id(),
-  taskId: text("task_id")
-    .notNull()
-    .references(() => tasks.id, { onDelete: "cascade" }),
+  /** Nullable: a FAILED payment attempt has no task (no service was rendered). */
+  taskId: text("task_id").references(() => tasks.id, { onDelete: "cascade" }),
+  routeId: text("route_id").references(() => quoteRoutes.id, { onDelete: "set null" }),
   service: text("service").notNull(),
   resource: text("resource").notNull(),
   maxFeeUsd: numeric("max_fee_usd", { precision: 10, scale: 4 }).notNull(),
+  provider: text("provider"),
+  network: text("network"),
   asset: text("asset"),
+  assetSymbol: text("asset_symbol"),
+  /** Settled amount in the asset's atomic units. */
+  amountAtomic: text("amount_atomic"),
   payer: text("payer"),
   payee: text("payee"),
   status: paymentStatusEnum("status").notNull().default("NOT_REQUIRED"),
   /** Unique when present (BR-005). Manual entry is not allowed. */
   txHash: text("tx_hash").unique(),
+  /** One-way hash of the signed authorisation — dedupes duplicate X-PAYMENT retries. */
+  authorizationKey: text("authorization_key").unique(),
+  /** ERC-8021 attribution tag, only when configured from hackathon registration. */
+  attributionTag: text("attribution_tag"),
+  errorCode: text("error_code"),
+  /** Official facilitator verify/settle result. Never a signature or auth payload. */
   verification: jsonb("verification").$type<Record<string, unknown>>(),
   settledAt: timestamp("settled_at", { withTimezone: true }),
   createdAt: createdAt(),
@@ -216,6 +231,7 @@ export const idempotencyKeys = pgTable(
     requestHash: text("request_hash").notNull(),
     responseStatus: integer("response_status").notNull(),
     responseBody: jsonb("response_body").$type<unknown>().notNull(),
+    responseHeaders: jsonb("response_headers").$type<Record<string, string>>(),
     createdAt: createdAt(),
   },
   (table) => [uniqueIndex("idempotency_scope_key_uq").on(table.scope, table.key)],

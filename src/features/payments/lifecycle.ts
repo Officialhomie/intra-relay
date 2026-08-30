@@ -1,5 +1,6 @@
 import { HttpError } from "@/lib/http/response";
 
+import { readPaymentConfig } from "./adapter/config";
 import type { PaymentStatus } from "./status";
 
 /**
@@ -59,7 +60,7 @@ export function assertSettlement(evidence: SettlementEvidence): void {
   }
 }
 
-/** True when no x402 facilitator is configured (FR-PAY-004). */
+/** True when an official x402 / cPay facilitator is configured (FR-PAY-004). */
 export function facilitatorConfigured(): boolean {
-  return Boolean(process.env.X402_FACILITATOR_URL && process.env.X402_FACILITATOR_KEY);
+  return readPaymentConfig().provider !== "none";
 }

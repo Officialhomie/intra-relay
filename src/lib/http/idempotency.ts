@@ -10,6 +10,8 @@ import { HttpError } from "./response";
 export interface IdempotentResult {
   status: number;
   body: unknown;
+  /** Extra response headers to persist and replay (e.g. `X-PAYMENT-RESPONSE`). */
+  headers?: Record<string, string>;
 }
 
 function hashPayload(payload: unknown): string {
@@ -18,14 +20,21 @@ function hashPayload(payload: unknown): string {
     .digest("hex");
 }
 
+function respond(body: unknown, status: number, headers?: Record<string, string> | null): Response {
+  const response = Response.json(body, { status });
+  for (const [name, value] of Object.entries(headers ?? {})) response.headers.set(name, value);
+  return response;
+}
+
 /**
  * Run a write exactly once per (scope, Idempotency-Key) (TECHNICAL_SPEC §6).
  *
- * A repeat with the same key + same body replays the stored response. A repeat
- * with the same key but a different body is rejected (409). Only successful
- * (2xx) responses are recorded, unless `cacheErrors` is set — used where a
- * failing response still has a durable side effect (e.g. a created Task with a
- * PAYMENT_SERVICE_UNAVAILABLE result) that must replay identically.
+ * A repeat with the same key + same body replays the stored response (status,
+ * body, and any recorded headers). A repeat with the same key but a different
+ * body is rejected (409). Only successful (2xx) responses are recorded, unless
+ * `cacheErrors` is set — used where a failing response still has a durable side
+ * effect (e.g. a created Task with a PAYMENT_SERVICE_UNAVAILABLE result) that
+ * must replay identically.
  */
 export async function runIdempotent(
   db: Database,
@@ -51,7 +60,7 @@ export async function runIdempotent(
         "This Idempotency-Key was already used with a different request body.",
       );
     }
-    return Response.json(existing.responseBody, { status: existing.responseStatus });
+    return respond(existing.responseBody, existing.responseStatus, existing.responseHeaders);
   }
 
   const result = await run();
@@ -65,20 +74,21 @@ export async function runIdempotent(
         requestHash,
         responseStatus: result.status,
         responseBody: result.body,
+        responseHeaders: result.headers ?? null,
       })
       .onConflictDoNothing()
       .returning();
 
     if (inserted.length === 0) {
-      // Lost a race; replay the stored response.
       const [stored] = await db
         .select()
         .from(idempotencyKeys)
         .where(and(eq(idempotencyKeys.scope, scope), eq(idempotencyKeys.key, key)))
         .limit(1);
-      if (stored) return Response.json(stored.responseBody, { status: stored.responseStatus });
+      if (stored)
+        return respond(stored.responseBody, stored.responseStatus, stored.responseHeaders);
     }
   }
 
-  return Response.json(result.body, { status: result.status });
+  return respond(result.body, result.status, result.headers);
 }

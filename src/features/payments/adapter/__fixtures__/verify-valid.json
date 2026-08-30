@@ -1,0 +1,5 @@
+{
+  "_note": "Official x402 facilitator POST /verify response — payment authorisation is valid.",
+  "isValid": true,
+  "payer": "0x1111111111111111111111111111111111111111"
+}

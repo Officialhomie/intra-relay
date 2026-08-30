@@ -155,16 +155,33 @@ Body:
 }
 ```
 
+Paid routes speak **Celo x402** — see [`docs/PAYMENTS.md`](PAYMENTS.md).
+`X-PAYMENT: <base64 payment payload>` carries the signed EIP-3009 authorisation;
+a settled response returns `X-PAYMENT-RESPONSE`.
+
 ### Outcomes
 
-| Status  | `error.code` / `data`                    | When                                                                                 | Side effects                                                                                                        |
-| ------- | ---------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| **404** | `BUSINESS_NOT_FOUND` / `ROUTE_NOT_FOUND` | unknown slug                                                                         | none                                                                                                                |
-| **409** | `ROUTE_UNAVAILABLE`                      | route is not `ACTIVE`, not operator-verified, or its price data is stale (> 14 days) | **none — no task, no payment request**                                                                              |
-| **422** | `VALIDATION_FAILED`                      | a required input is missing or invalid                                               | none — no task                                                                                                      |
-| **503** | `PAYMENT_SERVICE_UNAVAILABLE`            | valid request on a **paid** route while no x402 / cPay facilitator is configured     | **a `Task` (`AWAITING_QUOTE`) and audit events are created**; a `service_payments` row is recorded as `UNAVAILABLE` |
-| **202** | `data.outcome = "AWAITING_QUOTE"`        | valid request on a **free** route (`queryFeeUsd === 0`)                              | task + audit created                                                                                                |
-| **501** | `PAYMENT_FLOW_NOT_IMPLEMENTED`           | a facilitator is configured but the 402 flow is unbuilt                              | task created                                                                                                        |
+| Status  | `error.code` / `data`                                               | When                                                                                                                                  | Side effects                                                                                                                                                                  |
+| ------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **404** | `BUSINESS_NOT_FOUND` / `ROUTE_NOT_FOUND`                            | unknown slug                                                                                                                          | none                                                                                                                                                                          |
+| **409** | `ROUTE_UNAVAILABLE`                                                 | route is not `ACTIVE`, not operator-verified, or its price data is stale (> 14 days)                                                  | **none — no task, no settlement**                                                                                                                                             |
+| **422** | `VALIDATION_FAILED`                                                 | a required input is missing or invalid                                                                                                | none — no task                                                                                                                                                                |
+| **402** | `PAYMENT_REQUIRED`                                                  | paid route, x402 configured, **no `X-PAYMENT`** — `details.accepts[0]` holds the x402 requirements, `details.maxFeeUsd` the $0.05 cap | audit `payment.challenge_issued`; **no task**                                                                                                                                 |
+| **402** | `PAYMENT_FAILED`                                                    | `X-PAYMENT` present but verify/settle failed or exceeded the cap (`details.code`)                                                     | immutable `service_payments` row `FAILED`; audit `payment.failed`; **no task**                                                                                                |
+| **200** | `data.outcome = "QUOTE_PENDING"`, `data.payment.status = "SETTLED"` | `X-PAYMENT` verified + settled on-chain                                                                                               | immutable `SETTLED` receipt (`txHash`, `network`, `explorerUrl`); audits `payment.settled` + `capability.quote_requested`; task `AWAITING_QUOTE`; `X-PAYMENT-RESPONSE` header |
+| **503** | `PAYMENT_SERVICE_UNAVAILABLE`                                       | valid request on a **paid** route while no x402 / cPay facilitator is configured                                                      | **`Task` (`AWAITING_QUOTE`) + audit created**; `service_payments` row `UNAVAILABLE`                                                                                           |
+| **202** | `data.outcome = "AWAITING_QUOTE"`                                   | valid request on a **free** route (`queryFeeUsd === 0`)                                                                               | task + audit created                                                                                                                                                          |
+| **501** | `PAYMENT_FLOW_NOT_IMPLEMENTED`                                      | a facilitator is configured but the 402 flow is unbuilt for it                                                                        | task created                                                                                                                                                                  |
+
+Never fabricated: a 402 settlement, an `X-PAYMENT` verification, a receipt, or a
+transaction hash.
+
+`PAYMENT_REQUIRED` body: `details = { x402Version, resource, accepts: [ { scheme:
+"exact", network: "eip155:42220", asset, amount, payTo, maxTimeoutSeconds, extra
+} ], maxFeeUsd: 0.05 }`.
+
+`data.payment` on a `200`: `{ status: "SETTLED", provider, txHash, network,
+assetSymbol, amountAtomic, explorerUrl }`.
 
 `ROUTE_UNAVAILABLE` body:
 

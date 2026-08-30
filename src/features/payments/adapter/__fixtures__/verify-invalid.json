@@ -1,0 +1,6 @@
+{
+  "_note": "Official x402 facilitator POST /verify response — authorisation failed off-chain checks.",
+  "isValid": false,
+  "invalidReason": "insufficient_funds",
+  "invalidMessage": "The payer balance does not cover the authorised amount."
+}

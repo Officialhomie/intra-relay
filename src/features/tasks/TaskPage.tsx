@@ -53,7 +53,19 @@ interface TaskViewDto {
     expiresAt: string | null;
     declineReason: string | null;
   }[];
-  payments: { id: string; status: string; maxFeeUsd: string }[];
+  payments: {
+    id: string;
+    status: string;
+    maxFeeUsd: string;
+    provider: string | null;
+    network: string | null;
+    assetSymbol: string | null;
+    amountAtomic: string | null;
+    txHash: string | null;
+    errorCode: string | null;
+    attributionTag: string | null;
+    settledAt: string | null;
+  }[];
   recommendation: { rationale: string; orderMessage: string } | null;
   feedback: { id: string; useful: boolean; comment: string | null }[];
   timeline: { id: string; type: string; createdAt: string; data: Record<string, unknown> }[];
@@ -65,6 +77,9 @@ const EVENT_LABEL: Record<string, string> = {
   "task.awaiting_quote": "Sent to the printer",
   "payment.unavailable": "Agent service payment unavailable",
   "payment.pending": "Agent service payment pending",
+  "payment.challenge_issued": "Payment requested (402)",
+  "payment.settled": "Query fee settled on-chain",
+  "payment.failed": "Payment attempt failed",
   "quote.received": "Quote received",
   "quote.declined": "Printer declined",
   "recommendation.created": "Recommendation prepared",
@@ -153,7 +168,6 @@ export function TaskPage({ taskId }: { taskId: string }) {
   const { task, route, supplier, quotes, payments, recommendation, timeline } = view;
   const quote = quotes[0] ?? null;
   const brief = task.structuredInput ?? {};
-  const payment = payments[0] ?? null;
   const declined = quote?.status === "DECLINED";
 
   return (
@@ -249,15 +263,11 @@ export function TaskPage({ taskId }: { taskId: string }) {
         </Card>
       ) : null}
 
-      {payment ? (
-        <Callout
-          tone={payment.status === "UNAVAILABLE" ? "unavailable" : "info"}
-          title="Agent service payment"
-        >
-          {payment.status === "UNAVAILABLE"
-            ? `Status: UNAVAILABLE. Celo x402 / buy access is not configured, so no service fee was charged and no receipt exists. Intra never fabricates a payment.`
-            : `Status: ${payment.status}. Cap ${formatMoney(payment.maxFeeUsd, "USD")}.`}
-        </Callout>
+      {payments.length > 0 ? (
+        <PaymentReceipt
+          payments={payments}
+          timeline={timeline.filter((event) => event.type.startsWith("payment."))}
+        />
       ) : null}
 
       {recommendation && supplier && !declined ? (
@@ -287,6 +297,121 @@ export function TaskPage({ taskId }: { taskId: string }) {
         <FeedbackForm taskId={task.id} existing={view.feedback.length > 0} />
       ) : null}
     </div>
+  );
+}
+
+const NETWORK_LABEL: Record<string, string> = {
+  "eip155:42220": "Celo Mainnet",
+  "eip155:11142220": "Celo Sepolia",
+};
+
+function explorerUrl(network: string | null, txHash: string | null): string | null {
+  if (!network || !txHash) return null;
+  const base: Record<string, string> = {
+    "eip155:42220": "https://celoscan.io/tx/",
+    "eip155:11142220": "https://celo-sepolia.blockscout.com/tx/",
+  };
+  return base[network] ? `${base[network]}${txHash}` : null;
+}
+
+function shortHash(value: string): string {
+  return value.length > 14 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value;
+}
+
+function PaymentReceipt({
+  payments,
+  timeline,
+}: {
+  payments: TaskViewDto["payments"];
+  timeline: TaskViewDto["timeline"];
+}) {
+  const settled = payments.find((p) => p.status === "SETTLED");
+  const primary = settled ?? payments[0];
+  const tone =
+    primary.status === "SETTLED"
+      ? "active"
+      : primary.status === "FAILED"
+        ? "danger"
+        : primary.status === "UNAVAILABLE"
+          ? "neutral"
+          : "pending";
+
+  return (
+    <Card className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <CardTitle>Agent service payment</CardTitle>
+        <StatusPill tone={tone}>{primary.status.replace(/_/g, " ")}</StatusPill>
+      </div>
+
+      {primary.status === "SETTLED" && settled ? (
+        <DataList>
+          <DataRow label="Paid">
+            {settled.amountAtomic ? Number(settled.amountAtomic) / 1e6 : "—"}{" "}
+            {settled.assetSymbol ?? "USDC"}
+            <span className="mt-0.5 block text-xs text-subtle">
+              query fee only — never the customer order (max {formatMoney(primary.maxFeeUsd, "USD")}
+              )
+            </span>
+          </DataRow>
+          <DataRow label="Network">
+            {settled.network ? (NETWORK_LABEL[settled.network] ?? settled.network) : "—"} · via{" "}
+            {settled.provider ?? "x402"}
+          </DataRow>
+          <DataRow label="Transaction">
+            {settled.txHash ? (
+              <span className="inline-flex flex-wrap items-center gap-2">
+                <span className="font-mono text-xs">{shortHash(settled.txHash)}</span>
+                {explorerUrl(settled.network, settled.txHash) ? (
+                  <a
+                    href={explorerUrl(settled.network, settled.txHash) ?? undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-primary underline"
+                  >
+                    View on {settled.network === "eip155:42220" ? "Celoscan" : "explorer"}
+                    <ExternalLink aria-hidden className="size-3" />
+                  </a>
+                ) : null}
+              </span>
+            ) : (
+              "—"
+            )}
+          </DataRow>
+          {settled.attributionTag ? (
+            <DataRow label="Attribution tag">
+              <span className="font-mono text-xs">{settled.attributionTag}</span>
+            </DataRow>
+          ) : null}
+          {settled.settledAt ? (
+            <DataRow label="Settled">{formatDateTime(settled.settledAt)}</DataRow>
+          ) : null}
+        </DataList>
+      ) : null}
+
+      {primary.status === "FAILED" ? (
+        <Callout tone="warning" title="The query-fee payment did not go through">
+          {primary.errorCode ? `Reason: ${primary.errorCode}. ` : ""}No transaction was made and no
+          receipt exists.
+        </Callout>
+      ) : null}
+
+      {primary.status === "UNAVAILABLE" ? (
+        <Callout tone="unavailable">
+          Celo x402 / cPay access is not configured, so no service fee was charged and no receipt
+          exists. Intra never fabricates a payment.
+        </Callout>
+      ) : null}
+
+      {timeline.length > 0 ? (
+        <ol className="space-y-1.5 border-t border-border pt-3 text-xs text-subtle">
+          {timeline.map((event) => (
+            <li key={event.id}>
+              {EVENT_LABEL[event.type] ?? event.type} · {formatDateTime(event.createdAt)}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </Card>
   );
 }
 

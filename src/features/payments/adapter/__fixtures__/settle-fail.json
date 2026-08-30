@@ -1,0 +1,8 @@
+{
+  "_note": "Official x402 facilitator POST /settle response — on-chain submission failed. No usable transaction hash.",
+  "success": false,
+  "errorReason": "transfer_reverted",
+  "errorMessage": "transferWithAuthorization reverted",
+  "transaction": "",
+  "network": "eip155:42220"
+}

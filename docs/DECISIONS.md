@@ -218,3 +218,42 @@ Status values: `Accepted`, `Superseded by ADR-NNN`, `Deprecated`.
   `src/app/v1/v1.contract.test.ts`.
 - **Requirements:** `FR-ROUTE-001`, `FR-ROUTE-004`, `AC-ROUTE-002`,
   `FR-PAY-004`, `BR-001`, `BR-003`; `TECHNICAL_SPEC` §4.
+
+---
+
+## ADR-011 — Celo x402 payment adapter (official config)
+
+- **Date:** 2026-08-30
+- **Status:** Accepted (supersedes the "not configured" posture of ADR-004 once
+  `X402_API_KEY` is set)
+- **Context:** Official Celo x402 facilitator docs + a metering key are now
+  available. The quote route needs a real 402 → pay → verify → settle flow
+  without coupling the rest of Intra to a payment SDK.
+- **Decision:**
+  - A provider-neutral `PaymentAdapter` interface
+    (`src/features/payments/adapter/types.ts`). `NoopPaymentAdapter` (no key →
+    everything `UNAVAILABLE`, unchanged) and `X402PaymentAdapter` (uses
+    `@x402/core`'s `HTTPFacilitatorClient` + header codecs — **not** `@x402/evm`,
+    so no `viem`). `getPaymentAdapter()` picks one from the environment.
+  - Verified official config is a constant in `adapter/networks.ts`: hosts
+    `api.x402.celo.org` / `api.x402.sepolia.celo.org`, networks `eip155:42220` /
+    `eip155:11142220`, USDC/USDT addresses + EIP-712 domains, `celoscan.io` /
+    `celo-sepolia.blockscout.com` explorers. Scheme `exact`, EIP-3009.
+  - Server-side cap: the 402 only ever advertises `min(routeFee, $0.05)`
+    (`PAYMENT_MAX_FEE_USD`); a presented authorisation that doesn't match is
+    `FAILED` before any facilitator call.
+  - `service_payments` is **insert-only**. SETTLED requires `settle.success` +
+    a `0x…64hex` tx hash (`assertSettlement`). FAILED attempts are recorded for
+    audit. `authorizationKey` (SHA-256 of the signed authorisation, never the
+    signature) is unique and dedupes duplicate `X-PAYMENT` retries.
+  - The EIP-3009 authorisation/signature is never persisted or logged;
+    `verification` stores only the facilitator's result summary.
+  - `X402_ATTRIBUTION_TAG` (ERC-8021) is recorded on receipts + audit and passed
+    as `extra.reference`; x402 settlement tx is facilitator-submitted so the tag
+    is not injected into calldata.
+- **Consequences:** `X402_FACILITATOR_URL` / `X402_FACILITATOR_KEY` are replaced
+  by `X402_API_KEY` / `X402_NETWORK` / `X402_ASSET` / `X402_FACILITATOR_URL` /
+  `X402_ATTRIBUTION_TAG`. Migration `0001` adds the receipt columns and makes
+  `service_payments.task_id` nullable; `0002` adds `idempotency_keys.response_headers`.
+- **Requirements:** `FR-PAY-001..005`, `BR-005`, `BR-007`, `NFR-SEC-001/002`,
+  `TECHNICAL_SPEC` §4/§6; `docs/PAYMENTS.md`.
