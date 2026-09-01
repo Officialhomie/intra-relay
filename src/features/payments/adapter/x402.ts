@@ -64,6 +64,7 @@ export class X402PaymentAdapter implements PaymentAdapter {
       asset: this.cfg.asset.symbol,
       maxFeeUsd: this.cfg.maxFeeUsd,
       attributionConfigured: this.cfg.attributionTag !== null,
+      ...(this.cfg.configWarning ? { configWarning: this.cfg.configWarning } : {}),
     };
   }
 
@@ -164,11 +165,14 @@ export class X402PaymentAdapter implements PaymentAdapter {
     try {
       verify = await this.facilitator.verify(payload, requirements);
     } catch {
+      // Verification could not be OBTAINED — the facilitator/network was
+      // unreachable. Nothing is known about the agent's authorisation, so this
+      // is "unavailable", not the agent's failure (503, retryable).
       return {
-        status: "FAILED",
+        status: "UNAVAILABLE",
         provider: "x402",
         code: "VERIFY_REQUEST_FAILED",
-        reason: "The facilitator verification request failed.",
+        reason: "The facilitator could not be reached to verify the payment. Try again shortly.",
         authorizationKey,
       };
     }
@@ -182,21 +186,53 @@ export class X402PaymentAdapter implements PaymentAdapter {
       };
     }
 
+    const verifySummary: Record<string, unknown> = {
+      verifiedBy: this.cfg.facilitatorUrl,
+      verify: { isValid: verify.isValid, payer: verify.payer ?? null },
+    };
+
     let settled: SettleResponse;
     try {
       settled = await this.facilitator.settle(payload, requirements);
     } catch {
-      // A settle timeout is an indeterminate outcome — treat as failed, never
-      // fabricate a transaction hash.
+      // A settle timeout is an INDETERMINATE outcome — the transfer may still
+      // land on-chain. Claim it neither way; the agent must not re-authorise
+      // with a new nonce (that could pay twice).
       return {
-        status: "FAILED",
+        status: "INDETERMINATE",
         provider: "x402",
-        code: "SETTLE_REQUEST_FAILED",
-        reason: "The facilitator settlement request failed or timed out.",
+        code: "SETTLE_INDETERMINATE",
+        reason:
+          "Verification passed but the settlement outcome is unknown (the facilitator did not respond in time). Do not re-authorise; check the block explorer for a transfer from your payer address.",
         authorizationKey,
+        verification: {
+          ...verifySummary,
+          settle: "indeterminate",
+          recordedAt: new Date().toISOString(),
+        },
+      };
+    }
+    if (settled.success && !isTransactionHash(settled.transaction)) {
+      // The facilitator claims success but gave no usable tx hash — we cannot
+      // prove settlement and must not fabricate a hash. Same indeterminate
+      // handling as a timeout.
+      return {
+        status: "INDETERMINATE",
+        provider: "x402",
+        code: "SETTLE_INDETERMINATE",
+        reason:
+          "The facilitator reported success but returned no usable transaction hash. The settlement cannot be confirmed. Do not re-authorise; check the block explorer.",
+        authorizationKey,
+        verification: {
+          ...verifySummary,
+          settle: { success: true, transaction: null },
+          recordedAt: new Date().toISOString(),
+        },
       };
     }
     if (!settled.success || !isTransactionHash(settled.transaction)) {
+      // The facilitator reported an on-chain failure (revert, etc.). The agent
+      // may fix and retry with a fresh authorisation (402).
       return {
         status: "FAILED",
         provider: "x402",
