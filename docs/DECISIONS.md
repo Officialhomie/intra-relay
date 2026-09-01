@@ -212,12 +212,39 @@ Status values: `Accepted`, `Superseded by ADR-NNN`, `Deprecated`.
     replays exactly on retry, even for the `503` path (`runIdempotent`'s
     `cacheErrors`).
   - The order contact channel appears in the capability document only for
-    `ACTIVE` routes.
+    `ACTIVE` routes. (Tightened by ADR-014: only for routes whose
+    `availability.state` is `AVAILABLE`.)
 - **Consequences:** The same route data will back a future MCP adapter and the
   real x402 flow without breaking this contract. Contract tests live in
   `src/app/v1/v1.contract.test.ts`.
 - **Requirements:** `FR-ROUTE-001`, `FR-ROUTE-004`, `AC-ROUTE-002`,
   `FR-PAY-004`, `BR-001`, `BR-003`; `TECHNICAL_SPEC` §4.
+
+---
+
+## ADR-012 — Intra Relay is the product; Proofline is a bounded future module
+
+- **Date:** 2026-08-30
+- **Status:** Accepted
+- **Context:** The project must be distinguishable from consumer agents,
+  website-to-tool platforms, generic agent-payment controls, and merchant
+  chatbots. The real gap for local, non-API businesses is not merely accepting
+  an agent payment; it is supplying fresh, authorised business state and later
+  proving real-world fulfilment.
+- **Decision:** Position Intra as **Intra Relay**, a managed merchant-side
+  capability and control layer. Define **Proofline** as a future Relay module
+  that records honest fulfilment events (for example, merchant marks ready and
+  buyer confirms pickup). The current hackathon MVP remains one flyer-printing
+  quote → human-approved WhatsApp handoff flow. A Proofline event is additive
+  only after the existing flow works; it is not escrow, a reputation score, or
+  an autonomous payment system.
+- **Consequences:** Do not build a general consumer agent, merchant directory,
+  generic MCP generator, generic wallet-policy system, escrow, or broad
+  reputation marketplace. Features must improve merchant capability, freshness,
+  authority, buyer approval, or fulfilment evidence. See
+  [`PRODUCT_VISION.md`](PRODUCT_VISION.md).
+- **Requirements:** `G-001`..`G-005`, `BR-001`..`BR-006`, `NFR-UX-001`,
+  `NFR-SEC-001`; MVP scope in `PRD.md` §5.
 
 ---
 
@@ -337,3 +364,259 @@ Status values: `Accepted`, `Superseded by ADR-NNN`, `Deprecated`.
   database — an empty real scope on a fresh clone is the correct state.
 - **Requirements:** `MET-001`, `G-001..G-005`, PRD §3 success metrics, PRD §4
   (operator "view metrics"); `CLAUDE.md` §4.1.
+
+---
+
+## ADR-014 — Capability Card: explicit availability, freshness, and minimal handoff data
+
+- **Date:** 2026-08-30
+- **Status:** Accepted
+- **Context:** The public capability document (`GET /v1/:businessSlug/capabilities`)
+  is the agent-readable contract for a route (ADR-010, ADR-002). It exposed the
+  route lifecycle `status` and a `stale` boolean, but an agent reading
+  `status: "ACTIVE"` on a route with stale price data could treat it as usable —
+  the quote endpoint rejected it, but the card did not say so. It also attached
+  the merchant's WhatsApp number to every `ACTIVE` route regardless of whether
+  the route could actually take a request.
+- **Decision:**
+  - Each route card carries an explicit **`availability`** verdict
+    (`AVAILABLE` / `UNAVAILABLE` + `reason` of `OK | NOT_ACTIVE | NOT_VERIFIED |
+STALE` + an agent-readable `detail`), derived from the same
+    `routeIsQuoteReady` gate the quote endpoint uses. An `ACTIVE` route with
+    stale critical data reports `status: "ACTIVE"` **and**
+    `availability.state: "UNAVAILABLE"` — never silently current (AC-ROUTE-002,
+    BR-006).
+  - A **`freshness`** object states `priceConfirmedAt`, `maxAgeDays` (14),
+    `staleAfter`, `stale`, and the expiry behaviour in words (BR-003).
+  - A **`quoteSla`** object states the response expectation; a **`handoff`**
+    object always states the human-approval + WhatsApp mechanism without a
+    contact value (BR-001, FR-REC-004).
+  - **`orderContact`** (the concrete channel value) is attached **only** to a
+    route whose `availability.state` is `AVAILABLE` — a paused, draft, pending,
+    unverified, or stale route does not expose the merchant's contact value
+    (NFR-SEC-002, "least data necessary"). This tightens ADR-010's
+    "only for `ACTIVE` routes".
+  - The document carries a `version` (`CAPABILITY_CONTRACT_VERSION`).
+  - Backward compatible: `status`, `stale`, `priceUpdatedAt`, `lastUpdatedAt`,
+    `responseSlaMinutes`, `finalOrderPolicy`, and `payment` are unchanged; the
+    new fields are additive.
+- **Consequences:** No schema migration. `src/features/routes/freshness.ts` gains
+  `staleAfter`, `ROUTE_READY_DETAIL`, `PRICE_FRESHNESS_MAX_AGE_DAYS`. Contract
+  tests in `src/app/v1/v1.contract.test.ts` and unit tests in
+  `src/features/routes/freshness.test.ts` cover active, paused, pending, stale,
+  malformed, and unavailable cases. `docs/CAPABILITY_API.md` updated.
+- **Requirements:** `FR-ROUTE-001`, `FR-ROUTE-003`, `FR-ROUTE-004`,
+  `AC-ROUTE-002`, `BR-003`, `BR-006`, `BR-001`, `FR-REC-004`, `NFR-SEC-002`;
+  `PRODUCT_VISION.md` §3.1.
+
+---
+
+## ADR-015 — Buyer decision is its own step; quote / choice / send are distinct
+
+- **Date:** 2026-08-30
+- **Status:** Accepted
+- **Context:** `submitQuote` advanced a task `AWAITING_QUOTE → RECOMMENDED →
+HANDOFF_READY` in one call and revealed the printer's phone number the moment
+  a quote landed. The PRD keeps `RECOMMENDED` and `HANDOFF_READY` as separate
+  states (§7) and the flow as "recommendation → buyer copies handoff → buyer
+  agrees directly" (§8). There was no point where the buyer actually chose, and
+  "a quote exists", "the buyer chose", and "the buyer sent the order" were not
+  separable.
+- **Decision:**
+  - A supplier quote now stops the task at **`RECOMMENDED`** (stamps
+    `tasks.quoted_at`). The WhatsApp message is generated but not surfaced, and
+    the supplier **contact value** is withheld — only `name` / `city` show.
+  - The buyer calls **`POST /api/tasks/:id/decision`**:
+    - `ACCEPT` → `HANDOFF_READY`, `buyer_decision = ACCEPTED`, audits
+      `task.buyer_accepted` + `task.handoff_ready`; contact + message revealed.
+    - `DECLINE` (+ optional `reason`) → `CANCELLED`, `buyer_decision = DECLINED`,
+      audit `task.buyer_declined`; nothing ordered; feedback still opens.
+  - `POST /api/tasks/:id/handoff-confirm` is unchanged — the buyer's own report
+    that they sent the message (Intra cannot observe WhatsApp). It now also sets
+    `tasks.handoff_confirmed_at`.
+  - New nullable `tasks` columns (migration `0003`): `quoted_at`,
+    `buyer_decision` (enum), `buyer_decided_at`, `buyer_decline_reason`,
+    `handoff_confirmed_at`, `closed_at` (set on first terminal state).
+  - **Quote validity** is enforced at read time: `quoteEffectiveStatus` reports
+    `EXPIRED` for a `RECEIVED` quote past `expiresAt`. Accepting an expired quote
+    is allowed (the buyer stays in control) but marks the quote `EXPIRED`
+    (audit `quote.expired`) and adds a "reconfirm the price" line to the message.
+  - **Normalisation** (`normalizeQuote`) and the **explained recommendation**
+    (`buildRecommendationDetail`: `reasoning[]`, `uncertainties[]`,
+    `verificationNote`) are pure read-time functions — nothing stored, no
+    multi-vertical abstraction. The `verificationNote` states plainly that the
+    figures were operator/printer-entered and are **not** independently verified;
+    the quote card and `QuoteResponseForm` carry the same label.
+- **Consequences:** Intra still never sends the message, places the order, or
+  custodies funds. `submitQuote` return shape unchanged (`task` is now
+  `RECOMMENDED`). Integration tests (`flow`, `supplier/workflow`, `api`,
+  `report`) gained the accept step; `decision.integration.test.ts`,
+  `quotes/expiry.test.ts`, `quotes/normalize.test.ts`,
+  `quotes/recommendation.test.ts` are new. `docs/API.md` and
+  `docs/DEMO_SCRIPT.md` updated.
+- **Requirements:** PRD §7 (`RECOMMENDED`, `HANDOFF_READY`, `CANCELLED`), §8;
+  `FR-REC-001`, `FR-REC-002`, `FR-REC-004`, `BR-001`, `BR-003`; `CLAUDE.md`
+  §4.1, §4.3.
+
+---
+
+## ADR-016 — Proofline pilot: two fulfilment-evidence events, nothing more
+
+- **Date:** 2026-08-30
+- **Status:** Accepted
+- **Context:** PRODUCT_VISION §3.2 / §6 and ADR-012 sanction a **bounded**
+  Proofline pilot once the flyer-printing quote → handoff flow works with real
+  users (it now does — ADR-015). A payment receipt proves money moved; it does
+  not prove the flyer was collected. Victor explicitly asked for exactly two
+  optional post-handoff events.
+- **Decision:**
+  - New append-only table `proofline_events` (migration `0004`). Each row stores
+    the six required fields: `task_id`, `actor_role`, `created_at`, `event_type`,
+    `confirmation_method`, `evidence_status` (+ an optional `pickup_code` on the
+    ready row).
+  - **Exactly two event types**, both optional, both gated on
+    `tasks.handoff_confirmed_at`:
+    1. `READY_FOR_PICKUP` — the **merchant** (route manage token). Issues a
+       6-char pickup code, returned once to the merchant, never to the buyer.
+    2. `PICKUP_CONFIRMED` — the **buyer**, either from their own task session
+       (`buyer_session`) or by entering the pickup code (`one_time_code`).
+  - Endpoints `POST /api/tasks/:id/proofline/ready` and
+    `.../confirm-pickup`. `getTaskView` gains a `proofline` field (no code);
+    the supplier requests page gains a "Handed-off orders" section with the code
+    for the authenticated merchant only.
+  - Every API response and both UIs carry `PROOFLINE_DISCLAIMER`: **operational
+    evidence, not a cryptographic proof, not a payment settlement, not a
+    guarantee.** No status is labelled "fulfilled" as a bare fact — each event
+    is attributed to the actor who recorded it.
+  - **Explicitly not built:** escrow, dispute handling, any public reliability /
+    reputation / on-time score, notifications, expiry of the code, a second
+    category, or a merchant-facing directory. Not wired into `/api/evidence` or
+    the operator metrics report.
+  - Replay-safe: a second `ready` or `confirm-pickup` → `409`; a wrong or
+    replayed code never records anything.
+- **Consequences:** One migration, one feature module (`src/features/proofline`),
+  two routes, one new access helper (`manageTokenMatchesTask`). Tests:
+  `proofline/service.integration.test.ts`, `proofline/code.test.ts`,
+  `app/api/tasks/[id]/proofline/proofline.contract.test.ts`, plus a Proofline
+  leg in `supplier/workflow.integration.test.ts` and a `TaskPage` case.
+  `docs/PRD.md` (F-PROOF), `API.md`, `TECHNICAL_SPEC.md`, `DEMO_SCRIPT.md`,
+  `PRODUCT_VISION.md` updated.
+- **Requirements:** `FR-PROOF-001`..`007`, `AC-PROOF-001`..`006`, `BR-009`;
+  PRODUCT_VISION §3.2, §6; ADR-012.
+
+---
+
+## ADR-017 — x402 payment hardening: failure taxonomy, indeterminate settlement, config tolerance
+
+- **Date:** 2026-08-31
+- **Status:** Accepted (extends ADR-004, ADR-011)
+- **Context:** An audit of the x402 integration against `@x402/core@2.24.0` (no
+  live key present) found: a malformed `X402_*` env threw from
+  `readPaymentConfig()` and 500'd the whole quote workflow; every infra failure
+  (facilitator unreachable, verify/settle transport error) was reported to the
+  agent as `402 PAYMENT_FAILED`; a `settle` timeout — which the SDK documents as
+  _indeterminate_ — was recorded `FAILED`, inviting a re-authorisation and a
+  double-pay; the natural x402 retry (same `Idempotency-Key`, now with
+  `X-PAYMENT`) returned `409 IDEMPOTENCY_KEY_CONFLICT`; a concurrent duplicate
+  `X-PAYMENT` could hit the `authorization_key` unique constraint and 500; and
+  `X402_ATTRIBUTION_TAG` was unvalidated.
+- **Decision:**
+  - **Failure taxonomy.** `SettleResult` gains `INDETERMINATE`; `UnavailableResult`
+    gains `code` / `authorizationKey`. The adapter maps: undecodable header /
+    over-cap / `verify.isValid = false` / on-chain revert → `FAILED` (`402`,
+    retryable by the agent); `verify` transport error → `UNAVAILABLE` (`503`,
+    not the agent's fault); `settle` timeout or a success-without-hash →
+    `INDETERMINATE` (`503 PAYMENT_SETTLEMENT_INDETERMINATE`). `SETTLEMENT_FAILED`
+    (facilitator-reported on-chain failure) stays `FAILED`.
+  - **Indeterminate receipts.** Recorded immutably as `AUTHORISED` /
+    `errorCode = SETTLE_INDETERMINATE`, no tx hash, audit `payment.indeterminate`.
+    The agent is told **not** to re-authorise and to check the explorer.
+    Re-presenting the authorisation returns the same `503` — never re-settled.
+  - **Config tolerance.** `readPaymentConfig()` still throws (deploy check), but
+    `getPaymentAdapter()` catches it → `NoopPaymentAdapter` with
+    `code: "CONFIG_ERROR"` (logged once); `facilitatorConfigured()` returns
+    `false`. Free routes, the capability doc, and the buyer web flow keep
+    working; paid routes get an explicit `503`. `X402_ATTRIBUTION_TAG` is
+    validated (`/^celo_[A-Za-z0-9][A-Za-z0-9_-]{2,62}$/`); a mismatch is dropped
+    with a `configWarning`, never recorded (BR-007).
+  - **Idempotency scope.** The quote endpoint folds `sha256(X-PAYMENT)` into the
+    idempotency **scope** (`…:probe` / `…:pay:<hash>`), not the request payload,
+    so the same key replays cleanly across the probe and the paid retry.
+  - **Concurrency.** `insertOrGetByAuthorizationKey` (`onConflictDoNothing` +
+    re-read) makes the recorders converge on one immutable row; a request whose
+    settle lost the nonce race serves the winner's `SETTLED` receipt.
+  - **Receipt language.** The task page adds `NOT_REQUIRED` ("no agent query fee
+    — came through the web") and `AUTHORISED` ("being reconciled — not shown as
+    paid") copy; the `/evidence` payments block adds an `indeterminate` count.
+- **Consequences:** No schema migration (`AUTHORISED` / `UNAVAILABLE` already in
+  the `payment_status` enum). New public status code
+  `PAYMENT_SETTLEMENT_INDETERMINATE`. Tests: `adapter/config.test.ts`,
+  `adapter/index.test.ts` (new), expanded `adapter/x402.test.ts`,
+  `payments/lifecycle.test.ts`, `v1.payment.contract.test.ts`. `PAYMENTS.md`,
+  `CLAIMS.md`, `CAPABILITY_API.md`, `DEPLOYMENT.md`, `.env.example`,
+  `DEVELOPMENT_WORKFLOW.md`, `PRD.md` (F-PAY) updated.
+- **Requirements:** `FR-PAY-002`..`007`, `AC-PAY-001`..`006`, `BR-005`, `BR-007`,
+  `NFR-SEC-001/002`, `NFR-REL-001`; `docs/PAYMENTS.md`.
+
+## ADR-018 — Physical fulfilment attestation on EAS; evaluator, never custodian
+
+- **Date:** 2026-09-01
+- **Status:** Accepted (extends ADR-016; narrows CLAUDE.md §4.1 and §6.2)
+- **Context:** The Celo "Agents at Work" submission (2026-09-14 09:00 GMT) is
+  Celo **mainnet only** and requires a real **ERC-8004 Agent ID** plus agent
+  wallets; users/buyers/volume count only from wallets that are not ours. Three
+  external facts were verified before this decision:
+  1. **EAS is deployed on Celo mainnet** (`EAS 0x72E1…Af92`,
+     `SchemaRegistry 0x5ece…AF34`, from the canonical `eas-contracts`
+     deployment artifacts). It already provides a schema registry, on-chain and
+     off-chain attestations, `refUID` chaining, expiry and revocation.
+  2. **ERC-8004** ships `giveFeedback(agentId, value, valueDecimals, tag1,
+tag2, endpoint, feedbackURI, feedbackHash)`; the submitter MUST NOT be the
+     agent owner. The spec states plainly that unfiltered results "are subject
+     to Sybil/spam attacks" and directs consumers to filter by trusted
+     `clientAddresses`. An empirical study of the deployed ecosystem
+     (arXiv 2606.26028) found 3–15% of registrations expose a valid endpoint,
+     59–91% of reviewers are Sybil, and feedback is "rarely grounded in
+     verifiable interactions".
+  3. **ERC-8183** (agentic commerce jobs + escrow) is **Draft**, has no Celo
+     deployment, and explicitly delegates real-world enforcement to "the
+     evaluator and external tools" — it ships that socket empty.
+     The existing CLAUDE.md §4.1 prohibition on ERC-8004 Agent IDs was written when
+     no registry access existed. It now blocks compliant work.
+- **Decision:**
+  - **ERC-8004 prohibition narrowed, not lifted.** Fabricating, mocking or
+    displaying an unverified Agent ID stays forbidden. Registering a real
+    identity against the Celo mainnet Identity Registry, and reading back the
+    minted `agentId`, is now required. A human-operated business is registered
+    with its Relay capability endpoint in `services[]` — honest, because that
+    genuinely is its agent-facing interface.
+  - **Use EAS as the attestation rail. Do not deploy our own contract.** No
+    custom attestation, reputation or escrow Solidity. We register two schemas
+    and issue attestations against the canonical deployment.
+  - **Evaluator, never custodian.** `BR-001` stands unchanged: Intra does not
+    hold funds. ERC-8183 escrow is **not** adopted; we emit an attestation an
+    8183 evaluator could later consume. Escrow is a commodity; the credible
+    determination is the product.
+  - **Two-party anti-fabrication by commit–reveal.** At commitment time the
+    system publishes `handoverCommit = keccak256(code ‖ salt)`. The **buyer**
+    alone receives `code`; the server withholds `salt` until a correct `code` is
+    presented. The handover attestation is signed by the **merchant** and
+    carries `code` + `salt`, so the merchant's key proves their participation
+    and possession of `code` proves the buyer handed it over in person.
+    2-of-2, with the server as a non-signing referee that cannot attest alone.
+  - **Honesty bound (extends PROOFLINE_DISCLAIMER).** The attestation proves
+    that the named parties completed the handover protocol at a time. It does
+    **not** prove quantity, quality, timeliness or satisfaction. Those are a
+    separate rating signal and must never be described as proven.
+  - **`viem` admitted** as a narrow exception to §6.2 — required for
+    `keccak256`, ABI encoding, EAS schema-UID derivation, and Celo mainnet
+    calls. No other chain library is added.
+- **Consequences:** New `src/features/attestation/` module. `viem` added to
+  `dependencies`. New public status codes to follow with the write path. The
+  Proofline pilot (ADR-016) keeps its two events and its merchant→buyer pickup
+  code unchanged; the buyer→merchant handover secret introduced here is a
+  distinct, attestation-grade mechanism and does not alter Proofline semantics.
+  PRD gains `FR-ATT-*` / `AC-ATT-*`; `CLAUDE.md` §4.1 and §6.2 amended in the
+  same commit.
+- **Requirements:** `FR-ATT-001`..`005`, `AC-ATT-001`..`004`, `BR-001` (upheld),
+  `BR-005`, `NFR-SEC-001`.
