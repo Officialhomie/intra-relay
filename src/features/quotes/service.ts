@@ -9,7 +9,8 @@ import { findRouteById } from "@/features/routes/repository";
 import { assertTaskTransition } from "@/features/tasks/lifecycle";
 import { findTaskById, updateTask } from "@/features/tasks/repository";
 
-import { buildOrderMessage, buildRationale } from "./order-message";
+import { buildOrderMessage } from "./order-message";
+import { buildRecommendationSummary } from "./recommendation";
 import { findRecommendationByTask, insertQuote, insertRecommendation } from "./repository";
 import { quoteConfidenceSchema } from "./status";
 
@@ -82,6 +83,7 @@ export async function submitQuote(
   const business = await findBusinessById(db, route.businessId);
   if (!business) throw new HttpError(404, "BUSINESS_NOT_FOUND", "Route has no business.");
 
+  const now = new Date();
   const quote = await insertQuote(db, {
     taskId: task.id,
     routeId: route.id,
@@ -108,29 +110,22 @@ export async function submitQuote(
   const recommendation = await insertRecommendation(db, {
     taskId: task.id,
     quoteId: quote.id,
-    rationale: buildRationale(quote),
+    rationale: buildRecommendationSummary(quote),
     confidence: quote.confidence,
     orderMessage: buildOrderMessage(business, task, quote),
   });
 
+  // The task stops at RECOMMENDED: the buyer must explicitly accept or decline
+  // this quote before Intra reveals the WhatsApp handoff (PRD §8, FR-REC-004).
   assertTaskTransition(task.status, "RECOMMENDED");
-  await updateTask(db, task.id, { status: "RECOMMENDED" });
+  const recommended = await updateTask(db, task.id, { status: "RECOMMENDED", quotedAt: now });
   await appendAuditEvent(db, {
     type: "recommendation.created",
     taskId: task.id,
     quoteId: quote.id,
   });
 
-  assertTaskTransition("RECOMMENDED", "HANDOFF_READY");
-  const handoffReady = await updateTask(db, task.id, { status: "HANDOFF_READY" });
-  await appendAuditEvent(db, {
-    type: "task.handoff_ready",
-    taskId: task.id,
-    quoteId: quote.id,
-    data: { note: "Order message generated. Never auto-sent (FR-REC-002)." },
-  });
-
-  return { quote, recommendation, task: handoffReady };
+  return { quote, recommendation, task: recommended };
 }
 
 /** Supplier declines out of area / capacity — the task fails safely, no quote. */
@@ -140,6 +135,7 @@ export async function declineRequest(
   input: DeclineRequest,
 ): Promise<{ quote: QuoteRow; task: TaskRow }> {
   const { route, task } = await loadAwaitingTask(db, routeId, input.taskId);
+  const now = new Date();
 
   const quote = await insertQuote(db, {
     taskId: task.id,
@@ -162,6 +158,8 @@ export async function declineRequest(
   const failed = await updateTask(db, task.id, {
     status: "FAILED",
     failureReason: "SUPPLIER_DECLINED",
+    quotedAt: now,
+    closedAt: now,
   });
   await appendAuditEvent(db, {
     type: "task.failed",
