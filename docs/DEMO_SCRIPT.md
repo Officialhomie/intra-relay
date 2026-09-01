@@ -133,29 +133,77 @@ Now act as the supplier. In a terminal or the supplier window:
   response form: amount `18000` NGN, turnaround `Same day if approved by noon`,
   add an assumption `Artwork supplied print-ready`, set an expiry. Submit.
 
-Back in the **buyer window**, refresh `/tasks/:id`:
+Back in the **buyer window**, refresh `/tasks/:id`. The task is now
+`RECOMMENDED` — a real quote is in, but nothing has been decided:
 
-- **The quote** card shows price, turnaround, assumptions, and expiry.
-- A **recommendation** is prepared and the task moves to `HANDOFF_READY`.
+- **The quote** card shows the raw figures with the label _"Entered by the
+  printer or an Intra operator. Not independently checked by Intra."_ and the
+  quote validity date.
+- **Intra's read of this quote** normalises it: total incl. delivery, price per
+  flyer, turnaround, a short "why this looks OK" list, and a **"what Intra
+  cannot confirm"** list (estimate vs fixed, expiry, low confidence, "Intra
+  cannot see your WhatsApp conversation").
+- The printer's **name and city** are shown, but **not their phone number** yet.
 
 ---
 
-## 4. WhatsApp handoff (1 min)
+## 4. Buyer chooses, then the WhatsApp handoff (1.5 min)
 
-On the buyer task page, scroll to **Order handoff — you send this yourself**:
+Still `RECOMMENDED`. In **Your choice**:
+
+- Point out the line: _"Intra does not place the order or pay the printer."_
+- Click **Proceed with this printer**. (Or demo the other branch: **Not this
+  one** → optional reason → the task becomes `CANCELLED`, nothing is ordered,
+  and feedback still opens.)
+
+The task moves to `HANDOFF_READY` and only now does the **Order handoff — you
+send this yourself** card appear, with the supplier's contact revealed:
 
 - the pre-filled message contains the brief and the quoted price;
 - **Intra does not send it.** Show the callout: "Intra does not send this message
   and never pays a supplier for you."
 - Click **Copy message**, then **Open in WhatsApp** — this opens the buyer's own
   WhatsApp with the text pre-filled and the cursor on Send. The buyer decides.
+- Click **I've sent this to the printer** — this is the buyer's own report;
+  Intra cannot observe WhatsApp.
+
+The activity timeline now shows the three distinct, separately timestamped
+events: **Quote received → You chose to proceed → You confirmed the message was
+sent**.
 
 Submit feedback ("Yes, useful") to close the loop and show the audit trail
 recording it.
 
 ---
 
-## 5. CONDITIONAL — verified Celo query-fee receipt (1 min)
+## 5. OPTIONAL — Proofline fulfilment evidence (1 min)
+
+This is the **Proofline pilot** (PRODUCT_VISION §3.2, ADR-016): two optional
+events that record whether the real-world job actually completed. It runs **only
+after** the buyer has confirmed the handoff in step 4. Say up front: _"This is
+operational evidence — timestamped statements by the people involved. It is not a
+cryptographic proof, not a payment, and not a reliability score."_
+
+1. **Supplier window** (`/supplier/<slug>/requests?t=<manageToken>`): scroll to
+   **Handed-off orders**. The buyer's order is listed with a **Mark ready for
+   pickup** button. Click it. Intra shows a **6-character pickup code** — "read
+   this to the buyer at the counter". (Try clicking it again: `409` — one event
+   only. Try the page without the `?t=` token: the code is not shown.)
+2. **Buyer window** (`/tasks/:id`): the **Fulfilment evidence (Proofline pilot)**
+   card now says _"The printer marked this order ready for pickup"_ — attributed,
+   not a claim by Intra. The buyer taps **Confirm I've collected this order**
+   (signed-in path), or expands **Have a pickup code instead?** and types the
+   code (works from any device).
+3. Both windows now show **Buyer confirmed pickup** with the method used. The
+   task activity timeline gained `Printer marked the order ready for pickup` and
+   `You confirmed you collected the order`.
+
+Point out: nothing here moved money, placed an order, or produced a score — and
+"pickup confirmed" appeared only because the **buyer** recorded it.
+
+---
+
+## 6. CONDITIONAL — verified Celo query-fee receipt (1 min)
 
 This step proves the **agent-to-business paid query**, distinct from the buyer's
 order. It requires an official Celo x402 facilitator API key
