@@ -1,4 +1,9 @@
-# Intra — Implementation Plan
+# Intra Relay — Implementation Plan
+
+> **North star:** Intra Relay makes a non-API business safely callable by any
+> agent; Proofline will later record fulfilment evidence. The hackathon only
+> proves one flyer-printing workflow. Read [`PRODUCT_VISION.md`](PRODUCT_VISION.md)
+> before promoting a future-platform idea into the current plan.
 
 ## Phase 0 — Registration and dependency checks
 
