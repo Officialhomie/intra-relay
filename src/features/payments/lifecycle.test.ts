@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { HttpError } from "@/lib/http/response";
 
+import { readPaymentConfig } from "./adapter/config";
 import {
   assertPaymentTransition,
   assertSettlement,
@@ -65,9 +66,13 @@ describe("facilitatorConfigured (FR-PAY-004)", () => {
     expect(facilitatorConfigured()).toBe(true); // defaults to eip155:42220 / USDC
   });
 
-  it("throws loudly on an unknown network", () => {
+  it("does NOT throw on a bad network — a config mistake must not block the quote workflow", () => {
     process.env.X402_API_KEY = "x402-metering-key";
     process.env.X402_NETWORK = "eip155:1";
-    expect(() => facilitatorConfigured()).toThrow(/not a supported Celo x402 network/i);
+    expect(() => facilitatorConfigured()).not.toThrow();
+    expect(facilitatorConfigured()).toBe(false); // treated as not configured
+
+    // readPaymentConfig itself stays loud — that is the deploy-check surface.
+    expect(() => readPaymentConfig()).toThrow(/not a supported Celo x402 network/i);
   });
 });
