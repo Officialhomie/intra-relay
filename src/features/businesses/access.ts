@@ -2,7 +2,7 @@ import { eq, and } from "drizzle-orm";
 import { timingSafeEqual } from "node:crypto";
 
 import type { Database } from "@/lib/db/client";
-import { businesses, quoteRoutes } from "@/lib/db/schema";
+import { businesses, quoteRoutes, tasks } from "@/lib/db/schema";
 
 function constantTimeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -54,6 +54,23 @@ export async function manageTokenMatchesRoute(
     .from(quoteRoutes)
     .innerJoin(businesses, eq(quoteRoutes.businessId, businesses.id))
     .where(and(eq(quoteRoutes.id, routeId)))
+    .limit(1);
+  return row ? constantTimeEqual(row.manageToken, token) : false;
+}
+
+/** Does `token` match the manage token of the business that owns this task's route? */
+export async function manageTokenMatchesTask(
+  db: Database,
+  taskId: string,
+  token: string | null,
+): Promise<boolean> {
+  if (!token) return false;
+  const [row] = await db
+    .select({ manageToken: businesses.manageToken })
+    .from(tasks)
+    .innerJoin(quoteRoutes, eq(tasks.routeId, quoteRoutes.id))
+    .innerJoin(businesses, eq(quoteRoutes.businessId, businesses.id))
+    .where(eq(tasks.id, taskId))
     .limit(1);
   return row ? constantTimeEqual(row.manageToken, token) : false;
 }
