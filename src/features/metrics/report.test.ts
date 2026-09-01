@@ -8,7 +8,7 @@ import { servicePayments, tasks } from "@/lib/db/schema";
 import { changeRouteStatus } from "@/features/routes/service";
 import { submitQuote } from "@/features/quotes/service";
 import { createFeedback } from "@/features/feedback/service";
-import { createTask, confirmHandoff, submitTask } from "@/features/tasks/service";
+import { confirmHandoff, createTask, decideOnQuote, submitTask } from "@/features/tasks/service";
 import {
   COMPLETE_FLYER_BRIEF,
   TEST_OPERATOR,
@@ -161,6 +161,7 @@ describe("buildEvidenceReport (MET-001)", () => {
       amountMin: 12000,
       turnaround: "Next day",
     });
+    await decideOnQuote(db, task.id, "session-h-1", { decision: "ACCEPT" });
     await confirmHandoff(db, task.id, "session-h-1");
     await changeRouteStatus(db, route.id, "PAUSED", { operator: TEST_OPERATOR });
 
