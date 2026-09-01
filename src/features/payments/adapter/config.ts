@@ -14,7 +14,7 @@ import {
 export const PAYMENT_MAX_FEE_USD = 0.05;
 
 export type PaymentConfig =
-  | { provider: "none"; reason: string }
+  | { provider: "none"; reason: string; code: "NOT_CONFIGURED" | "CONFIG_ERROR" }
   | {
       provider: "x402";
       network: string;
@@ -24,14 +24,26 @@ export type PaymentConfig =
       apiKey: string;
       /** ERC-8021 attribution tag from official hackathon registration, or null. */
       attributionTag: string | null;
+      /** Set when a supplied `X402_ATTRIBUTION_TAG` was malformed and dropped. */
+      configWarning?: string;
       maxFeeUsd: number;
     };
+
+/**
+ * ERC-8021 attribution tags are `celo_` + a bounded, URL-safe identifier
+ * (docs/PAYMENTS.md, hackathon registration). A value that does not match is
+ * treated as absent so a typo is never recorded as a genuine on-chain
+ * attribution claim (BR-007). Widen this only against the real registration
+ * output.
+ */
+export const ATTRIBUTION_TAG_RE = /^celo_[A-Za-z0-9][A-Za-z0-9_-]{2,62}$/;
 
 export function readPaymentConfig(env: NodeJS.ProcessEnv = process.env): PaymentConfig {
   const apiKey = env.X402_API_KEY?.trim();
   if (!apiKey) {
     return {
       provider: "none",
+      code: "NOT_CONFIGURED",
       reason: "No x402 / cPay facilitator is configured (X402_API_KEY is unset).",
     };
   }
@@ -54,7 +66,18 @@ export function readPaymentConfig(env: NodeJS.ProcessEnv = process.env): Payment
     );
   }
 
-  const attributionTag = env.X402_ATTRIBUTION_TAG?.trim() || null;
+  const rawTag = env.X402_ATTRIBUTION_TAG?.trim();
+  let attributionTag: string | null = null;
+  let configWarning: string | undefined;
+  if (rawTag) {
+    if (ATTRIBUTION_TAG_RE.test(rawTag)) {
+      attributionTag = rawTag;
+    } else {
+      configWarning =
+        `X402_ATTRIBUTION_TAG is not a valid ERC-8021 "celo_" tag and was ignored — ` +
+        `no attribution tag will be recorded. Fix it or unset it.`;
+    }
+  }
 
   return {
     provider: "x402",
@@ -64,6 +87,7 @@ export function readPaymentConfig(env: NodeJS.ProcessEnv = process.env): Payment
     asset,
     apiKey,
     attributionTag,
+    ...(configWarning ? { configWarning } : {}),
     maxFeeUsd: PAYMENT_MAX_FEE_USD,
   };
 }
