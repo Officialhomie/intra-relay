@@ -110,7 +110,7 @@ export function QuoteResponseForm({ routeId, taskId, manageToken, currency }: Pr
       <Callout tone="success" title={mode === "decline" ? "Request declined" : "Quote sent"}>
         {mode === "decline"
           ? "The buyer has been told this request cannot be fulfilled."
-          : "The buyer can now review your quote and message you to confirm the order."}
+          : "The buyer will now review your quote and decide whether to proceed. If they do, they message you directly."}
       </Callout>
     );
   }
@@ -224,6 +224,14 @@ export function QuoteResponseForm({ routeId, taskId, manageToken, currency }: Pr
           error={errors.declineReason}
         />
       )}
+
+      {mode === "quote" ? (
+        <Callout tone="info" title="How the buyer sees this">
+          The buyer is shown these figures as the printer&apos;s quote, entered through Intra. Intra
+          does not independently verify them. Set an expiry if the price is only good for a limited
+          time.
+        </Callout>
+      ) : null}
 
       {formError ? (
         <Callout tone="warning" title="Could not send">
