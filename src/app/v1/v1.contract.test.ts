@@ -103,7 +103,7 @@ describe("GET /v1/:businessSlug/capabilities", () => {
     expect(route.orderContact).toBeUndefined();
   });
 
-  it("includes the order contact only while the route is ACTIVE", async () => {
+  it("an ACTIVE, fresh, verified route is AVAILABLE and exposes the order contact", async () => {
     const { business } = await createActiveRoute(db);
     const { body } = await read(
       await capabilities(new Request("http://x"), params({ businessSlug: business.slug })),
@@ -111,7 +111,72 @@ describe("GET /v1/:businessSlug/capabilities", () => {
     const route = body.data.routes[0];
     expect(route.status).toBe("ACTIVE");
     expect(route.stale).toBe(false);
+    expect(route.availability).toMatchObject({
+      state: "AVAILABLE",
+      acceptingQuoteRequests: true,
+      reason: "OK",
+    });
+    expect(route.freshness).toMatchObject({ maxAgeDays: 14, stale: false });
+    expect(new Date(route.freshness.staleAfter).getTime()).toBeGreaterThan(Date.now());
+    expect(route.quoteSla.responseWithinMinutes).toBeGreaterThan(0);
+    expect(route.handoff).toMatchObject({ humanApprovalRequired: true, channelType: "whatsapp" });
+    expect(body.data.finalOrderPolicy.whatsappHandoffRequired).toBe(true);
     expect(route.orderContact).toMatchObject({ channel: "whatsapp", value: "+2348012345678" });
+  });
+
+  it("a PENDING_VERIFICATION route is UNAVAILABLE and hides the order contact", async () => {
+    const { business, route } = await draftRoute();
+    await changeRouteStatus(db, route.id, "PENDING_VERIFICATION", {
+      operator: null,
+      canManage: true,
+    });
+    const { body } = await read(
+      await capabilities(new Request("http://x"), params({ businessSlug: business.slug })),
+    );
+    const card = body.data.routes[0];
+    expect(card.status).toBe("PENDING_VERIFICATION");
+    expect(card.availability).toMatchObject({
+      state: "UNAVAILABLE",
+      acceptingQuoteRequests: false,
+      reason: "NOT_ACTIVE",
+    });
+    expect(card.availability.detail).toContain("does not accept public quote requests");
+    expect(card.orderContact).toBeUndefined();
+  });
+
+  it("a PAUSED route is UNAVAILABLE and hides the order contact", async () => {
+    const { business, route } = await createActiveRoute(db);
+    await changeRouteStatus(db, route.id, "PAUSED", { operator: TEST_OPERATOR });
+    const { body } = await read(
+      await capabilities(new Request("http://x"), params({ businessSlug: business.slug })),
+    );
+    const card = body.data.routes[0];
+    expect(card.status).toBe("PAUSED");
+    expect(card.availability).toMatchObject({ state: "UNAVAILABLE", reason: "NOT_ACTIVE" });
+    expect(card.orderContact).toBeUndefined();
+  });
+
+  it("an ACTIVE route with stale price data is explicitly UNAVAILABLE, never silently current", async () => {
+    const { business, route } = await createActiveRoute(db);
+    await updateRoute(db, route.id, {
+      priceUpdatedAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000),
+    });
+    const { body } = await read(
+      await capabilities(new Request("http://x"), params({ businessSlug: business.slug })),
+    );
+    const card = body.data.routes[0];
+    // Lifecycle status is still ACTIVE...
+    expect(card.status).toBe("ACTIVE");
+    // ...but the usability verdict is UNAVAILABLE (AC-ROUTE-002).
+    expect(card.availability).toMatchObject({
+      state: "UNAVAILABLE",
+      acceptingQuoteRequests: false,
+      reason: "STALE",
+    });
+    expect(card.stale).toBe(true);
+    expect(card.freshness.stale).toBe(true);
+    expect(new Date(card.freshness.staleAfter).getTime()).toBeLessThan(Date.now());
+    expect(card.orderContact).toBeUndefined();
   });
 });
 
@@ -165,6 +230,42 @@ describe("POST /v1/:businessSlug/:routeSlug/quote", () => {
     expect(await db.select().from(tasks)).toHaveLength(0);
     const events = await db.select().from(auditEvents);
     expect(events.map((e) => e.type)).not.toContain("capability.quote_requested");
+  });
+
+  it("rejects a malformed JSON body with 400 before touching the route", async () => {
+    const { business } = await createActiveRoute(db);
+    const res = await read(
+      await quote(
+        new Request(`http://localhost/v1/${business.slug}/flyer-printing/quote`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "idempotency-key": "v1-malformed-001" },
+          body: "{ not json",
+        }),
+        params({ businessSlug: business.slug, routeSlug: "flyer-printing" }),
+      ),
+    );
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("INVALID_JSON");
+    expect(await db.select().from(tasks)).toHaveLength(0);
+  });
+
+  it("returns ROUTE_UNAVAILABLE for a route still pending verification", async () => {
+    const { business, route } = await draftRoute();
+    await changeRouteStatus(db, route.id, "PENDING_VERIFICATION", {
+      operator: null,
+      canManage: true,
+    });
+    const res = await read(
+      await quote(
+        quoteReq(`/v1/${business.slug}/flyer-printing/quote`, { input: VALID_INPUT }),
+        params({ businessSlug: business.slug, routeSlug: "flyer-printing" }),
+      ),
+    );
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("ROUTE_UNAVAILABLE");
+    expect(res.body.error.details.route.reason).toBe("NOT_ACTIVE");
+    expect(res.body.error.details.payment.requested).toBe(false);
+    expect(await db.select().from(tasks)).toHaveLength(0);
   });
 
   it("returns ROUTE_UNAVAILABLE for a paused route", async () => {
