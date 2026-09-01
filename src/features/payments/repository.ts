@@ -17,6 +17,33 @@ export async function insertServicePayment(
   return row;
 }
 
+/**
+ * Insert a receipt keyed by `authorizationKey`, tolerating a concurrent request
+ * that already recorded the same authorisation. Two agents presenting the same
+ * `X-PAYMENT` at once converge on one immutable row (the `authorization_key`
+ * unique index is the backstop). Falls back to a plain insert when there is no
+ * key (e.g. an undecodable header).
+ */
+export async function insertOrGetByAuthorizationKey(
+  db: Database,
+  values: NewServicePayment,
+): Promise<ServicePaymentRow> {
+  if (!values.authorizationKey) return insertServicePayment(db, values);
+
+  const [row] = await db
+    .insert(servicePayments)
+    .values(values)
+    .onConflictDoNothing({ target: servicePayments.authorizationKey })
+    .returning();
+  if (row) return row;
+
+  const existing = await findPaymentByAuthorizationKey(db, values.authorizationKey);
+  if (existing) return existing;
+  // The conflicting row vanished between the insert and the re-read (should not
+  // happen — rows are never deleted). Retry once as a plain insert.
+  return insertServicePayment(db, values);
+}
+
 export async function listPaymentsByTask(
   db: Database,
   taskId: string,
