@@ -25,11 +25,13 @@ function errorResult(error: HttpError): IdempotentResult {
 
 /**
  * Public agent quote request. x402 flow:
- *   POST (no X-PAYMENT)  → 402 PAYMENT_REQUIRED with `details.accepts` (paid route)
- *   POST + X-PAYMENT     → official verify → settle → 200 + `X-PAYMENT-RESPONSE`
- *   settlement failed    → 402 PAYMENT_FAILED (immutable FAILED receipt kept)
+ *   POST (no X-PAYMENT)     → 402 PAYMENT_REQUIRED with `details.accepts` (paid route)
+ *   POST + X-PAYMENT        → official verify → settle → 200 + `X-PAYMENT-RESPONSE`
+ *   bad authorisation       → 402 PAYMENT_FAILED (immutable FAILED receipt kept)
+ *   facilitator unreachable → 503 PAYMENT_SERVICE_UNAVAILABLE (retryable)
+ *   settle outcome unknown  → 503 PAYMENT_SETTLEMENT_INDETERMINATE (do NOT re-authorise)
  * Non-payment outcomes: 202 (free route), 409 ROUTE_UNAVAILABLE, 422, 503, 404.
- * A 402 settlement, X-PAYMENT verification, receipt, or tx hash is never fabricated.
+ * A settlement, X-PAYMENT verification, receipt, or tx hash is never fabricated.
  */
 export const POST = route(async (request, context) => {
   const { businessSlug, routeSlug } = await context.params;
@@ -39,17 +41,22 @@ export const POST = route(async (request, context) => {
 
   const url = new URL(request.url);
   const xPaymentHeader = request.headers.get("x-payment");
-  // The X-PAYMENT header is part of the idempotent identity — an unpaid probe and
-  // its paid retry are distinct operations under the same Idempotency-Key.
+  // The X-PAYMENT header is part of the idempotent IDENTITY, folded into the
+  // scope (not the payload): an unpaid probe and its paid retry under the SAME
+  // Idempotency-Key are distinct records that each replay cleanly — the natural
+  // x402 retry pattern, rather than a 409 conflict.
   const xPaymentHash = xPaymentHeader
     ? createHash("sha256").update(xPaymentHeader).digest("hex")
     : null;
+  const scope = xPaymentHash
+    ? `v1.quote:${businessSlug}:${routeSlug}:pay:${xPaymentHash}`
+    : `v1.quote:${businessSlug}:${routeSlug}:probe`;
 
   return runIdempotent(
     db,
-    `v1.quote:${businessSlug}:${routeSlug}`,
+    scope,
     key,
-    { ...body, xPaymentHash },
+    body,
     async () => {
       try {
         const outcome = await requestQuoteViaCapabilityApi(db, businessSlug, routeSlug, body, {
