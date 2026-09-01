@@ -58,8 +58,8 @@ export function routeStatusTone(status: string): Tone {
 export function taskStatusTone(status: string): Tone {
   switch (status) {
     case "HANDOFF_READY":
-    case "RECOMMENDED":
       return "active";
+    case "RECOMMENDED":
     case "AWAITING_QUOTE":
     case "SUBMITTED":
       return "pending";
