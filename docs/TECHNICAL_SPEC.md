@@ -52,6 +52,10 @@ Operator UI ─────┘     │
 | POST | `/api/businesses/:slug/routes` | create route |
 | PATCH | `/api/routes/:id/status` | safe lifecycle change |
 | POST | `/api/routes/:id/quotes` | operator/supplier quote response |
+| POST | `/api/tasks/:id/decision` | buyer accepts / declines the quote |
+| POST | `/api/tasks/:id/handoff-confirm` | buyer confirms they sent the WhatsApp order |
+| POST | `/api/tasks/:id/proofline/ready` | merchant marks the order ready for pickup (pilot) |
+| POST | `/api/tasks/:id/proofline/confirm-pickup` | buyer confirms pickup (pilot) |
 | POST | `/v1/:businessSlug/:routeSlug/quote` | agent-accessible paid quote route |
 | POST | `/api/payments/x402/callback` | authenticated, idempotent settlement callback |
 | POST | `/api/feedback` | buyer feedback |
@@ -72,6 +76,7 @@ tasks      1──* quotes
 tasks      1──* service_payments
 tasks      1──1 recommendation
 tasks      1──* feedback
+tasks      1──* proofline_events
 ```
 
 - `service_payments.tx_hash` is unique when present.
@@ -79,6 +84,10 @@ tasks      1──* feedback
 - Only `SETTLED` payments render as paid.
 - One active recommendation per task.
 - Wallet private-key material is never persisted.
+- `proofline_events` is append-only; a row is written once. At most one
+  `READY_FOR_PICKUP` and one `PICKUP_CONFIRMED` per task, and only after
+  `tasks.handoff_confirmed_at` is set. `pickup_code` is a low-stakes pickup
+  nonce (not a credential) and is never returned on a buyer surface.
 
 ## 6. Security and operations
 
