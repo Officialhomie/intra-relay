@@ -68,6 +68,11 @@ export interface SettledResult {
   responseHeader: { name: string; value: string };
 }
 
+/**
+ * The presented authorisation is genuinely bad (undecodable, over the cap,
+ * rejected by `verify`, or reverted on-chain). Safe for the agent to fix and
+ * retry with a fresh authorisation → maps to `402 PAYMENT_FAILED`.
+ */
 export interface FailedResult {
   status: "FAILED";
   provider: PaymentProvider;
@@ -76,13 +81,38 @@ export interface FailedResult {
   authorizationKey: string | null;
 }
 
+/**
+ * Verification could not be obtained — no facilitator configured, a config
+ * error, or the facilitator/network was unreachable. Nothing is known about the
+ * agent's authorisation; it is NOT the agent's fault → maps to
+ * `503 PAYMENT_SERVICE_UNAVAILABLE`. Retryable once infra recovers.
+ */
 export interface UnavailableResult {
   status: "UNAVAILABLE";
   provider: PaymentProvider;
   reason: string;
+  /** Machine code, e.g. "CONFIG_ERROR", "VERIFY_REQUEST_FAILED", "NOT_CONFIGURED". */
+  code?: string;
+  authorizationKey?: string | null;
 }
 
-export type SettleResult = SettledResult | FailedResult | UnavailableResult;
+/**
+ * `verify` passed but the settlement outcome is unknown — a `settle` timeout or
+ * a malformed settle response. The transfer may still have landed on-chain, so
+ * this is claimed **neither** way. Maps to `503 PAYMENT_SETTLEMENT_INDETERMINATE`;
+ * the agent must NOT re-authorise with a new nonce.
+ */
+export interface IndeterminateResult {
+  status: "INDETERMINATE";
+  provider: PaymentProvider;
+  code: "SETTLE_INDETERMINATE";
+  reason: string;
+  authorizationKey: string;
+  /** The `verify` result summary — verification succeeded; only `settle` is unknown. */
+  verification: Record<string, unknown>;
+}
+
+export type SettleResult = SettledResult | FailedResult | IndeterminateResult | UnavailableResult;
 
 export interface PaymentAdapter {
   readonly provider: PaymentProvider;
@@ -97,6 +127,10 @@ export interface PaymentAdapter {
     maxFeeUsd?: number;
     attributionConfigured?: boolean;
     reason?: string;
+    /** Machine code when unavailable, e.g. "CONFIG_ERROR", "NOT_CONFIGURED". */
+    code?: string;
+    /** Non-fatal configuration problem (e.g. a malformed attribution tag). */
+    configWarning?: string;
   };
   buildChallenge(input: ChallengeInput): PaymentChallenge | UnavailableResult;
   /** Deterministic idempotency key for a presented `X-PAYMENT`, or null if undecodable. */
