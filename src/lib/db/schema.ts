@@ -19,7 +19,13 @@ import {
   CONTACT_CHANNEL_TYPES,
 } from "@/features/businesses/schema";
 import { PAYMENT_STATUSES } from "@/features/payments/status";
-import { QUOTE_CONFIDENCE, QUOTE_STATUSES } from "@/features/quotes/status";
+import {
+  PROOFLINE_ACTOR_ROLES,
+  PROOFLINE_CONFIRMATION_METHODS,
+  PROOFLINE_EVENT_TYPES,
+  PROOFLINE_EVIDENCE_STATUSES,
+} from "@/features/proofline/status";
+import { BUYER_DECISIONS, QUOTE_CONFIDENCE, QUOTE_STATUSES } from "@/features/quotes/status";
 import { ROUTE_STATUSES, QUOTE_CURRENCIES } from "@/features/routes/schema";
 import type { RouteInputField } from "@/features/routes/schema";
 import { TASK_STATUSES } from "@/features/tasks/status";
@@ -48,7 +54,18 @@ export const quoteCurrencyEnum = pgEnum("quote_currency", QUOTE_CURRENCIES);
 export const taskStatusEnum = pgEnum("task_status", TASK_STATUSES);
 export const quoteStatusEnum = pgEnum("quote_status", QUOTE_STATUSES);
 export const quoteConfidenceEnum = pgEnum("quote_confidence", QUOTE_CONFIDENCE);
+export const buyerDecisionEnum = pgEnum("buyer_decision", BUYER_DECISIONS);
 export const paymentStatusEnum = pgEnum("payment_status", PAYMENT_STATUSES);
+export const prooflineEventTypeEnum = pgEnum("proofline_event_type", PROOFLINE_EVENT_TYPES);
+export const prooflineActorRoleEnum = pgEnum("proofline_actor_role", PROOFLINE_ACTOR_ROLES);
+export const prooflineConfirmationMethodEnum = pgEnum(
+  "proofline_confirmation_method",
+  PROOFLINE_CONFIRMATION_METHODS,
+);
+export const prooflineEvidenceStatusEnum = pgEnum(
+  "proofline_evidence_status",
+  PROOFLINE_EVIDENCE_STATUSES,
+);
 
 export const businesses = pgTable("businesses", {
   id: id(),
@@ -118,6 +135,17 @@ export const tasks = pgTable("tasks", {
   status: taskStatusEnum("status").notNull().default("DRAFT"),
   failureReason: text("failure_reason"),
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  /** Set when a supplier response (quote or decline) is first recorded. */
+  quotedAt: timestamp("quoted_at", { withTimezone: true }),
+  /** The buyer's explicit choice on the quote (FR-REC-004). Null until they decide. */
+  buyerDecision: buyerDecisionEnum("buyer_decision"),
+  buyerDecidedAt: timestamp("buyer_decided_at", { withTimezone: true }),
+  /** Optional free-text reason the buyer gave when declining a quote. */
+  buyerDeclineReason: text("buyer_decline_reason"),
+  /** Set when the buyer confirms they personally sent the WhatsApp handoff. */
+  handoffConfirmedAt: timestamp("handoff_confirmed_at", { withTimezone: true }),
+  /** Set when the task first reaches a terminal state (HANDOFF_READY / FAILED / CANCELLED). */
+  closedAt: timestamp("closed_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -222,6 +250,30 @@ export const auditEvents = pgTable("audit_events", {
   createdAt: createdAt(),
 });
 
+/**
+ * Proofline pilot — append-only fulfilment-evidence log (PRODUCT_VISION §3.2,
+ * ADR-016). Two event types only, both optional, both after a buyer handoff.
+ * Not escrow, not settlement, not a reliability score. A row is written once.
+ */
+export const prooflineEvents = pgTable("proofline_events", {
+  id: id(),
+  taskId: text("task_id")
+    .notNull()
+    .references(() => tasks.id, { onDelete: "cascade" }),
+  eventType: prooflineEventTypeEnum("event_type").notNull(),
+  actorRole: prooflineActorRoleEnum("actor_role").notNull(),
+  confirmationMethod: prooflineConfirmationMethodEnum("confirmation_method").notNull(),
+  /** The order's fulfilment-evidence status established by this event. */
+  evidenceStatus: prooflineEvidenceStatusEnum("evidence_status").notNull(),
+  /**
+   * Short pickup code the merchant hands the buyer at collection. Only on a
+   * READY_FOR_PICKUP row. Not sensitive data (NFR-SEC-001): a low-stakes,
+   * single-order confirmation nonce — never a key, password, or identity value.
+   */
+  pickupCode: text("pickup_code"),
+  createdAt: createdAt(),
+});
+
 export const idempotencyKeys = pgTable(
   "idempotency_keys",
   {
@@ -255,6 +307,11 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   payments: many(servicePayments),
   recommendation: one(recommendations),
   feedback: many(feedback),
+  prooflineEvents: many(prooflineEvents),
+}));
+
+export const prooflineEventsRelations = relations(prooflineEvents, ({ one }) => ({
+  task: one(tasks, { fields: [prooflineEvents.taskId], references: [tasks.id] }),
 }));
 
 export const quotesRelations = relations(quotes, ({ one }) => ({
@@ -282,3 +339,5 @@ export type RecommendationRow = typeof recommendations.$inferSelect;
 export type FeedbackRow = typeof feedback.$inferSelect;
 export type ServicePaymentRow = typeof servicePayments.$inferSelect;
 export type AuditEventRow = typeof auditEvents.$inferSelect;
+export type ProoflineEventRow = typeof prooflineEvents.$inferSelect;
+export type NewProoflineEventRow = typeof prooflineEvents.$inferInsert;
