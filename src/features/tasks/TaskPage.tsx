@@ -14,6 +14,9 @@ import { StatusPill, taskStatusTone } from "@/components/ui/StatusPill";
 import { ApiError, apiRequest } from "@/lib/api";
 import { formatDateTime, formatMoney, isExpired, relativeTime } from "@/lib/format";
 import { getSessionId } from "@/lib/session";
+import { BuyerPickupPanel } from "@/features/proofline/BuyerPickupPanel";
+import type { ProoflineView } from "@/features/proofline/view";
+import { CELO_X402_NETWORKS, explorerTxUrl } from "@/features/payments/adapter/networks";
 
 interface TaskViewDto {
   task: {
@@ -22,6 +25,12 @@ interface TaskViewDto {
     structuredInput: Record<string, unknown> | null;
     failureReason: string | null;
     submittedAt: string | null;
+    quotedAt: string | null;
+    buyerDecision: "ACCEPTED" | "DECLINED" | null;
+    buyerDecidedAt: string | null;
+    buyerDeclineReason: string | null;
+    handoffConfirmedAt: string | null;
+    closedAt: string | null;
     createdAt: string;
   };
   route: {
@@ -33,14 +42,15 @@ interface TaskViewDto {
   } | null;
   supplier: {
     name: string;
-    contactChannelType: string;
-    contactChannelValue: string;
     city: string;
     country: string;
+    contactChannelType: string | null;
+    contactChannelValue: string | null;
   } | null;
   quotes: {
     id: string;
     status: string;
+    effectiveStatus: string;
     amountMin: string;
     amountMax: string | null;
     deliveryCharge: string | null;
@@ -66,10 +76,29 @@ interface TaskViewDto {
     attributionTag: string | null;
     settledAt: string | null;
   }[];
-  recommendation: { rationale: string; orderMessage: string } | null;
+  recommendation: {
+    rationale: string;
+    orderMessage: string;
+    reasoning: string[];
+    uncertainties: string[];
+    verificationNote: string;
+    quoteExpired: boolean;
+    normalized: {
+      currency: string;
+      priceBasis: "fixed" | "estimate";
+      totalMin: number;
+      totalMax: number | null;
+      quantity: number | null;
+      unitPriceMin: number | null;
+      unitPriceMax: number | null;
+      turnaround: { label: string; businessDays: number | null; hours: number | null };
+      assumptions: string[];
+    };
+  } | null;
   feedback: { id: string; useful: boolean; comment: string | null }[];
   timeline: { id: string; type: string; createdAt: string; data: Record<string, unknown> }[];
   handoffConfirmedAt: string | null;
+  proofline: ProoflineView | null;
 }
 
 const EVENT_LABEL: Record<string, string> = {
@@ -81,12 +110,18 @@ const EVENT_LABEL: Record<string, string> = {
   "payment.challenge_issued": "Payment requested (402)",
   "payment.settled": "Query fee settled on-chain",
   "payment.failed": "Payment attempt failed",
+  "payment.indeterminate": "Payment settlement outcome unknown",
   "quote.received": "Quote received",
   "quote.declined": "Printer declined",
+  "quote.expired": "Quote expired",
   "recommendation.created": "Recommendation prepared",
+  "task.buyer_accepted": "You chose to proceed with this printer",
+  "task.buyer_declined": "You chose not to proceed",
   "task.handoff_ready": "Ready for your WhatsApp handoff",
   "task.handoff_confirmed": "You confirmed the message was sent",
   "task.failed": "Request could not be completed",
+  "proofline.ready_for_pickup": "Printer marked the order ready for pickup",
+  "proofline.pickup_confirmed": "You confirmed you collected the order",
   "feedback.received": "Feedback recorded",
 };
 
@@ -171,7 +206,12 @@ export function TaskPage({ taskId }: { taskId: string }) {
     view;
   const quote = quotes[0] ?? null;
   const brief = task.structuredInput ?? {};
-  const declined = quote?.status === "DECLINED";
+  const supplierDeclined =
+    quote?.status === "DECLINED" || task.failureReason === "SUPPLIER_DECLINED";
+  const quoteExpired = quote?.effectiveStatus === "EXPIRED";
+  const awaitingDecision = task.status === "RECOMMENDED";
+  const readyForHandoff = task.status === "HANDOFF_READY";
+  const buyerDeclined = task.status === "CANCELLED";
 
   return (
     <div className="space-y-8">
@@ -192,6 +232,17 @@ export function TaskPage({ taskId }: { taskId: string }) {
             ? `The printer declined${quote?.declineReason ? `: "${quote.declineReason}"` : "."}`
             : "The route became unavailable before a quote could be requested. No payment was taken."}{" "}
           You can{" "}
+          <Link href="/request" className="underline">
+            send a new request
+          </Link>
+          .
+        </Callout>
+      ) : null}
+
+      {buyerDeclined ? (
+        <Callout tone="info" title="You decided not to proceed with this quote">
+          {task.buyerDeclineReason ? `Your note: "${task.buyerDeclineReason}". ` : ""}
+          Nothing was ordered and no payment was taken. You can{" "}
           <Link href="/request" className="underline">
             send a new request
           </Link>
@@ -223,14 +274,20 @@ export function TaskPage({ taskId }: { taskId: string }) {
         </DataList>
       </Card>
 
-      {quote && !declined ? (
+      {quote && !supplierDeclined ? (
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>The quote</CardTitle>
-            <span className="text-xs font-medium uppercase tracking-wide text-subtle">
-              {quote.fixed ? "Fixed price" : "Estimate — confirm before paying"}
-            </span>
+            <div className="flex items-center gap-2">
+              {quoteExpired ? <StatusPill tone="warning">Expired</StatusPill> : null}
+              <span className="text-xs font-medium uppercase tracking-wide text-subtle">
+                {quote.fixed ? "Fixed price" : "Estimate — confirm before paying"}
+              </span>
+            </div>
           </div>
+          <p className="mt-1 text-xs text-subtle">
+            Entered by the printer or an Intra operator. Not independently checked by Intra.
+          </p>
           <DataList className="mt-4">
             <DataRow label="Price">
               {quote.amountMax && quote.amountMax !== quote.amountMin
@@ -248,14 +305,16 @@ export function TaskPage({ taskId }: { taskId: string }) {
             ) : null}
             {quote.assumptions ? <DataRow label="Assumptions">{quote.assumptions}</DataRow> : null}
             {quote.confidence ? <DataRow label="Confidence">{quote.confidence}</DataRow> : null}
-            <DataRow label="Quote expiry">
+            <DataRow label="Quote validity">
               {quote.expiresAt ? (
                 isExpired(quote.expiresAt) ? (
-                  <span className="text-warning">Expired {relativeTime(quote.expiresAt)}</span>
+                  <span className="text-warning">
+                    Expired {relativeTime(quote.expiresAt)} — reconfirm the price before paying
+                  </span>
                 ) : (
                   <span>
                     <Clock3 aria-hidden className="mr-1 inline size-3.5" />
-                    {formatDateTime(quote.expiresAt)} ({relativeTime(quote.expiresAt)})
+                    Valid until {formatDateTime(quote.expiresAt)} ({relativeTime(quote.expiresAt)})
                   </span>
                 )
               ) : (
@@ -266,6 +325,17 @@ export function TaskPage({ taskId }: { taskId: string }) {
         </Card>
       ) : null}
 
+      {recommendation && !supplierDeclined ? (
+        <RecommendationCard
+          recommendation={recommendation}
+          currency={quote?.currency ?? recommendation.normalized.currency}
+        />
+      ) : null}
+
+      {awaitingDecision && recommendation ? (
+        <DecisionPanel taskId={task.id} onDecided={load} />
+      ) : null}
+
       {payments.length > 0 ? (
         <PaymentReceipt
           payments={payments}
@@ -273,15 +343,19 @@ export function TaskPage({ taskId }: { taskId: string }) {
         />
       ) : null}
 
-      {recommendation && supplier && !declined ? (
+      {readyForHandoff && recommendation && supplier?.contactChannelValue ? (
         <HandoffCard
           taskId={task.id}
           supplier={supplier}
-          rationale={recommendation.rationale}
           message={recommendation.orderMessage}
+          quoteExpired={recommendation.quoteExpired}
           confirmedAt={handoffConfirmedAt}
           onConfirmed={load}
         />
+      ) : null}
+
+      {handoffConfirmedAt && view.proofline ? (
+        <BuyerPickupPanel taskId={task.id} proofline={view.proofline} onChanged={load} />
       ) : null}
 
       <Card>
@@ -299,25 +373,162 @@ export function TaskPage({ taskId }: { taskId: string }) {
         </ol>
       </Card>
 
-      {handoffConfirmedAt || task.status === "FAILED" ? (
+      {handoffConfirmedAt || task.status === "FAILED" || buyerDeclined ? (
         <FeedbackForm taskId={task.id} existing={view.feedback.length > 0} />
       ) : null}
     </div>
   );
 }
 
-const NETWORK_LABEL: Record<string, string> = {
-  "eip155:42220": "Celo Mainnet",
-  "eip155:11142220": "Celo Sepolia",
-};
+function money(currency: string, amount: number): string {
+  return `${currency} ${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+}
+
+function RecommendationCard({
+  recommendation,
+  currency,
+}: {
+  recommendation: NonNullable<TaskViewDto["recommendation"]>;
+  currency: string;
+}) {
+  const n = recommendation.normalized;
+  const total =
+    n.totalMax != null
+      ? `${money(currency, n.totalMin)} – ${money(currency, n.totalMax)}`
+      : money(currency, n.totalMin);
+  const unit =
+    n.unitPriceMin != null
+      ? n.unitPriceMax != null
+        ? `${money(currency, n.unitPriceMin)} – ${money(currency, n.unitPriceMax)}`
+        : money(currency, n.unitPriceMin)
+      : null;
+
+  return (
+    <Card className="space-y-4">
+      <CardTitle>Intra&apos;s read of this quote</CardTitle>
+
+      <DataList>
+        <DataRow label="Total incl. delivery">{total}</DataRow>
+        {unit ? (
+          <DataRow label="Per flyer" hint={n.quantity ? `for ${n.quantity} copies` : undefined}>
+            {unit}
+          </DataRow>
+        ) : null}
+        <DataRow label="Turnaround">{n.turnaround.label}</DataRow>
+      </DataList>
+
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-subtle">Why this looks OK</p>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted">
+          {recommendation.reasoning.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      </div>
+
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-subtle">
+          What Intra cannot confirm
+        </p>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted">
+          {recommendation.uncertainties.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      </div>
+
+      <Callout tone="unavailable">{recommendation.verificationNote}</Callout>
+    </Card>
+  );
+}
+
+function DecisionPanel({ taskId, onDecided }: { taskId: string; onDecided: () => void }) {
+  const [mode, setMode] = useState<"idle" | "declining">("idle");
+  const [reason, setReason] = useState("");
+  const [pending, setPending] = useState<null | "ACCEPT" | "DECLINE">(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function decide(decision: "ACCEPT" | "DECLINE") {
+    setPending(decision);
+    setError(null);
+    try {
+      await apiRequest(`/api/tasks/${taskId}/decision`, {
+        method: "POST",
+        sessionId: getSessionId(),
+        body: {
+          decision,
+          reason: decision === "DECLINE" && reason.trim() ? reason.trim() : undefined,
+        },
+      });
+      onDecided();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not record your choice. Try again.");
+      setPending(null);
+    }
+  }
+
+  return (
+    <Card className="space-y-4">
+      <CardTitle>Your choice</CardTitle>
+      <p className="text-sm text-muted">
+        This is your decision. Intra does not place the order or pay the printer — if you proceed,
+        you send the message yourself and agree the order directly.
+      </p>
+
+      {mode === "idle" ? (
+        <div className="flex flex-wrap gap-2">
+          <Button pending={pending === "ACCEPT"} onClick={() => decide("ACCEPT")}>
+            Proceed with this printer
+          </Button>
+          <Button variant="secondary" onClick={() => setMode("declining")}>
+            Not this one
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <label htmlFor="decline-reason" className="text-sm font-medium">
+            Why not? <span className="text-subtle">(optional, helps us improve the route)</span>
+          </label>
+          <textarea
+            id="decline-reason"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            rows={3}
+            maxLength={500}
+            className="w-full rounded-sm border border-border bg-bg px-3 py-2.5 text-sm outline-none focus-visible:border-foreground"
+            placeholder="e.g. too expensive, too slow, found another printer"
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="danger"
+              pending={pending === "DECLINE"}
+              onClick={() => decide("DECLINE")}
+            >
+              Confirm — don&apos;t proceed
+            </Button>
+            <Button variant="secondary" onClick={() => setMode("idle")}>
+              Back
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {error ? (
+        <p role="alert" className="text-xs text-danger">
+          {error}
+        </p>
+      ) : null}
+    </Card>
+  );
+}
+
+function networkLabel(network: string | null): string {
+  if (!network) return "—";
+  return CELO_X402_NETWORKS[network]?.label ?? network;
+}
 
 function explorerUrl(network: string | null, txHash: string | null): string | null {
-  if (!network || !txHash) return null;
-  const base: Record<string, string> = {
-    "eip155:42220": "https://celoscan.io/tx/",
-    "eip155:11142220": "https://celo-sepolia.blockscout.com/tx/",
-  };
-  return base[network] ? `${base[network]}${txHash}` : null;
+  return network && txHash ? explorerTxUrl(network, txHash) : null;
 }
 
 function shortHash(value: string): string {
@@ -338,7 +549,7 @@ function PaymentReceipt({
       ? "active"
       : primary.status === "FAILED"
         ? "danger"
-        : primary.status === "UNAVAILABLE"
+        : primary.status === "UNAVAILABLE" || primary.status === "NOT_REQUIRED"
           ? "neutral"
           : "pending";
 
@@ -360,8 +571,7 @@ function PaymentReceipt({
             </span>
           </DataRow>
           <DataRow label="Network">
-            {settled.network ? (NETWORK_LABEL[settled.network] ?? settled.network) : "—"} · via{" "}
-            {settled.provider ?? "x402"}
+            {networkLabel(settled.network)} · via {settled.provider ?? "x402"}
           </DataRow>
           <DataRow label="Transaction">
             {settled.txHash ? (
@@ -403,8 +613,22 @@ function PaymentReceipt({
 
       {primary.status === "UNAVAILABLE" ? (
         <Callout tone="unavailable">
-          Celo x402 / cPay access is not configured, so no service fee was charged and no receipt
-          exists. Intra never fabricates a payment.
+          Celo x402 / cPay verification is not available, so no service fee was charged and no
+          receipt exists. Intra never fabricates a payment.
+        </Callout>
+      ) : null}
+
+      {primary.status === "NOT_REQUIRED" ? (
+        <Callout tone="unavailable">
+          No agent query fee applies — this request came through the web, not a paid agent API call.
+          Nothing was charged.
+        </Callout>
+      ) : null}
+
+      {primary.status === "AUTHORISED" ? (
+        <Callout tone="warning" title="Settlement outcome is being reconciled">
+          The query-fee payment was authorised but the on-chain settlement could not be confirmed.
+          It is not shown as paid until a verified transaction hash exists.
         </Callout>
       ) : null}
 
@@ -424,24 +648,25 @@ function PaymentReceipt({
 function HandoffCard({
   taskId,
   supplier,
-  rationale,
   message,
+  quoteExpired,
   confirmedAt,
   onConfirmed,
 }: {
   taskId: string;
-  supplier: TaskViewDto["supplier"] & object;
-  rationale: string;
+  supplier: NonNullable<TaskViewDto["supplier"]>;
   message: string;
+  quoteExpired: boolean;
   confirmedAt: string | null;
   onConfirmed: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const contactValue = supplier.contactChannelValue ?? "";
   const waHref =
-    supplier.contactChannelType === "whatsapp"
-      ? `https://wa.me/${supplier.contactChannelValue.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(message)}`
+    supplier.contactChannelType === "whatsapp" && contactValue
+      ? `https://wa.me/${contactValue.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(message)}`
       : null;
 
   async function copy() {
@@ -477,13 +702,21 @@ function HandoffCard({
         <MessageSquare aria-hidden className="size-5 text-primary" />
         <CardTitle>Order handoff — you send this yourself</CardTitle>
       </div>
-      <p className="text-sm text-muted">{rationale}</p>
+      <p className="text-sm text-muted">
+        You chose to proceed with this printer. Send them the message below to agree the order.
+      </p>
+      {quoteExpired ? (
+        <Callout tone="warning" title="The quote had expired when you accepted it">
+          Ask the printer to reconfirm the current price and turnaround before you pay. The message
+          below already says this.
+        </Callout>
+      ) : null}
       <DataList>
         <DataRow label="Supplier">
           {supplier.name} · {supplier.city}, {supplier.country}
         </DataRow>
         <DataRow label="Contact">
-          {supplier.contactChannelType} · {supplier.contactChannelValue}
+          {supplier.contactChannelType} · {contactValue}
         </DataRow>
       </DataList>
 
