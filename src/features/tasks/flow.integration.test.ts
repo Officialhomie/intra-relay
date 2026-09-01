@@ -7,7 +7,7 @@ import { changeRouteStatus } from "@/features/routes/service";
 import { submitQuote } from "@/features/quotes/service";
 import { COMPLETE_FLYER_BRIEF, TEST_OPERATOR, createActiveRoute } from "@/test-support/factories";
 
-import { createTask, getTaskView, submitTask } from "./service";
+import { confirmHandoff, createTask, decideOnQuote, getTaskView, submitTask } from "./service";
 
 let db: Database;
 let close: () => Promise<void>;
@@ -22,7 +22,7 @@ afterEach(async () => {
 const SESSION = "session-abcdefgh";
 
 describe("buyer task flow (F-TASK, F-REC, F-PAY)", () => {
-  it("runs create → submit → quote → HANDOFF_READY with an honest UNAVAILABLE payment", async () => {
+  it("runs create → submit → quote → buyer accepts → handoff → confirm with an honest UNAVAILABLE payment", async () => {
     const { route } = await createActiveRoute(db);
 
     const task = await createTask(db, SESSION, {
@@ -40,19 +40,32 @@ describe("buyer task flow (F-TASK, F-REC, F-PAY)", () => {
     expect(viewAfterSubmit.payments[0].status).toBe("UNAVAILABLE"); // FR-PAY-004
     expect(viewAfterSubmit.payments[0].txHash).toBeNull();
 
-    const { task: handoff, recommendation } = await submitQuote(db, route.id, {
+    const { task: recommended, recommendation } = await submitQuote(db, route.id, {
       taskId: task.id,
       amountMin: 15000,
       amountMax: 18000,
       turnaround: "same day",
       confidence: "medium",
     });
-    expect(handoff.status).toBe("HANDOFF_READY");
+    // The quote alone does not produce a handoff — the buyer must choose.
+    expect(recommended.status).toBe("RECOMMENDED");
+    expect(recommended.quotedAt).not.toBeNull();
     expect(recommendation.orderMessage).toMatch(/flyer printing/i);
-    expect(recommendation.orderMessage).toMatch(/Please confirm/i);
+
+    const atRecommended = await getTaskView(db, task.id, SESSION);
+    expect(atRecommended.supplier?.contactChannelValue).toBeNull();
+
+    const decided = await decideOnQuote(db, task.id, SESSION, { decision: "ACCEPT" });
+    expect(decided.task.status).toBe("HANDOFF_READY");
+    expect(decided.task.buyerDecision).toBe("ACCEPTED");
+
+    const confirmed = await confirmHandoff(db, task.id, SESSION);
+    expect(confirmed.handoffConfirmedAt).toBeTruthy();
 
     const finalView = await getTaskView(db, task.id, SESSION);
     expect(finalView.quotes).toHaveLength(1);
+    expect(finalView.supplier?.contactChannelValue).toBe("+2348012345678");
+    expect(finalView.recommendation?.orderMessage).toMatch(/Please confirm/i);
     expect(finalView.timeline.map((event) => event.type)).toEqual(
       expect.arrayContaining([
         "task.created",
@@ -61,7 +74,9 @@ describe("buyer task flow (F-TASK, F-REC, F-PAY)", () => {
         "payment.unavailable",
         "quote.received",
         "recommendation.created",
+        "task.buyer_accepted",
         "task.handoff_ready",
+        "task.handoff_confirmed",
       ]),
     );
   });
