@@ -96,6 +96,8 @@ export interface MetricsSnapshot {
     verifiedSettlements: number;
     failedAttempts: number;
     unavailable: number;
+    /** verify passed, settlement unconfirmed — claimed neither way (FR-PAY-007). */
+    indeterminate: number;
     note: string;
   };
 }
@@ -250,6 +252,9 @@ function buildSnapshot(input: ScopeInput): MetricsSnapshot {
   ).length;
   const failedAttempts = input.payments.filter((p) => p.status === "FAILED").length;
   const unavailable = input.payments.filter((p) => p.status === "UNAVAILABLE").length;
+  const indeterminate = input.payments.filter(
+    (p) => p.status === "AUTHORISED" && p.errorCode === "SETTLE_INDETERMINATE",
+  ).length;
 
   return {
     scope,
@@ -298,6 +303,7 @@ function buildSnapshot(input: ScopeInput): MetricsSnapshot {
       verifiedSettlements,
       failedAttempts,
       unavailable,
+      indeterminate,
       note:
         verifiedSettlements === 0
           ? "No verified Celo settlement recorded. A settlement is counted only after the official facilitator returns a valid transaction hash."
