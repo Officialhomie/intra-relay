@@ -13,6 +13,10 @@ import { POST as postQuote } from "@/app/api/routes/[id]/quotes/route";
 import { PATCH as patchStatus } from "@/app/api/routes/[id]/status/route";
 import { GET as getTask } from "@/app/api/tasks/[id]/route";
 import { POST as createTask } from "@/app/api/tasks/route";
+import { POST as decideTask } from "@/app/api/tasks/[id]/decision/route";
+import { POST as confirmHandoffRoute } from "@/app/api/tasks/[id]/handoff-confirm/route";
+import { POST as prooflineReady } from "@/app/api/tasks/[id]/proofline/ready/route";
+import { POST as prooflineConfirmPickup } from "@/app/api/tasks/[id]/proofline/confirm-pickup/route";
 import { POST as submitTask } from "@/app/api/tasks/[id]/submit/route";
 
 const OPERATOR = "op-secret-1234567890";
@@ -179,6 +183,33 @@ describe("supplier + buyer end-to-end workflow", () => {
     );
     expect(quote.status).toBe(201);
 
+    const recommended = await read(
+      await getTask(
+        new Request(`http://localhost/api/tasks/${taskId}`, {
+          headers: { "x-session-id": SESSION },
+        }),
+        params({ id: taskId }),
+      ),
+    );
+    // The quote is in, but the buyer has not chosen yet: no contact, no message-to-send.
+    expect(recommended.body.data.task.status).toBe("RECOMMENDED");
+    expect(recommended.body.data.quotes[0].deliveryCharge).toBe("1500.00");
+    expect(recommended.body.data.supplier.contactChannelValue).toBeNull();
+    expect(recommended.body.data.recommendation.verificationNote).toMatch(/not independently/i);
+
+    const decided = await read(
+      await decideTask(
+        json(
+          `/api/tasks/${taskId}/decision`,
+          { decision: "ACCEPT" },
+          { ...idem(), "x-session-id": SESSION },
+        ),
+        params({ id: taskId }),
+      ),
+    );
+    expect(decided.status).toBe(200);
+    expect(decided.body.data.task.status).toBe("HANDOFF_READY");
+
     const handoff = await read(
       await getTask(
         new Request(`http://localhost/api/tasks/${taskId}`, {
@@ -188,7 +219,7 @@ describe("supplier + buyer end-to-end workflow", () => {
       ),
     );
     expect(handoff.body.data.task.status).toBe("HANDOFF_READY");
-    expect(handoff.body.data.quotes[0].deliveryCharge).toBe("1500.00");
+    expect(handoff.body.data.task.buyerDecision).toBe("ACCEPTED");
     expect(handoff.body.data.supplier.contactChannelValue).toBe("+2348012345678");
     expect(handoff.body.data.recommendation.orderMessage).toMatch(/Please confirm/i);
 
@@ -199,6 +230,93 @@ describe("supplier + buyer end-to-end workflow", () => {
       ),
     );
     expect(feedback.status).toBe(201);
+  });
+
+  it("runs the optional Proofline pilot after a confirmed handoff", async () => {
+    const { biz, routeId } = await onboardActiveRoute();
+    const taskId = await buyerTask(routeId);
+
+    await postQuote(
+      json(
+        `/api/routes/${routeId}/quotes`,
+        { taskId, amountMin: 15000, turnaround: "same day" },
+        { ...idem(), "x-manage-token": biz.manageToken },
+      ),
+      params({ id: routeId }),
+    );
+    await decideTask(
+      json(
+        `/api/tasks/${taskId}/decision`,
+        { decision: "ACCEPT" },
+        { ...idem(), "x-session-id": SESSION },
+      ),
+      params({ id: taskId }),
+    );
+
+    // Proofline is gated on the buyer handoff.
+    const early = await read(
+      await prooflineReady(
+        json(
+          `/api/tasks/${taskId}/proofline/ready`,
+          {},
+          { ...idem(), "x-manage-token": biz.manageToken },
+        ),
+        params({ id: taskId }),
+      ),
+    );
+    expect(early.status).toBe(409);
+    expect(early.body.error.code).toBe("HANDOFF_NOT_CONFIRMED");
+
+    await confirmHandoffRoute(
+      json(`/api/tasks/${taskId}/handoff-confirm`, {}, { ...idem(), "x-session-id": SESSION }),
+      params({ id: taskId }),
+    );
+
+    // Merchant marks ready (needs the manage token).
+    const noAuth = await read(
+      await prooflineReady(
+        json(`/api/tasks/${taskId}/proofline/ready`, {}, idem()),
+        params({ id: taskId }),
+      ),
+    );
+    expect(noAuth.status).toBe(401);
+
+    const ready = await read(
+      await prooflineReady(
+        json(
+          `/api/tasks/${taskId}/proofline/ready`,
+          {},
+          { ...idem(), "x-manage-token": biz.manageToken },
+        ),
+        params({ id: taskId }),
+      ),
+    );
+    expect(ready.status).toBe(201);
+    expect(ready.body.data.view.evidenceStatus).toBe("MERCHANT_MARKED_READY");
+    const code = ready.body.data.pickupCode as string;
+
+    // Buyer confirms pickup with the code.
+    const confirmed = await read(
+      await prooflineConfirmPickup(
+        json(`/api/tasks/${taskId}/proofline/confirm-pickup`, { code }, idem()),
+        params({ id: taskId }),
+      ),
+    );
+    expect(confirmed.status).toBe(201);
+    expect(confirmed.body.data.view.evidenceStatus).toBe("BUYER_CONFIRMED_PICKUP");
+
+    // Buyer view exposes the evidence but never the code.
+    const view = await read(
+      await getTask(
+        new Request(`http://localhost/api/tasks/${taskId}`, {
+          headers: { "x-session-id": SESSION },
+        }),
+        params({ id: taskId }),
+      ),
+    );
+    expect(view.body.data.proofline.evidenceStatus).toBe("BUYER_CONFIRMED_PICKUP");
+    expect(view.body.data.proofline).not.toHaveProperty("pickupCode");
+    expect(JSON.stringify(view.body.data.proofline).toLowerCase()).not.toMatch(/score|reliability/);
   });
 
   it("supplier can pause their own route; a new request is then rejected", async () => {
