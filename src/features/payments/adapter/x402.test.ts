@@ -60,8 +60,8 @@ describe("X402PaymentAdapter — server-side spending cap", () => {
   });
 });
 
-describe("X402PaymentAdapter — failed verification", () => {
-  it("returns FAILED and never calls settle", async () => {
+describe("X402PaymentAdapter — verification & settlement failures (FR-PAY-002/003/006/007)", () => {
+  it("a rejected authorisation is FAILED (agent's fault) and settle is never called", async () => {
     const facilitator = new FakeFacilitator({ verify: VERIFY_INVALID });
     const adapter = new X402PaymentAdapter(X402_TEST_CONFIG, facilitator);
     const header = buildXPaymentHeader({ payTo: PAY_TO });
@@ -77,7 +77,7 @@ describe("X402PaymentAdapter — failed verification", () => {
     if (result.status === "FAILED") expect(result.authorizationKey).toBeTruthy();
   });
 
-  it("returns FAILED (not a fabricated receipt) when settle fails", async () => {
+  it("an on-chain settlement failure is FAILED (retryable), never a fabricated receipt", async () => {
     const facilitator = new FakeFacilitator({
       settle: { ...SETTLE_SUCCESS, success: false, transaction: "" },
     });
@@ -89,7 +89,20 @@ describe("X402PaymentAdapter — failed verification", () => {
     expect(result).toMatchObject({ status: "FAILED", code: "SETTLEMENT_FAILED" });
   });
 
-  it("treats a facilitator exception as FAILED, never SETTLED", async () => {
+  it("an unreachable facilitator on verify is UNAVAILABLE (not the agent's fault)", async () => {
+    const adapter = new X402PaymentAdapter(
+      X402_TEST_CONFIG,
+      new FakeFacilitator({ verifyThrows: true }),
+    );
+    const result = await adapter.settle({
+      xPaymentHeader: buildXPaymentHeader({ payTo: PAY_TO }),
+      challenge,
+    });
+    expect(result).toMatchObject({ status: "UNAVAILABLE", code: "VERIFY_REQUEST_FAILED" });
+    if (result.status === "UNAVAILABLE") expect(result.authorizationKey).toBeTruthy();
+  });
+
+  it("a settle timeout is INDETERMINATE (verify passed, outcome unknown) — never FAILED or SETTLED", async () => {
     const adapter = new X402PaymentAdapter(
       X402_TEST_CONFIG,
       new FakeFacilitator({ settleThrows: true }),
@@ -98,7 +111,33 @@ describe("X402PaymentAdapter — failed verification", () => {
       xPaymentHeader: buildXPaymentHeader({ payTo: PAY_TO }),
       challenge,
     });
-    expect(result).toMatchObject({ status: "FAILED", code: "SETTLE_REQUEST_FAILED" });
+    expect(result).toMatchObject({ status: "INDETERMINATE", code: "SETTLE_INDETERMINATE" });
+    if (result.status !== "INDETERMINATE") return;
+    expect(result.authorizationKey).toBeTruthy();
+    expect(result.verification).toMatchObject({
+      verify: { isValid: true },
+      settle: "indeterminate",
+    });
+    expect(JSON.stringify(result)).not.toMatch(/0x[0-9a-f]{64}/i); // no tx hash
+    // the signed EIP-3009 authorisation / signature is never in the persisted summary
+    const summary = JSON.stringify(result.verification);
+    expect(summary).not.toMatch(/signature/i);
+    expect(summary).not.toContain("1".repeat(130));
+    expect(summary).not.toMatch(/validAfter|validBefore/);
+  });
+
+  it("settle 'success' with no usable tx hash is INDETERMINATE, not a fabricated receipt", async () => {
+    const adapter = new X402PaymentAdapter(
+      X402_TEST_CONFIG,
+      new FakeFacilitator({
+        settle: { ...SETTLE_SUCCESS, success: true, transaction: "0xnothex" },
+      }),
+    );
+    const result = await adapter.settle({
+      xPaymentHeader: buildXPaymentHeader({ payTo: PAY_TO }),
+      challenge,
+    });
+    expect(result).toMatchObject({ status: "INDETERMINATE", code: "SETTLE_INDETERMINATE" });
   });
 });
 
