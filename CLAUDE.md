@@ -9,11 +9,16 @@ guessing.
 
 ## 1. What Intra is
 
-Intra is a **mobile-first procurement assistant for Nigerian campus students and
-small businesses**. A buyer describes one narrow purchasing need — the MVP is
-**flyer printing** — and Intra turns it into a structured brief, obtains a quote
-from a participating independent printer, and presents an understandable
-recommendation with a **human-approved WhatsApp order handoff**.
+Intra Relay is the **merchant-side capability and control layer for
+WhatsApp-native, non-API businesses**. It makes one real service understandable
+and safely callable by any buyer agent without requiring a business to build an
+API, MCP server, or AI agent. The hackathon MVP proves this through a
+mobile-first flyer-printing workflow for Nigerian campus students and small
+businesses.
+
+Read [`docs/PRODUCT_VISION.md`](docs/PRODUCT_VISION.md) for the product north
+star, product boundaries, and the role of the future Proofline fulfilment
+module. The PRD remains the source of truth for the **current MVP scope**.
 
 Hackathon context: Celo "Agents at Work" — primary track **Real World Adoption**,
 secondary **Best Stablecoin Adoption**, **AskBots CLI Growth**, **Judges'
@@ -46,6 +51,7 @@ Read these before implementing anything. They live in `docs/`.
 | [`docs/BUSINESS_ONBOARDING.md`](docs/BUSINESS_ONBOARDING.md)   | Operator-facing supplier onboarding guide and the flyer-printing route template.                           |
 | [`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md) | Local setup, commands, branch/commit rules, quality gates, env policy, DoD, known external blockers.       |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md)                       | Architecture decision log (ADRs).                                                                          |
+| [`docs/PRODUCT_VISION.md`](docs/PRODUCT_VISION.md)             | Product north star: Intra Relay, Proofline, differentiation, and strict MVP boundary.                      |
 | [`README.md`](README.md)                                       | Human-facing setup / run / lint / build / test instructions.                                               |
 
 ### PRD is the source of truth
@@ -82,7 +88,14 @@ Do **not** invent, hard-code, mock as if real, or otherwise present as genuine:
 - merchant / supplier data or prices;
 - Celo payment success or "settled" state;
 - transaction hashes;
-- ERC-8004 Agent IDs, ERC-8021 attribution tags, or `buy` beta access;
+- ERC-8004 Agent IDs, ERC-8021 attribution tags, or `buy` beta access **that
+  were not actually minted or granted** — registering a real Agent ID against
+  the Celo mainnet Identity Registry and reading back the minted `agentId` is
+  required (ADR-018); inventing, mocking or displaying an unverified one is not;
+- fulfilment attestations, or any claim that an attestation proves the quantity,
+  quality, timeliness or satisfactoriness of physical work. An attestation
+  proves only that the named parties completed the handover protocol at a time
+  (ADR-018);
 - wallet credentials or addresses presented as belonging to a real business.
 
 Demo/local state must be **clearly labelled non-persistent and not real**
@@ -154,7 +167,7 @@ implementation is expected and does not need this justification.
 
 ### 6.2 Do not add blockchain / payment packages early
 
-Do **not** install `viem`, any Celo SDK, x402 / `buy` client libraries, auth
+Do **not** install any Celo SDK, x402 / `buy` client libraries, auth
 providers, or AI SDKs until:
 
 1. the corresponding phase in `docs/IMPLEMENTATION_PLAN.md` is explicitly
@@ -167,6 +180,13 @@ Postgres for dev/test), and `pg` (production driver). Do not swap ORMs or add
 another database/cache library without a new ADR. Schema changes go through
 `npm run db:generate` (a committed migration), never a hand-edited migration or
 `db:push` against a shared database.
+
+**Attestation phase is started** (ADR-018). `viem` is admitted for `keccak256`,
+ABI encoding, EAS schema-UID derivation, and Celo mainnet calls — no other chain
+library. Attestations go through the **canonical EAS deployment on Celo
+mainnet** (`src/features/attestation/chain.ts`); do not write or deploy
+attestation, reputation or escrow Solidity. Intra is the **evaluator, never the
+custodian**: `BR-001` stands and ERC-8183 escrow is not adopted.
 
 **x402 payment phase is started** (ADR-011). Payments go through the
 `PaymentAdapter` interface in `src/features/payments/adapter/` — only
