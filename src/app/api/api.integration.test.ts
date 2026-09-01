@@ -10,6 +10,7 @@ import { POST as createFeedback } from "./feedback/route";
 import { POST as createQuote } from "./routes/[id]/quotes/route";
 import { PATCH as patchRouteStatus } from "./routes/[id]/status/route";
 import { GET as getTask } from "./tasks/[id]/route";
+import { POST as decideTask } from "./tasks/[id]/decision/route";
 import { POST as createTask } from "./tasks/route";
 import { POST as submitTask } from "./tasks/[id]/submit/route";
 
@@ -193,11 +194,67 @@ describe("API route handlers", () => {
     const data = view.body.data as {
       task: { status: string };
       payments: { status: string }[];
+      supplier: { contactChannelValue: string | null } | null;
       recommendation: { orderMessage: string } | null;
     };
-    expect(data.task.status).toBe("HANDOFF_READY");
+    expect(data.task.status).toBe("RECOMMENDED");
     expect(data.payments[0].status).toBe("UNAVAILABLE");
-    expect(data.recommendation?.orderMessage).toMatch(/Please confirm/i);
+    expect(data.supplier?.contactChannelValue).toBeNull();
+
+    // a decision needs the owning session
+    const wrongSession = await readJson(
+      await decideTask(
+        post(
+          `/api/tasks/${task.id}/decision`,
+          { decision: "ACCEPT" },
+          { ...idem("decide-bad"), "x-session-id": "someone-else-1" },
+        ),
+        params({ id: task.id }),
+      ),
+    );
+    expect(wrongSession.status).toBe(403);
+
+    // and a valid decision value
+    const badBody = await readJson(
+      await decideTask(
+        post(
+          `/api/tasks/${task.id}/decision`,
+          { decision: "MAYBE" },
+          { ...idem("decide-invalid"), ...session },
+        ),
+        params({ id: task.id }),
+      ),
+    );
+    expect(badBody.status).toBe(400);
+
+    const decided = await readJson(
+      await decideTask(
+        post(
+          `/api/tasks/${task.id}/decision`,
+          { decision: "ACCEPT" },
+          { ...idem("decide"), ...session },
+        ),
+        params({ id: task.id }),
+      ),
+    );
+    expect(decided.status).toBe(200);
+    expect((decided.body.data as { task: { status: string } }).task.status).toBe("HANDOFF_READY");
+
+    const handoffView = await readJson(
+      await getTask(
+        new Request(`http://localhost/api/tasks/${task.id}`, { headers: session }),
+        params({ id: task.id }),
+      ),
+    );
+    const handoffData = handoffView.body.data as {
+      task: { status: string; buyerDecision: string | null };
+      supplier: { contactChannelValue: string | null } | null;
+      recommendation: { orderMessage: string } | null;
+    };
+    expect(handoffData.task.status).toBe("HANDOFF_READY");
+    expect(handoffData.task.buyerDecision).toBe("ACCEPTED");
+    expect(handoffData.supplier?.contactChannelValue).toBeTruthy();
+    expect(handoffData.recommendation?.orderMessage).toMatch(/Please confirm/i);
   });
 
   it("rejects an operator-less quote submission", async () => {
