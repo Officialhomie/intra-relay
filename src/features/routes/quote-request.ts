@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import type { Database } from "@/lib/db/client";
-import type { QuoteRouteRow } from "@/lib/db/schema";
+import type { QuoteRouteRow, ServicePaymentRow } from "@/lib/db/schema";
 import { HttpError } from "@/lib/http/response";
 import { appendAuditEvent } from "@/features/audit/repository";
 import { findBusinessBySlug } from "@/features/businesses/repository";
@@ -15,7 +15,9 @@ import { recordServicePaymentIntent } from "@/features/payments/service";
 import {
   recordChallengeIssued,
   recordFailedPayment,
+  recordIndeterminatePayment,
   recordSettledReceipt,
+  recordUnavailablePayment,
 } from "@/features/payments/settlement";
 import { assertTaskTransition } from "@/features/tasks/lifecycle";
 import { insertTask, updateTask } from "@/features/tasks/repository";
@@ -140,13 +142,81 @@ export type QuoteRequestOutcome =
       };
     };
 
+function settledOutcome(input: {
+  taskId: string;
+  responseSlaMinutes: number;
+  provider: string;
+  txHash: string;
+  network: string;
+  assetSymbol: string;
+  amountAtomic: string;
+  explorerUrl: string | null;
+  responseHeader?: { name: string; value: string };
+}): QuoteRequestOutcome {
+  const body = {
+    outcome: "QUOTE_PENDING" as const,
+    taskId: input.taskId,
+    status: "AWAITING_QUOTE" as const,
+    responseSlaMinutes: input.responseSlaMinutes,
+    payment: {
+      status: "SETTLED" as const,
+      provider: input.provider,
+      txHash: input.txHash,
+      network: input.network,
+      assetSymbol: input.assetSymbol,
+      amountAtomic: input.amountAtomic,
+      explorerUrl: input.explorerUrl,
+    },
+  };
+  return input.responseHeader
+    ? { kind: "SETTLED", httpStatus: 200, responseHeader: input.responseHeader, body }
+    : { kind: "SETTLED", httpStatus: 200, body };
+}
+
+/** Replay a SETTLED receipt row (idempotent retry, or a concurrent winner). */
+function settledReplay(row: ServicePaymentRow, route: QuoteRouteRow): QuoteRequestOutcome {
+  return settledOutcome({
+    taskId: row.taskId ?? "",
+    responseSlaMinutes: route.responseSlaMinutes,
+    provider: row.provider ?? "x402",
+    txHash: row.txHash ?? "",
+    network: row.network ?? "",
+    assetSymbol: row.assetSymbol ?? "USDC",
+    amountAtomic: row.amountAtomic ?? "0",
+    explorerUrl: row.network && row.txHash ? explorerTxUrl(row.network, row.txHash) : null,
+  });
+}
+
+/**
+ * `verify` passed, `settle` outcome unknown (FR-PAY-007). Claimed neither way;
+ * the agent must NOT re-authorise with a new nonce.
+ */
+function indeterminateError(code?: string | null, reason?: string | null): HttpError {
+  return new HttpError(
+    503,
+    "PAYMENT_SETTLEMENT_INDETERMINATE",
+    reason ??
+      "Verification passed but the settlement outcome is unknown. Do not re-authorise — that could pay twice.",
+    {
+      code: code ?? "SETTLE_INDETERMINATE",
+      retryable: false,
+      guidance:
+        "Do NOT retry with a new X-PAYMENT authorisation. Check the block explorer for a transfer from your payer address; if it landed, the query fee is already paid. Ask the route operator to reconcile.",
+      payment: { status: "AUTHORISED", settlement: "unknown", txHash: null },
+    },
+  );
+}
+
 /**
  * Public agent quote request (TECHNICAL_SPEC §4).
  *
- * Free route:            valid request → 202 AWAITING_QUOTE.
- * Paid route, no key:    503 PAYMENT_SERVICE_UNAVAILABLE (task + audit created).
- * Paid route, no payment: 402 with x402 requirements (no task).
- * Paid route, X-PAYMENT: official verify → settle → immutable receipt → 200.
+ * Free route:              valid request → 202 AWAITING_QUOTE.
+ * Paid route, no key:      503 PAYMENT_SERVICE_UNAVAILABLE (task + audit created).
+ * Paid route, no payment:  402 with x402 requirements (no task).
+ * Paid route, X-PAYMENT:   official verify → settle → immutable receipt → 200.
+ * Facilitator unreachable: 503 PAYMENT_SERVICE_UNAVAILABLE (retryable, no task).
+ * Settle outcome unknown:  503 PAYMENT_SETTLEMENT_INDETERMINATE (do NOT re-authorise).
+ * Bad authorisation:       402 PAYMENT_FAILED (immutable FAILED receipt, no task).
  * A route that is not quote-ready → 409 ROUTE_UNAVAILABLE with NO settlement.
  */
 export async function requestQuoteViaCapabilityApi(
@@ -271,40 +341,21 @@ export async function requestQuoteViaCapabilityApi(
   }
 
   // --- Paid route, X-PAYMENT presented ---------------------------------
+  // Never re-verify or re-settle a known authorisation.
   const authorizationKey = adapter.authorizationKey(ctx.xPaymentHeader);
   if (authorizationKey) {
     const existing = await findPaymentByAuthorizationKey(db, authorizationKey);
-    if (existing?.status === "SETTLED" && existing.taskId && existing.txHash && existing.network) {
-      return {
-        kind: "SETTLED",
-        httpStatus: 200,
-        body: {
-          outcome: "QUOTE_PENDING",
-          taskId: existing.taskId,
-          status: "AWAITING_QUOTE",
-          responseSlaMinutes: route.responseSlaMinutes,
-          payment: {
-            status: "SETTLED",
-            provider: existing.provider ?? "x402",
-            txHash: existing.txHash,
-            network: existing.network,
-            assetSymbol: existing.assetSymbol ?? "USDC",
-            amountAtomic: existing.amountAtomic ?? "0",
-            explorerUrl: explorerTxUrl(existing.network, existing.txHash),
-          },
-        },
-      };
-    }
+    if (existing?.status === "SETTLED") return settledReplay(existing, route);
+    if (existing?.status === "AUTHORISED") throw indeterminateError(existing.errorCode);
     if (existing?.status === "FAILED") {
       throw new HttpError(
         402,
         "PAYMENT_FAILED",
         "This payment authorisation was already rejected.",
-        {
-          code: existing.errorCode ?? "PAYMENT_FAILED",
-        },
+        { code: existing.errorCode ?? "PAYMENT_FAILED" },
       );
     }
+    // existing?.status === "UNAVAILABLE" ⇒ verification never happened; retry now.
   }
 
   const result = await adapter.settle({
@@ -312,11 +363,29 @@ export async function requestQuoteViaCapabilityApi(
     challenge: challengeInput,
   });
 
+  // Verification could not be obtained — no fault of the agent (retryable).
   if (result.status === "UNAVAILABLE") {
-    throw new HttpError(503, "PAYMENT_SERVICE_UNAVAILABLE", result.reason);
+    await recordUnavailablePayment(db, { route, result });
+    throw new HttpError(503, "PAYMENT_SERVICE_UNAVAILABLE", result.reason, {
+      code: result.code ?? "PAYMENT_SERVICE_UNAVAILABLE",
+      retryable: true,
+      payment: { status: "UNAVAILABLE", settlement: null, txHash: null },
+    });
+  }
+
+  // verify passed, settle outcome unknown — claimed neither way.
+  if (result.status === "INDETERMINATE") {
+    await recordIndeterminatePayment(db, { route, result });
+    throw indeterminateError(result.code, result.reason);
   }
 
   if (result.status === "FAILED") {
+    // A concurrent request may have settled this same authorisation first.
+    const won = result.authorizationKey
+      ? await findPaymentByAuthorizationKey(db, result.authorizationKey)
+      : null;
+    if (won?.status === "SETTLED") return settledReplay(won, route);
+
     await recordFailedPayment(db, { route, result });
     const retry = adapter.buildChallenge(challengeInput);
     throw new HttpError(402, "PAYMENT_FAILED", result.reason, {
@@ -326,27 +395,22 @@ export async function requestQuoteViaCapabilityApi(
   }
 
   const settled: SettledResult = result;
-  const task = await createAwaitingTask(db, route, business.id, sessionId, validation.data);
-  await recordSettledReceipt(db, { route, taskId: task.id, result: settled });
+  // Guard against a concurrent request that settled this authorisation.
+  const prior = await findPaymentByAuthorizationKey(db, settled.authorizationKey);
+  if (prior?.status === "SETTLED") return settledReplay(prior, route);
 
-  return {
-    kind: "SETTLED",
-    httpStatus: 200,
+  const task = await createAwaitingTask(db, route, business.id, sessionId, validation.data);
+  const receipt = await recordSettledReceipt(db, { route, taskId: task.id, result: settled });
+
+  return settledOutcome({
+    taskId: receipt.taskId ?? task.id,
+    responseSlaMinutes: route.responseSlaMinutes,
+    provider: settled.provider,
+    txHash: settled.txHash,
+    network: settled.network,
+    assetSymbol: settled.assetSymbol,
+    amountAtomic: settled.amountAtomic,
+    explorerUrl: settled.explorerUrl,
     responseHeader: settled.responseHeader,
-    body: {
-      outcome: "QUOTE_PENDING",
-      taskId: task.id,
-      status: "AWAITING_QUOTE",
-      responseSlaMinutes: route.responseSlaMinutes,
-      payment: {
-        status: "SETTLED",
-        provider: settled.provider,
-        txHash: settled.txHash,
-        network: settled.network,
-        assetSymbol: settled.assetSymbol,
-        amountAtomic: settled.amountAtomic,
-        explorerUrl: settled.explorerUrl,
-      },
-    },
-  };
+  });
 }
