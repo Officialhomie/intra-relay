@@ -7,6 +7,7 @@
  */
 export const AGENT_RUN_STATES = [
   "CREATED",
+  "CLARIFICATION_NEEDED", // the request is missing a required detail — ask, don't guess
   "DISCOVERING", // listing providers for the route
   "READING_CAPABILITIES", // fetching capability documents
   "PLANNING", // deciding who to query, and whether the fee is worth it
@@ -27,11 +28,13 @@ export const TERMINAL_AGENT_RUN_STATES: readonly AgentRunState[] = [
   "APPROVED",
   "DECLINED",
   "NO_VIABLE_OFFER",
+  "CLARIFICATION_NEEDED",
   "FAILED",
 ];
 
 const ALLOWED: Record<AgentRunState, readonly AgentRunState[]> = {
-  CREATED: ["DISCOVERING", "FAILED"],
+  CREATED: ["CLARIFICATION_NEEDED", "DISCOVERING", "FAILED"],
+  CLARIFICATION_NEEDED: [],
   DISCOVERING: ["READING_CAPABILITIES", "NO_VIABLE_OFFER", "FAILED"],
   READING_CAPABILITIES: ["PLANNING", "NO_VIABLE_OFFER", "FAILED"],
   PLANNING: ["REQUESTING_QUOTES", "NO_VIABLE_OFFER", "FAILED"],

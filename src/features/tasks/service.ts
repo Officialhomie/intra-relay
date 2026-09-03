@@ -10,6 +10,8 @@ import type {
 } from "@/lib/db/schema";
 import { HttpError } from "@/lib/http/response";
 import { appendAuditEvent, listTaskAuditEvents } from "@/features/audit/repository";
+import { notify } from "@/features/notifications/service";
+import { createCommitmentForApproval } from "@/features/commitments/service";
 import { flyerPrintingInputSchema } from "@/features/routes/flyer-printing";
 import { findRouteByBusinessAndSlug, findRouteById } from "@/features/routes/repository";
 import { findBusinessById, findBusinessBySlug } from "@/features/businesses/repository";
@@ -19,11 +21,20 @@ import { quoteEffectiveStatus } from "@/features/quotes/expiry";
 import type { NormalizedQuote } from "@/features/quotes/normalize";
 import { buildOrderMessage } from "@/features/quotes/order-message";
 import { buildRecommendationDetail } from "@/features/quotes/recommendation";
-import { updateQuoteStatus, updateRecommendation } from "@/features/quotes/repository";
+import { updateQuote, updateQuoteStatus, updateRecommendation } from "@/features/quotes/repository";
+import {
+  acceptedOffer,
+  currentOffer,
+  pendingChange,
+  priceChangeView,
+  type PriceChangeView,
+} from "@/features/quotes/revision";
 import type { QuoteStatus } from "@/features/quotes/status";
 import { getProoflineView, type ProoflineView } from "@/features/proofline/service";
 
+import { describeTaskException, type TaskExceptionView } from "./exceptions";
 import { assertTaskTransition } from "./lifecycle";
+import { taskBelongsToSession } from "./ownership";
 import {
   findTaskById,
   findTaskRecommendation,
@@ -101,7 +112,7 @@ export async function createTask(
 }
 
 function assertSession(task: TaskRow, sessionId: string): void {
-  if (task.sessionId !== sessionId) {
+  if (!taskBelongsToSession(task, sessionId)) {
     throw new HttpError(403, "FORBIDDEN", "This task belongs to a different session.");
   }
 }
@@ -156,6 +167,7 @@ export async function submitTask(
 
   const awaiting = await updateTask(db, task.id, { status: "AWAITING_QUOTE" });
   await appendAuditEvent(db, { type: "task.awaiting_quote", taskId: task.id, routeId: route.id });
+  await notify(db, { event: "task.awaiting_quote", taskId: task.id });
 
   // Honest payment state — UNAVAILABLE until real x402 access (FR-PAY-004).
   await recordServicePaymentIntent(db, awaiting, route);
@@ -207,6 +219,12 @@ export interface TaskView {
   recommendation: TaskRecommendationView | null;
   feedback: FeedbackRow[];
   timeline: AuditEventRow[];
+  /**
+   * A price change the business has proposed on an order the buyer already
+   * agreed. Present only while it is waiting on the buyer; the agreed terms in
+   * `quotes` stay in force until they decide (milestone 5 §6).
+   */
+  priceChange: PriceChangeView | null;
   /** ISO time the buyer confirmed they sent the handoff message, or null. */
   handoffConfirmedAt: string | null;
   /**
@@ -214,6 +232,12 @@ export interface TaskView {
    * handed off the order. Never carries the merchant's pickup code.
    */
   proofline: ProoflineView | null;
+  /**
+   * When an order ended in an exception rather than a clean handover, the
+   * semantic account of it: what happened, whether the buyer must act, what
+   * happens next (milestone 6 §18). Null for a live or cleanly-handed-off order.
+   */
+  exception: TaskExceptionView | null;
 }
 
 const HANDOFF_CONFIRMED_EVENT = "task.handoff_confirmed";
@@ -277,13 +301,16 @@ export async function decideOnQuote(
       routeId: task.routeId,
       data: { hasReason: input.reason != null },
     });
+    await notify(db, { event: "task.buyer_declined", taskId: task.id });
     return { task: cancelled, decision: "DECLINED", quoteExpired: false };
   }
 
-  const [quote] = await listTaskQuotes(db, task.id);
+  // With revisions there can be several rows; only the live offer is acceptable.
+  const quotes = await listTaskQuotes(db, task.id);
+  const quote = currentOffer(quotes);
   const recommendation = await findTaskRecommendation(db, task.id);
-  if (!quote || quote.status === "DECLINED" || !recommendation) {
-    throw new HttpError(409, "NO_QUOTE_TO_ACCEPT", "There is no quote to accept on this task.");
+  if (!quote || !recommendation) {
+    throw new HttpError(409, "NO_QUOTE_TO_ACCEPT", "There is no quote to accept on this order.");
   }
 
   const expired = quoteEffectiveStatus(quote, now) === "EXPIRED";
@@ -300,14 +327,12 @@ export async function decideOnQuote(
 
   // Finalise the WhatsApp message now the buyer has chosen (adds the expiry
   // caveat when needed). Generated only — never sent (FR-REC-002).
-  if (task.routeId) {
-    const routeRow = await findRouteById(db, task.routeId);
-    const businessRow = routeRow ? await findBusinessById(db, routeRow.businessId) : null;
-    if (businessRow) {
-      await updateRecommendation(db, recommendation.id, {
-        orderMessage: buildOrderMessage(businessRow, task, quote, { expired }),
-      });
-    }
+  const routeRow = task.routeId ? await findRouteById(db, task.routeId) : null;
+  const businessRow = routeRow ? await findBusinessById(db, routeRow.businessId) : null;
+  if (businessRow) {
+    await updateRecommendation(db, recommendation.id, {
+      orderMessage: buildOrderMessage(businessRow, task, quote, { expired }),
+    });
   }
 
   assertTaskTransition("RECOMMENDED", "HANDOFF_READY");
@@ -317,11 +342,19 @@ export async function decideOnQuote(
     buyerDecidedAt: now,
     closedAt: now,
   });
+  // Stamp the row the buyer actually agreed to. From here it is immutable:
+  // a different price can only ever be a new PROPOSED row (quotes/revision.ts).
+  const acceptedQuote = await updateQuote(db, quote.id, { acceptedAt: now });
   await appendAuditEvent(db, {
     type: "task.buyer_accepted",
     taskId: task.id,
-    quoteId: quote.id,
-    data: { quoteExpired: expired },
+    quoteId: acceptedQuote.id,
+    data: {
+      quoteExpired: expired,
+      agreedAmount: acceptedQuote.amountMin,
+      currency: acceptedQuote.currency,
+      revision: acceptedQuote.revision,
+    },
   });
   await appendAuditEvent(db, {
     type: "task.handoff_ready",
@@ -329,6 +362,23 @@ export async function decideOnQuote(
     quoteId: quote.id,
     data: { note: "Order message generated. Never auto-sent (FR-REC-002)." },
   });
+  // The buyer must now send the message themselves; the business should know a
+  // customer accepted their quote.
+  await notify(db, { event: "task.handoff_ready", taskId: task.id });
+  await notify(db, { event: "task.buyer_accepted", taskId: task.id, quoteId: acceptedQuote.id });
+
+  // A quote becomes a commitment only once a human has approved it (ADR-018).
+  // Creation is local and idempotent on the task, so the approval can never be
+  // lost; the EAS write is a separate, retryable step and is NOT done here —
+  // an external side effect must not be able to fail the buyer's decision.
+  if (businessRow) {
+    await createCommitmentForApproval(db, {
+      task: handoffReady,
+      quote,
+      business: businessRow,
+      approvedAt: now,
+    });
+  }
 
   return { task: handoffReady, decision: "ACCEPTED", quoteExpired: expired };
 }
@@ -396,7 +446,11 @@ export async function getTaskView(
     ...quote,
     effectiveStatus: quoteEffectiveStatus(quote, now),
   }));
-  const primaryQuote = quoteRows[0] ?? null;
+  // The offer in force — which is the accepted one once there is one, and the
+  // newest live offer before that. Never a superseded or proposed row.
+  const primaryQuote = acceptedOffer(quoteRows) ?? currentOffer(quoteRows) ?? quoteRows[0] ?? null;
+  const proposedChange = pendingChange(quoteRows);
+  const agreedQuote = acceptedOffer(quoteRows);
   const contactRevealed = task.status === "HANDOFF_READY";
 
   let route: TaskRouteInfo | null = null;
@@ -467,7 +521,10 @@ export async function getTaskView(
     recommendation,
     feedback,
     timeline,
+    priceChange:
+      proposedChange && agreedQuote ? priceChangeView(proposedChange, agreedQuote, now) : null,
     handoffConfirmedAt,
     proofline,
+    exception: describeTaskException(task),
   };
 }

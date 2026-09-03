@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { relations, sql } from "drizzle-orm";
 import {
   boolean,
+  index,
   integer,
   jsonb,
   numeric,
@@ -25,6 +26,9 @@ import {
   PROOFLINE_EVENT_TYPES,
   PROOFLINE_EVIDENCE_STATUSES,
 } from "@/features/proofline/status";
+import { COMMITMENT_EXPIRY_SOURCES, COMMITMENT_STATUSES } from "@/features/commitments/status";
+import { ATTENTION_LEVELS, NOTIFICATION_AUDIENCES } from "@/features/notifications/attention";
+import { PRICING_MODELS } from "@/features/pricing/model";
 import { BUYER_DECISIONS, QUOTE_CONFIDENCE, QUOTE_STATUSES } from "@/features/quotes/status";
 import { ROUTE_STATUSES, QUOTE_CURRENCIES } from "@/features/routes/schema";
 import type { RouteInputField } from "@/features/routes/schema";
@@ -50,12 +54,18 @@ export const businessStatusEnum = pgEnum("business_status", BUSINESS_STATUSES);
 export const businessCategoryEnum = pgEnum("business_category", BUSINESS_CATEGORIES);
 export const contactChannelEnum = pgEnum("contact_channel_type", CONTACT_CHANNEL_TYPES);
 export const routeStatusEnum = pgEnum("route_status", ROUTE_STATUSES);
+export const pricingModelEnum = pgEnum("pricing_model", PRICING_MODELS);
 export const quoteCurrencyEnum = pgEnum("quote_currency", QUOTE_CURRENCIES);
 export const taskStatusEnum = pgEnum("task_status", TASK_STATUSES);
 export const quoteStatusEnum = pgEnum("quote_status", QUOTE_STATUSES);
 export const quoteConfidenceEnum = pgEnum("quote_confidence", QUOTE_CONFIDENCE);
 export const buyerDecisionEnum = pgEnum("buyer_decision", BUYER_DECISIONS);
 export const paymentStatusEnum = pgEnum("payment_status", PAYMENT_STATUSES);
+export const commitmentStatusEnum = pgEnum("commitment_status", COMMITMENT_STATUSES);
+export const commitmentExpirySourceEnum = pgEnum(
+  "commitment_expiry_source",
+  COMMITMENT_EXPIRY_SOURCES,
+);
 export const prooflineEventTypeEnum = pgEnum("proofline_event_type", PROOFLINE_EVENT_TYPES);
 export const prooflineActorRoleEnum = pgEnum("proofline_actor_role", PROOFLINE_ACTOR_ROLES);
 export const prooflineConfirmationMethodEnum = pgEnum(
@@ -66,6 +76,8 @@ export const prooflineEvidenceStatusEnum = pgEnum(
   "proofline_evidence_status",
   PROOFLINE_EVIDENCE_STATUSES,
 );
+export const notificationAudienceEnum = pgEnum("notification_audience", NOTIFICATION_AUDIENCES);
+export const attentionLevelEnum = pgEnum("attention_level", ATTENTION_LEVELS);
 
 export const businesses = pgTable("businesses", {
   id: id(),
@@ -110,6 +122,16 @@ export const quoteRoutes = pgTable(
     queryFeeUsd: numeric("query_fee_usd", { precision: 10, scale: 4 }).notNull(),
     responseSlaMinutes: integer("response_sla_minutes").notNull(),
     quoteCurrency: quoteCurrencyEnum("quote_currency").notNull(),
+    /**
+     * How this service is priced (milestone 5). Published pricing is guidance a
+     * buyer can compare before asking; the quote the business sends for a
+     * specific request is still the only commitment (BR-003).
+     */
+    pricingModel: pricingModelEnum("pricing_model").notNull().default("QUOTE_REQUIRED"),
+    /** The published amount, in `quoteCurrency`. Null for a priced-per-job service. */
+    priceAmount: numeric("price_amount", { precision: 14, scale: 2 }),
+    /** What the published amount buys, e.g. "per page". Null for a flat job price. */
+    priceUnit: text("price_unit"),
     payoutAddress: text("payout_address").notNull(),
     endpoint: text("endpoint").notNull(),
     status: routeStatusEnum("status").notNull().default("DRAFT"),
@@ -128,6 +150,15 @@ export const tasks = pgTable("tasks", {
   id: id(),
   /** Opaque buyer session identifier (no account, no wallet login). */
   sessionId: text("session_id").notNull(),
+  /**
+   * The human buyer session that owns this task when it was created on their
+   * behalf by an agent (milestone 6 §17). `sessionId` then holds the agent
+   * session; this holds the browser session that started the run. Set once, at
+   * task creation, by whoever creates the task — it can never be changed
+   * afterwards, so it cannot be used to seize someone else's task. Buyer
+   * decisions authorise on a match against either column.
+   */
+  buyerClaimSession: text("buyer_claim_session"),
   buyerWalletOptIn: boolean("buyer_wallet_opt_in").notNull().default(false),
   routeId: text("route_id").references(() => quoteRoutes.id, { onDelete: "set null" }),
   freeText: text("free_text"),
@@ -171,6 +202,18 @@ export const quotes = pgTable("quotes", {
   status: quoteStatusEnum("status").notNull().default("RECEIVED"),
   /** Set when a supplier declines out of area / capacity. */
   declineReason: text("decline_reason"),
+  /**
+   * Quote integrity (milestone 5). An offer is never edited in place: a new
+   * price is a NEW row pointing back at the one it replaces, so the terms the
+   * buyer actually saw and agreed to stay readable forever.
+   */
+  supersedesQuoteId: text("supersedes_quote_id"),
+  /** 1 for the first offer on a task, incremented for each replacement. */
+  revision: integer("revision").notNull().default(1),
+  /** Set the moment a buyer accepts THIS row. An accepted row is immutable. */
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  /** Why the business proposed a different price, in their own words. */
+  changeReason: text("change_reason"),
   createdAt: createdAt(),
 });
 
@@ -274,6 +317,127 @@ export const prooflineEvents = pgTable("proofline_events", {
   createdAt: createdAt(),
 });
 
+/**
+ * Approved-quote commitments (ADR-018, milestone 2).
+ *
+ * One row per approved task — `taskId` is unique, which is what makes the
+ * attestation write idempotent: a retry finds the existing row rather than
+ * creating a second commitment.
+ *
+ * `handoverSalt` and `handoverCode` are SERVER-ONLY. They are never returned by
+ * an API, never logged, and never placed in a trace (NFR-SEC-001). Only
+ * `handoverCommit` is public and only it goes on-chain.
+ */
+export const commitments = pgTable("commitments", {
+  id: id(),
+  taskId: text("task_id")
+    .notNull()
+    .unique()
+    .references(() => tasks.id, { onDelete: "cascade" }),
+  quoteId: text("quote_id")
+    .notNull()
+    .references(() => quotes.id, { onDelete: "cascade" }),
+  businessId: text("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "cascade" }),
+  /** keccak256 of the task id. The only job identifier that reaches a chain. */
+  jobRef: text("job_ref").notNull(),
+  /** Provider payout address (public EVM address, verified out of band). */
+  providerAddress: text("provider_address").notNull(),
+  /** ERC-8004 agentId once the business is registered; 0 until then. */
+  providerAgentId: text("provider_agent_id").notNull().default("0"),
+  /** Buyer wallet when one is bound; the zero address otherwise. */
+  buyerAddress: text("buyer_address").notNull(),
+  /** Quoted total (price + delivery) in minor units of `currency`. */
+  amountMinor: text("amount_minor").notNull(),
+  currency: quoteCurrencyEnum("currency").notNull(),
+  /** Token address, or the zero address when denominated off-chain. */
+  assetAddress: text("asset_address").notNull(),
+  quotedAt: timestamp("quoted_at", { withTimezone: true }).notNull(),
+  validUntil: timestamp("valid_until", { withTimezone: true }).notNull(),
+  expirySource: commitmentExpirySourceEnum("expiry_source").notNull(),
+  /** Public commit-reveal hash. Safe on-chain. */
+  handoverCommit: text("handover_commit").notNull(),
+  /** SERVER-ONLY. Withheld until a correct code is presented (ADR-018). */
+  handoverSalt: text("handover_salt").notNull(),
+  /** SERVER-ONLY. Delivered to the buyer alone. */
+  handoverCode: text("handover_code").notNull(),
+  status: commitmentStatusEnum("status").notNull().default("PENDING_ATTESTATION"),
+  /** EAS attestation UID once written. */
+  attestationUid: text("attestation_uid"),
+  attestationTxHash: text("attestation_tx_hash"),
+  /** "mock" or "onchain" — never presented as real unless "onchain". */
+  attestationMode: text("attestation_mode"),
+  attestationError: text("attestation_error"),
+  attestedAt: timestamp("attested_at", { withTimezone: true }),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/**
+ * Human-attention notifications (milestone 7 §13–§15).
+ *
+ * A notification is a *current* attention item, not a log line — the audit
+ * trail is the history. One row per (audience, recipient, dedupeKey): a repeat
+ * event about the same thing updates that row and re-surfaces it as unread
+ * (§21), rather than piling up duplicates. Copy is user-facing (§17) and never
+ * carries a secret, a full address, or a raw amount (§18) — the linked page
+ * shows protected detail after the person is authorised.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: id(),
+    audience: notificationAudienceEnum("audience").notNull(),
+    /** BUYER: the buyer session that owns the task. BUSINESS: the business id. */
+    recipientKey: text("recipient_key").notNull(),
+    /** Semantic domain event that produced it. Never shown raw. */
+    event: text("event").notNull(),
+    level: attentionLevelEnum("level").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    /** Where opening it takes the person. A relative in-app path only. */
+    deeplink: text("deeplink").notNull(),
+    entityType: text("entity_type"),
+    entityId: text("entity_id"),
+    /** Collapses repeat events about the same attention item. */
+    dedupeKey: text("dedupe_key").notNull(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    /** Set when a web-push delivery for this row was attempted. */
+    pushedAt: timestamp("pushed_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    uniqueIndex("notifications_dedupe_uq").on(table.audience, table.recipientKey, table.dedupeKey),
+    index("notifications_recipient_idx").on(table.audience, table.recipientKey),
+  ],
+);
+
+/**
+ * Web-push subscriptions (milestone 7 §16). The `p256dh` / `auth` values are
+ * the subscription's own public key material — not a user secret. A subscription
+ * that the push service rejects as gone is deleted, not kept.
+ */
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: id(),
+    audience: notificationAudienceEnum("audience").notNull(),
+    recipientKey: text("recipient_key").notNull(),
+    endpoint: text("endpoint").notNull().unique(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    /** A coarse UA string, for the person to recognise a device. No fingerprinting. */
+    userAgent: text("user_agent"),
+    failureCount: integer("failure_count").notNull().default(0),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: createdAt(),
+  },
+  (table) => [index("push_subscriptions_recipient_idx").on(table.audience, table.recipientKey)],
+);
+
 export const idempotencyKeys = pgTable(
   "idempotency_keys",
   {
@@ -310,6 +474,12 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   prooflineEvents: many(prooflineEvents),
 }));
 
+export const commitmentsRelations = relations(commitments, ({ one }) => ({
+  task: one(tasks, { fields: [commitments.taskId], references: [tasks.id] }),
+  quote: one(quotes, { fields: [commitments.quoteId], references: [quotes.id] }),
+  business: one(businesses, { fields: [commitments.businessId], references: [businesses.id] }),
+}));
+
 export const prooflineEventsRelations = relations(prooflineEvents, ({ one }) => ({
   task: one(tasks, { fields: [prooflineEvents.taskId], references: [tasks.id] }),
 }));
@@ -339,5 +509,11 @@ export type RecommendationRow = typeof recommendations.$inferSelect;
 export type FeedbackRow = typeof feedback.$inferSelect;
 export type ServicePaymentRow = typeof servicePayments.$inferSelect;
 export type AuditEventRow = typeof auditEvents.$inferSelect;
+export type CommitmentRow = typeof commitments.$inferSelect;
+export type NewCommitmentRow = typeof commitments.$inferInsert;
 export type ProoflineEventRow = typeof prooflineEvents.$inferSelect;
 export type NewProoflineEventRow = typeof prooflineEvents.$inferInsert;
+export type NotificationRow = typeof notifications.$inferSelect;
+export type NewNotificationRow = typeof notifications.$inferInsert;
+export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
+export type NewPushSubscriptionRow = typeof pushSubscriptions.$inferInsert;

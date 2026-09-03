@@ -24,6 +24,12 @@ export type TraceEntryKind =
   | "decision"
   | "approval_requested"
   | "approval_recorded"
+  | "commitment"
+  | "model_request"
+  | "model_response"
+  | "model_tool_selection"
+  | "model_decision"
+  | "model_fallback"
   | "run_finished";
 
 export interface TraceEntry {
@@ -147,6 +153,53 @@ export class AgentTrace {
       label: granted ? "approved" : "declined",
       data: { offerFingerprint: fingerprint },
     });
+  }
+
+  /**
+   * Commitment lifecycle. `data` is redacted like everything else, and the
+   * handover secret/salt are never passed in — only the public commit.
+   */
+  commitment(code: string, detail: string, data?: Record<string, unknown>): void {
+    this.push({
+      kind: "commitment",
+      label: code,
+      detail,
+      data: data ? (redact(data) as Record<string, unknown>) : undefined,
+    });
+  }
+
+  /**
+   * The model layer. `summary` is a short structured label ("understand_intent",
+   * "select_offer"), never chain-of-thought. `data` is redacted like everything
+   * else; pass only the structured JSON the model returned, not its prose.
+   */
+  modelRequest(purpose: string, detail: string): void {
+    this.push({ kind: "model_request", label: purpose, detail });
+  }
+
+  modelResponse(purpose: string, data: Record<string, unknown>, durationMs?: number): void {
+    this.push({
+      kind: "model_response",
+      label: purpose,
+      durationMs,
+      data: redact(data) as Record<string, unknown>,
+    });
+  }
+
+  modelToolSelection(tool: string, args: unknown): void {
+    this.push({
+      kind: "model_tool_selection",
+      label: tool,
+      data: { args: redact(args) as Record<string, unknown> },
+    });
+  }
+
+  modelDecision(code: string, detail: string): void {
+    this.push({ kind: "model_decision", label: code, detail });
+  }
+
+  modelFallback(purpose: string, code: string, detail: string): void {
+    this.push({ kind: "model_fallback", label: purpose, detail: `${code}: ${detail}` });
   }
 
   finished(state: AgentRunState, summary: string): void {

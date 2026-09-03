@@ -13,7 +13,9 @@ import { formatDateTime, relativeTime } from "@/lib/format";
 import { manageTokenMatchesBusinessSlug } from "@/features/businesses/access";
 import { MerchantFulfilmentPanel } from "@/features/proofline/MerchantFulfilmentPanel";
 import { getSupplierWorkspace } from "@/features/routes/reads";
+import { ChangePriceForm } from "@/features/supplier/ChangePriceForm";
 import { QuoteResponseForm } from "@/features/supplier/QuoteResponseForm";
+import { formatMoney } from "@/lib/format";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,7 +36,7 @@ export default async function SupplierRequestsPage({
   const workspace = await getSupplierWorkspace(db, slug, { includePickupCodes: canManage });
   if (!workspace) notFound();
 
-  const { business, incoming, handedOff } = workspace;
+  const { business, incoming, quoted, handedOff } = workspace;
 
   return (
     <div className="space-y-8">
@@ -102,6 +104,55 @@ export default async function SupplierRequestsPage({
           })}
         </ol>
       )}
+
+      {quoted.length > 0 ? (
+        <section className="space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold">Prices you have sent</h2>
+            <p className="text-sm text-muted">
+              You can still change a price here. Once a customer has agreed one, they have to accept
+              the change before it takes effect.
+            </p>
+          </div>
+          <ol className="space-y-4">
+            {quoted.map(({ task, route, quote, agreed, changePending }) => (
+              <li key={task.id}>
+                <Card as="article" className="space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <CardTitle>{route.name}</CardTitle>
+                    <span className="text-xs text-muted">
+                      {agreed ? "Customer agreed" : "Waiting on the customer"}
+                    </span>
+                  </div>
+                  <DataList>
+                    <DataRow label="Your price">
+                      {formatMoney(quote.amountMin, quote.currency)}
+                    </DataRow>
+                    <DataRow label="Turnaround">{quote.turnaround}</DataRow>
+                    <DataRow label="Sent">{relativeTime(quote.createdAt)}</DataRow>
+                  </DataList>
+
+                  {changePending ? (
+                    <Callout tone="info" title="Waiting on the customer">
+                      You asked to change this price. The amount they agreed still stands until they
+                      accept.
+                    </Callout>
+                  ) : canManage && t ? (
+                    <ChangePriceForm
+                      routeId={route.id}
+                      taskId={task.id}
+                      manageToken={t}
+                      currency={quote.currency}
+                      currentAmount={quote.amountMin}
+                      alreadyAgreed={agreed}
+                    />
+                  ) : null}
+                </Card>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
 
       {handedOff.length > 0 ? (
         <section className="space-y-4">

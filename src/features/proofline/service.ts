@@ -4,8 +4,10 @@ import type { Database } from "@/lib/db/client";
 import type { TaskRow } from "@/lib/db/schema";
 import { HttpError } from "@/lib/http/response";
 import { appendAuditEvent } from "@/features/audit/repository";
+import { notify } from "@/features/notifications/service";
 import { manageTokenMatchesTask } from "@/features/businesses/access";
 import { findTaskById } from "@/features/tasks/repository";
+import { taskBelongsToSession } from "@/features/tasks/ownership";
 
 import { generatePickupCode, pickupCodeMatches } from "./code";
 import { insertProoflineEvent, listProoflineEvents } from "./repository";
@@ -86,6 +88,7 @@ export async function markReadyForPickup(
     routeId: task.routeId,
     data: {},
   });
+  await notify(db, { event: "proofline.ready_for_pickup", taskId });
 
   const view = buildProoflineView(await listProoflineEvents(db, taskId), {
     includePickupCode: true,
@@ -134,7 +137,7 @@ export async function confirmPickup(
   }
 
   let method: ProoflineConfirmationMethod | null = null;
-  if (input.sessionId && input.sessionId === task.sessionId) {
+  if (input.sessionId && taskBelongsToSession(task, input.sessionId)) {
     method = "buyer_session";
   } else if (input.code && ready.pickupCode && pickupCodeMatches(input.code, ready.pickupCode)) {
     method = "one_time_code";
@@ -160,6 +163,7 @@ export async function confirmPickup(
     routeId: task.routeId,
     data: { method },
   });
+  await notify(db, { event: "proofline.pickup_confirmed", taskId });
 
   const view = buildProoflineView(await listProoflineEvents(db, taskId), {
     includePickupCode: false,

@@ -51,7 +51,7 @@ function assess(candidate: ProviderCandidate, now: Date): CandidateAssessment {
   if (candidate.availability === null) {
     disqualifiers.push({
       code: "CAPABILITIES_NOT_READ",
-      statement: `${candidate.businessName}: capability document not read yet, so availability is unknown.`,
+      statement: `We could not check whether ${candidate.businessName} is available, so it was left out.`,
     });
   } else if (!candidate.availability.acceptingQuoteRequests) {
     disqualifiers.push({
@@ -61,14 +61,14 @@ function assess(candidate: ProviderCandidate, now: Date): CandidateAssessment {
   } else {
     reasons.push({
       code: "AVAILABLE",
-      statement: `${candidate.businessName} is active, operator-verified, and accepting quote requests.`,
+      statement: `${candidate.businessName} is verified and taking requests.`,
     });
   }
 
   if (candidate.freshness?.stale) {
     disqualifiers.push({
       code: "PRICE_STALE",
-      statement: `${candidate.businessName}'s price data is past its freshness window, so Intra will not take a quote request against it.`,
+      statement: `${candidate.businessName} has not confirmed its prices recently enough to quote from, so it was left out.`,
     });
   }
 
@@ -76,7 +76,7 @@ function assess(candidate: ProviderCandidate, now: Date): CandidateAssessment {
   if (ageHours !== null) {
     reasons.push({
       code: "PRICE_AGE",
-      statement: `${candidate.businessName} last confirmed its prices ${Math.round(ageHours)}h ago.`,
+      statement: `${candidate.businessName} last confirmed its prices ${Math.round(ageHours)} hours ago.`,
     });
   }
 
@@ -84,13 +84,13 @@ function assess(candidate: ProviderCandidate, now: Date): CandidateAssessment {
   if (feeUsd > 0 && candidate.payment && !candidate.payment.available) {
     disqualifiers.push({
       code: "PAYMENT_UNAVAILABLE",
-      statement: `${candidate.businessName} charges a query fee but its payment service reports ${candidate.payment.state}, so the fee cannot be settled.`,
+      statement: `${candidate.businessName} charges a small fee to answer, and that fee cannot be paid right now — so it was left out and nothing was spent.`,
     });
   }
   if (feeUsd > PAYMENT_MAX_FEE_USD) {
     disqualifiers.push({
       code: "FEE_ABOVE_HARD_CAP",
-      statement: `${candidate.businessName} asks $${feeUsd.toFixed(3)} per query, above the $${PAYMENT_MAX_FEE_USD.toFixed(2)} hard cap.`,
+      statement: `${candidate.businessName} asks $${feeUsd.toFixed(3)} to answer, more than the $${PAYMENT_MAX_FEE_USD.toFixed(2)} this agent is ever allowed to spend.`,
     });
   }
 
@@ -130,7 +130,7 @@ export function planCandidates(
   if (assessed.length === 0) {
     notes.push({
       code: "NO_PROVIDERS",
-      statement: "No providers were discovered for this route, so there is nothing to query.",
+      statement: "No printers offer this service right now.",
     });
   }
 
@@ -147,7 +147,7 @@ export function planCandidates(
       skipped.push(item);
       item.disqualifiers.push({
         code: "ENOUGH_QUOTES",
-        statement: `Skipped ${item.candidate.businessName}: already querying ${maxProviders} providers, which is enough to compare.`,
+        statement: `Left out ${item.candidate.businessName}: ${maxProviders} printers is already enough to compare.`,
       });
       continue;
     }
@@ -158,8 +158,8 @@ export function planCandidates(
       item.disqualifiers.push({
         code: "OVER_RUN_BUDGET",
         statement:
-          `Skipped ${item.candidate.businessName}: its $${item.feeUsd.toFixed(3)} query fee would take the run ` +
-          `over its $${options.budgetUsd.toFixed(2)} budget ($${committedFeeUsd.toFixed(3)} already committed).`,
+          `Left out ${item.candidate.businessName}: its $${item.feeUsd.toFixed(3)} fee to answer would take this run ` +
+          `over its $${options.budgetUsd.toFixed(2)} budget.`,
       });
       continue;
     }
@@ -171,13 +171,14 @@ export function planCandidates(
     notes.push({
       code: "QUERY_PLAN",
       statement:
-        `Querying ${toQuery.length} of ${assessed.length} providers for $${committedFeeUsd.toFixed(3)} ` +
-        `of a $${options.budgetUsd.toFixed(2)} budget.`,
+        committedFeeUsd > 0
+          ? `Asking ${toQuery.length} of ${assessed.length} printers for a price, for $${committedFeeUsd.toFixed(3)} of a $${options.budgetUsd.toFixed(2)} budget.`
+          : `Asking ${toQuery.length} of ${assessed.length} printers for a price. None of them charge to answer.`,
     });
   } else if (assessed.length > 0) {
     notes.push({
       code: "NO_QUERYABLE_PROVIDERS",
-      statement: "Every discovered provider was disqualified before any fee was spent.",
+      statement: "Every printer was ruled out before anything was spent.",
     });
   }
 

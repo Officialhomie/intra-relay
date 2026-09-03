@@ -30,6 +30,12 @@ import type { RouteInputField } from "./schema";
 export const quoteRequestBodySchema = z.object({
   /** Optional agent identifier (e.g. an ERC-8004 id). Stored, never trusted for auth. */
   requester: z.string().trim().max(120).optional(),
+  /**
+   * The human buyer session an agent is acting for (milestone 6 §17). Stamped
+   * onto the new task as its buyer claim so the human can act on their own
+   * agent-created order. Only ever settable here, at creation.
+   */
+  buyerClaim: z.string().trim().max(200).optional(),
   input: z.record(z.string(), z.unknown()).default({}),
 });
 export type QuoteRequestBody = z.infer<typeof quoteRequestBodySchema>;
@@ -84,9 +90,11 @@ async function createAwaitingTask(
   businessId: string,
   sessionId: string,
   structuredInput: Record<string, unknown>,
+  buyerClaimSession: string | null,
 ) {
   const draft = await insertTask(db, {
     sessionId,
+    buyerClaimSession,
     routeId: route.id,
     structuredInput,
     status: "DRAFT",
@@ -267,10 +275,20 @@ export async function requestQuoteViaCapabilityApi(
 
   const fee = Number(route.queryFeeUsd);
   const sessionId = agentSessionId(body.requester);
+  // A human buyer's browser session, when an agent is acting for them. Ignored
+  // if it would just duplicate the task's own session.
+  const buyerClaim = body.buyerClaim && body.buyerClaim !== sessionId ? body.buyerClaim : null;
 
   // --- Free route ---------------------------------------------------------
   if (fee <= 0) {
-    const task = await createAwaitingTask(db, route, business.id, sessionId, validation.data);
+    const task = await createAwaitingTask(
+      db,
+      route,
+      business.id,
+      sessionId,
+      validation.data,
+      buyerClaim,
+    );
     return {
       kind: "AWAITING_QUOTE",
       httpStatus: 202,
@@ -287,7 +305,14 @@ export async function requestQuoteViaCapabilityApi(
   // --- Paid route, no facilitator configured -----------------------------
   const adapter = getPaymentAdapter();
   if (!adapter.isConfigured()) {
-    const task = await createAwaitingTask(db, route, business.id, sessionId, validation.data);
+    const task = await createAwaitingTask(
+      db,
+      route,
+      business.id,
+      sessionId,
+      validation.data,
+      buyerClaim,
+    );
     await recordServicePaymentIntent(db, task, route);
     throw new HttpError(
       503,
@@ -399,7 +424,14 @@ export async function requestQuoteViaCapabilityApi(
   const prior = await findPaymentByAuthorizationKey(db, settled.authorizationKey);
   if (prior?.status === "SETTLED") return settledReplay(prior, route);
 
-  const task = await createAwaitingTask(db, route, business.id, sessionId, validation.data);
+  const task = await createAwaitingTask(
+    db,
+    route,
+    business.id,
+    sessionId,
+    validation.data,
+    buyerClaim,
+  );
   const receipt = await recordSettledReceipt(db, { route, taskId: task.id, result: settled });
 
   return settledOutcome({

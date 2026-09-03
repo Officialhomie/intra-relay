@@ -620,3 +620,58 @@ tag2, endpoint, feedbackURI, feedbackHash)`; the submitter MUST NOT be the
   same commit.
 - **Requirements:** `FR-ATT-001`..`005`, `AC-ATT-001`..`004`, `BR-001` (upheld),
   `BR-005`, `NFR-SEC-001`.
+
+---
+
+## ADR-019 — Buyer-agent model layer: LLM above deterministic policy, never inside it
+
+- **Date:** 2026-09-02
+- **Status:** Accepted (starts the "AI SDK" phase gated by CLAUDE.md §6.2; extends the
+  agent work behind ADR-001 / ADR-003)
+- **Context:** Milestones 1–2 built a deterministic buyer-agent orchestration
+  library (`src/features/agent/`) and a commitment→attestation lifecycle. A full
+  read-only audit confirmed it was well-engineered but (a) **not reachable** from
+  the running app — no route, no UI, never executed against a real server — and
+  (b) **not an AI agent** — no model, no model-driven reasoning. The Celo "Agents
+  at Work" submission needs a credible agent. CLAUDE.md §6.2 phase-gates AI SDKs;
+  Victor started this phase explicitly (milestone 3 brief).
+- **Decision:**
+  - **The model sits ABOVE the deterministic orchestration, never inside it.**
+    ```
+    USER → LLM (understand intent · plan which providers to quote · choose an
+                offer + rationale · replan when nothing is usable)
+         → DETERMINISTIC POLICY (budget cap · quote expiry · eligibility ·
+                the human-approval gate · every mutating tool)
+         → EXTERNAL TOOLS
+    ```
+  - **The model never holds a tool.** It proposes; `runBuyerAgent` disposes. It
+    proposes JSON validated against a Zod schema; the loop executes the tools and
+    vetoes anything policy already excluded. `recordBuyerDecision` (ACCEPT) is
+    **not** in the model-facing tool set (`MODEL_TOOLS`) — a human approval,
+    validated by `offerFingerprint`, remains the only path to it (BR-001).
+  - **Deterministic is the floor and the fallback.** Every model call is bounded
+    (`DEFAULT_MODEL_LIMITS`: ≤4 calls/run, ≤700 output tokens, 12s timeout) and,
+    on any failure — timeout, rate limit, bad JSON, schema mismatch, unknown
+    provider, call-budget exhausted — the run silently continues on the
+    deterministic decision. With **no** `ANTHROPIC_API_KEY` the assisted loop is
+    byte-for-byte `runBuyerAgent`.
+  - **Dates and money stay deterministic.** The model returns a deadline
+    _phrase_, not a date; the deterministic parser turns it into a date. Where
+    the deterministic parser already found a value, the model cannot override it.
+  - **Provider:** `@anthropic-ai/sdk` (Claude Haiku 4.5,
+    `claude-haiku-4-5-20251001`). A `MockModelProvider` gives tests and
+    credit-free local dev the full pipeline. No agent framework — no Google ADK,
+    no LangGraph, no LangChain: the repo already has clean implementations of
+    tools, state, retries, the async human-wait and the approval gate; a
+    framework would be a rewrite that buys nothing.
+  - **Reachable:** new `POST /api/agent/run`, `GET /api/agent/run/:id`,
+    `POST /api/agent/run/:id/approve`, and a minimal `/agent` page. Run
+    orchestration metadata (trace, ranked offers) lives in a **non-persistent**
+    in-memory store (CLAUDE.md §4.4); the task, quote, decision and commitment
+    are still written by the existing DB-backed services.
+- **Consequences:** `@anthropic-ai/sdk` added to `dependencies`. New env vars
+  `ANTHROPIC_API_KEY`, `AGENT_MODEL_PROVIDER`, `AGENT_MODEL` (all server-only,
+  all optional). New agent run state `CLARIFICATION_NEEDED`. `.env.example` and
+  CLAUDE.md §6.2 updated. No change to BR-001, the payment rules, or the
+  attestation layer.
+- **Requirements:** `BR-001` (upheld), `ADR-003` (upheld), `NFR-SEC-002`.

@@ -4,6 +4,12 @@ import { eq } from "drizzle-orm";
 
 import { findBusinessBySlug } from "@/features/businesses/repository";
 import { getPaymentAdapter, PAYMENT_MAX_FEE_USD } from "@/features/payments/adapter";
+import {
+  describePricing,
+  PUBLISHED_PRICE_CAVEAT,
+  type PricingModel,
+  type ServicePricing,
+} from "@/features/pricing/model";
 
 import {
   PRICE_FRESHNESS_MAX_AGE_DAYS,
@@ -99,6 +105,22 @@ export interface RouteCapability {
     staleAfter: string | null;
     stale: boolean;
     behaviour: string;
+  };
+  /**
+   * How the business prices this service, and its published figure when it has
+   * one (milestone 5 §5). This is GUIDANCE an agent may compare on: the quote
+   * the business returns for a specific request is still the only commitment.
+   */
+  pricing: {
+    model: PricingModel;
+    /** Human sentence, e.g. "From NGN 15,000 per 100" or "Priced per job". */
+    summary: string;
+    amount: number | null;
+    currency: string;
+    unit: string | null;
+    /** True when a buyer can meaningfully compare on the published figure alone. */
+    comparable: boolean;
+    caveat: string;
   };
   /** Quote SLA / response expectation (FR-ROUTE-001). */
   quoteSla: {
@@ -204,12 +226,34 @@ export async function buildBusinessCapabilities(
           }
         : undefined;
 
+      const pricing: ServicePricing = {
+        model: route.pricingModel,
+        published:
+          route.priceAmount !== null
+            ? {
+                amount: Number(route.priceAmount),
+                currency: route.quoteCurrency,
+                unit: route.priceUnit,
+              }
+            : null,
+      };
+
       return {
         slug: route.slug,
         name: route.name,
         description: route.description,
         status: route.status,
         availability,
+        pricing: {
+          model: pricing.model,
+          summary: describePricing(pricing),
+          amount: pricing.published?.amount ?? null,
+          currency: route.quoteCurrency,
+          unit: route.priceUnit,
+          // Only a fixed published price is comparable before a quote exists.
+          comparable: pricing.model === "FIXED" && pricing.published !== null,
+          caveat: PUBLISHED_PRICE_CAVEAT,
+        },
         lastUpdatedAt: fresh.lastUpdatedAt,
         priceUpdatedAt: fresh.priceUpdatedAt,
         stale: fresh.stale,

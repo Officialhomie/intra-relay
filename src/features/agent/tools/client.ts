@@ -65,9 +65,11 @@ export class AgentHttpClient {
         body: init.body === undefined ? undefined : JSON.stringify(init.body),
         signal: controller.signal,
       });
-      const payload = (await response.json().catch(() => null)) as
-        | { success?: boolean; data?: T; error?: { code?: string; message?: string } }
-        | null;
+      const payload = (await response.json().catch(() => null)) as {
+        success?: boolean;
+        data?: T;
+        error?: { code?: string; message?: string };
+      } | null;
 
       if (payload?.success === true) {
         return {

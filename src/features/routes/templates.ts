@@ -1,4 +1,5 @@
 import type { BusinessCategory } from "@/features/businesses/schema";
+import type { PricingModel } from "@/features/pricing/model";
 
 import type { RouteInputField } from "./schema";
 import {
@@ -17,6 +18,14 @@ export interface ServiceTemplate {
   queryFeeUsd: number;
   responseSlaMinutes: number;
   availability: "mvp" | "coming_soon";
+  /**
+   * The pricing behaviour this kind of service usually has. A business can
+   * change it — the template only picks a sensible starting point so onboarding
+   * does not open with a question most operators would rather not answer.
+   */
+  defaultPricingModel: PricingModel;
+  /** What a published amount would buy, when the model has one. */
+  defaultPriceUnit: string | null;
 }
 
 const DESIGN_FIELDS: readonly RouteInputField[] = [
@@ -76,6 +85,9 @@ export const SERVICE_TEMPLATES: readonly ServiceTemplate[] = [
     queryFeeUsd: FLYER_PRINTING_QUERY_FEE_USD,
     responseSlaMinutes: FLYER_PRINTING_SLA_MINUTES,
     availability: "mvp",
+    // A print run has a floor price that then scales with quantity and stock.
+    defaultPricingModel: "STARTING_FROM",
+    defaultPriceUnit: "per 100",
   },
   {
     id: "graphic-design-quote",
@@ -86,6 +98,9 @@ export const SERVICE_TEMPLATES: readonly ServiceTemplate[] = [
     queryFeeUsd: 0.03,
     responseSlaMinutes: 60,
     availability: "coming_soon",
+    // Design work is judged job by job.
+    defaultPricingModel: "QUOTE_REQUIRED",
+    defaultPriceUnit: null,
   },
   {
     id: "event-catering-quote",
@@ -96,6 +111,8 @@ export const SERVICE_TEMPLATES: readonly ServiceTemplate[] = [
     queryFeeUsd: 0.03,
     responseSlaMinutes: 60,
     availability: "coming_soon",
+    defaultPricingModel: "STARTING_FROM",
+    defaultPriceUnit: "per guest",
   },
   {
     id: "local-delivery-quote",
@@ -106,6 +123,9 @@ export const SERVICE_TEMPLATES: readonly ServiceTemplate[] = [
     queryFeeUsd: 0.01,
     responseSlaMinutes: 20,
     availability: "coming_soon",
+    // A courier run inside one city is the classic flat, published price.
+    defaultPricingModel: "FIXED",
+    defaultPriceUnit: "per drop",
   },
   {
     id: "service-request-quote",
@@ -116,6 +136,8 @@ export const SERVICE_TEMPLATES: readonly ServiceTemplate[] = [
     queryFeeUsd: 0.02,
     responseSlaMinutes: 60,
     availability: "coming_soon",
+    defaultPricingModel: "QUOTE_REQUIRED",
+    defaultPriceUnit: null,
   },
 ] as const;
 

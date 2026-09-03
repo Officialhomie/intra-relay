@@ -1,0 +1,1 @@
+ALTER TABLE "tasks" ADD COLUMN "buyer_claim_session" text;

@@ -59,6 +59,8 @@ export async function createRoute(
     queryFeeUsd: template.queryFeeUsd.toFixed(4),
     responseSlaMinutes: template.responseSlaMinutes,
     quoteCurrency: business.quoteCurrency,
+    pricingModel: template.defaultPricingModel,
+    priceUnit: template.defaultPriceUnit,
     payoutAddress: business.payoutAddress,
     endpoint: `/v1/${business.slug}/${template.id}/quote`,
     status: "DRAFT",

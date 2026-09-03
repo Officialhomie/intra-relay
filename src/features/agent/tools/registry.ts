@@ -12,11 +12,23 @@ import type { ProviderCandidate, ProviderOffer } from "../types";
  * `payProvider` and no `placeOrder` — the agent cannot do either, by design
  * (BR-001), and declaring a tool the agent must never call is how an LLM ends
  * up calling it.
+ *
+ * Every tool carries an explicit input AND output schema (`z`), so the model
+ * layer (milestone 3) is handed a typed contract, never an arbitrary-function
+ * interface. `mode` tells the runtime whether a proposed call needs the
+ * mutating-action guard; the model is only ever shown the `"read"` subset plus
+ * `requestQuote` (see `MODEL_TOOLS`), and never `recordBuyerDecision`.
  */
 
 export interface ToolContext {
   http: AgentHttpClient;
   agentId: string;
+  /**
+   * The human buyer's browser session this run belongs to (milestone 6 §17).
+   * Passed to the quote API as the task's buyer claim so the human can act on
+   * their own agent-created order. Undefined for runs with no human session.
+   */
+  buyerSessionId?: string;
 }
 
 export interface ToolResult<T> {
@@ -26,10 +38,14 @@ export interface ToolResult<T> {
   errorMessage: string | null;
 }
 
+export type ToolMode = "read" | "mutating";
+
 export interface AgentTool<I, O> {
   name: string;
   description: string;
   input: z.ZodType<I>;
+  output: z.ZodType<O>;
+  mode: ToolMode;
   /** True when the tool can move money or state. Used by the runtime's guards. */
   mutating: boolean;
   run(input: I, context: ToolContext): Promise<ToolResult<O>>;
@@ -42,6 +58,72 @@ function fail<T>(code: string, message: string): ToolResult<T> {
 function succeed<T>(data: T): ToolResult<T> {
   return { ok: true, data, errorCode: null, errorMessage: null };
 }
+
+function num(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+// --- shared output schemas ----------------------------------------------------
+
+const availabilitySchema = z
+  .object({
+    state: z.enum(["AVAILABLE", "UNAVAILABLE"]),
+    acceptingQuoteRequests: z.boolean(),
+    reason: z.string(),
+    detail: z.string(),
+  })
+  .nullable();
+
+const freshnessSchema = z
+  .object({
+    priceConfirmedAt: z.string().nullable(),
+    staleAfter: z.string().nullable(),
+    stale: z.boolean(),
+  })
+  .nullable();
+
+const paymentSchema = z
+  .object({
+    queryFeeUsd: z.number(),
+    available: z.boolean(),
+    state: z.string(),
+  })
+  .nullable();
+
+const providerCandidateSchema = z.object({
+  businessSlug: z.string(),
+  businessName: z.string(),
+  routeSlug: z.string(),
+  routeName: z.string(),
+  city: z.string().nullable(),
+  country: z.string().nullable(),
+  responseSlaMinutes: z.number().nullable(),
+  quoteCurrency: z.string().nullable(),
+  priceUpdatedAt: z.string().nullable(),
+  availability: availabilitySchema,
+  freshness: freshnessSchema,
+  payment: paymentSchema,
+}) satisfies z.ZodType<ProviderCandidate>;
+
+const providerOfferSchema = z.object({
+  businessSlug: z.string(),
+  businessName: z.string(),
+  routeSlug: z.string(),
+  taskId: z.string(),
+  status: z.enum(["RECEIVED", "DECLINED", "EXPIRED"]),
+  currency: z.string(),
+  amountMin: z.number(),
+  amountMax: z.number().nullable(),
+  deliveryCharge: z.number().nullable(),
+  fixed: z.boolean(),
+  turnaround: z.string(),
+  confidence: z.enum(["low", "medium", "high"]).nullable(),
+  issuedAt: z.string().nullable(),
+  expiresAt: z.string().nullable(),
+  availabilityNote: z.string().nullable(),
+  declineReason: z.string().nullable(),
+}) satisfies z.ZodType<ProviderOffer>;
 
 // --- discoverProviders -----------------------------------------------------
 
@@ -67,6 +149,8 @@ export const discoverProviders: AgentTool<z.infer<typeof discoverInput>, Provide
     "List providers with an ACTIVE route for a given capability (default: flyer printing). " +
     "Returns candidates without prices — availability and freshness require reading each capability document.",
   input: discoverInput,
+  output: z.array(providerCandidateSchema),
+  mode: "read",
   mutating: false,
   async run(input, { http }) {
     const result = await http.request<ActiveRouteRow[]>(
@@ -102,8 +186,18 @@ const capabilitiesInput = z.object({
   routeSlug: z.string().trim().min(1).default(FLYER_PRINTING_ROUTE_SLUG),
 });
 
+/**
+ * The public capability document shape actually returned by
+ * `GET /v1/:slug/capabilities` (`buildBusinessCapabilities`). Kept narrow: only
+ * the fields the agent reads. Note `business.location.{city,country}` — the
+ * document nests location, and an earlier version of this tool read a flat
+ * `business.city` that never existed on the wire.
+ */
 interface CapabilityDoc {
-  business?: { name?: string; city?: string | null; country?: string | null };
+  business?: {
+    name?: string;
+    location?: { city?: string | null; country?: string | null };
+  };
   routes?: Array<{
     slug: string;
     name: string;
@@ -132,6 +226,8 @@ export const getBusinessCapabilities: AgentTool<
     "Read a business's public capability document: current availability, price freshness, " +
     "quote SLA and any agent query fee. Read this before deciding whether to spend a fee.",
   input: capabilitiesInput,
+  output: providerCandidateSchema.nullable(),
+  mode: "read",
   mutating: false,
   async run(input, { http }) {
     const result = await http.request<CapabilityDoc>(
@@ -154,8 +250,8 @@ export const getBusinessCapabilities: AgentTool<
       businessName: doc?.business?.name ?? input.businessSlug,
       routeSlug: route.slug,
       routeName: route.name,
-      city: doc?.business?.city ?? null,
-      country: doc?.business?.country ?? null,
+      city: doc?.business?.location?.city ?? null,
+      country: doc?.business?.location?.country ?? null,
       responseSlaMinutes: route.responseSlaMinutes ?? null,
       quoteCurrency: null,
       priceUpdatedAt: route.freshness?.priceConfirmedAt ?? null,
@@ -186,6 +282,12 @@ export interface QuoteRequestAccepted {
   responseSlaMinutes: number | null;
 }
 
+const quoteRequestAcceptedSchema = z.object({
+  taskId: z.string(),
+  outcome: z.string(),
+  responseSlaMinutes: z.number().nullable(),
+}) satisfies z.ZodType<QuoteRequestAccepted>;
+
 /**
  * Posts a structured quote request. This does NOT return a price: a human has
  * to answer. A 202 means the request is queued against the printer's SLA — the
@@ -197,8 +299,10 @@ export const requestQuote: AgentTool<z.infer<typeof requestQuoteInput>, QuoteReq
     "Submit a structured quote request to one provider. Returns a taskId, NOT a price — " +
     "a human printer answers asynchronously within their stated SLA. Poll getQuoteStatus afterwards.",
   input: requestQuoteInput,
+  output: quoteRequestAcceptedSchema,
+  mode: "mutating",
   mutating: true,
-  async run(input, { http, agentId }) {
+  async run(input, { http, agentId, buyerSessionId }) {
     const result = await http.request<{
       outcome?: string;
       taskId?: string;
@@ -206,7 +310,14 @@ export const requestQuote: AgentTool<z.infer<typeof requestQuoteInput>, QuoteReq
     }>(
       "POST",
       `/v1/${encodeURIComponent(input.businessSlug)}/${encodeURIComponent(input.routeSlug)}/quote`,
-      { body: { requester: agentId, input: input.brief }, idempotent: true },
+      {
+        body: {
+          requester: agentId,
+          ...(buyerSessionId ? { buyerClaim: buyerSessionId } : {}),
+          input: input.brief,
+        },
+        idempotent: true,
+      },
     );
     if (!result.ok) return fail(result.errorCode!, result.errorMessage!);
     if (!result.data?.taskId) {
@@ -224,12 +335,19 @@ export const requestQuote: AgentTool<z.infer<typeof requestQuoteInput>, QuoteReq
 
 const quoteStatusInput = z.object({ taskId: z.string().trim().min(1) });
 
+/**
+ * The shape `GET /api/tasks/:id` actually returns (`getTaskView`): a `quotes`
+ * ARRAY (not a singular `quote`), a `supplier` object (not `business`), and the
+ * route slug under `route`. An earlier version of this tool read a `view.quote`
+ * / `view.business` shape that the endpoint has never produced.
+ */
 interface TaskView {
-  task?: { id: string; status: string };
-  business?: { name?: string; slug?: string };
-  route?: { slug?: string };
-  quote?: {
+  task?: { id?: string; status?: string };
+  route?: { slug?: string | null } | null;
+  supplier?: { name?: string | null } | null;
+  quotes?: Array<{
     status?: string;
+    effectiveStatus?: string;
     currency?: string;
     amountMin?: number | string;
     amountMax?: number | string | null;
@@ -237,10 +355,11 @@ interface TaskView {
     fixed?: boolean;
     turnaround?: string;
     confidence?: "low" | "medium" | "high" | null;
+    createdAt?: string | null;
     expiresAt?: string | null;
     availabilityNote?: string | null;
     declineReason?: string | null;
-  } | null;
+  }>;
 }
 
 export interface QuoteStatus {
@@ -249,9 +368,16 @@ export interface QuoteStatus {
   offer: ProviderOffer | null;
 }
 
-function num(value: unknown): number {
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
+const quoteStatusSchema = z.object({
+  taskId: z.string(),
+  taskStatus: z.string(),
+  offer: providerOfferSchema.nullable(),
+}) satisfies z.ZodType<QuoteStatus>;
+
+function offerStatus(raw: string | undefined): ProviderOffer["status"] {
+  if (raw === "DECLINED") return "DECLINED";
+  if (raw === "EXPIRED") return "EXPIRED";
+  return "RECEIVED";
 }
 
 export const getQuoteStatus: AgentTool<z.infer<typeof quoteStatusInput>, QuoteStatus> = {
@@ -260,6 +386,8 @@ export const getQuoteStatus: AgentTool<z.infer<typeof quoteStatusInput>, QuoteSt
     "Check whether a printer has answered a quote request yet, and read the quote if they have. " +
     "A task still AWAITING_QUOTE means no human has responded — that is expected, not an error.",
   input: quoteStatusInput,
+  output: quoteStatusSchema,
+  mode: "read",
   mutating: false,
   async run(input, { http }) {
     const result = await http.request<TaskView>(
@@ -270,10 +398,13 @@ export const getQuoteStatus: AgentTool<z.infer<typeof quoteStatusInput>, QuoteSt
     if (!result.ok) return fail(result.errorCode!, result.errorMessage!);
 
     const view = result.data;
-    const quote = view?.quote ?? null;
     const taskStatus = view?.task?.status ?? "UNKNOWN";
+    const quote = Array.isArray(view?.quotes) ? (view.quotes[0] ?? null) : null;
 
-    if (!quote || !quote.status) {
+    // `effectiveStatus` already accounts for a RECEIVED quote whose expiry has
+    // passed; fall back to the stored status.
+    const status = quote ? (quote.effectiveStatus ?? quote.status) : null;
+    if (!quote || !status || status === "PENDING") {
       return succeed({ taskId: input.taskId, taskStatus, offer: null });
     }
 
@@ -281,11 +412,13 @@ export const getQuoteStatus: AgentTool<z.infer<typeof quoteStatusInput>, QuoteSt
       taskId: input.taskId,
       taskStatus,
       offer: {
-        businessSlug: view?.business?.slug ?? "",
-        businessName: view?.business?.name ?? "",
+        // Business slug is not on the task view; the loop stamps the real
+        // slug/name from the candidate it asked. Name here is best-effort.
+        businessSlug: "",
+        businessName: view?.supplier?.name ?? "",
         routeSlug: view?.route?.slug ?? FLYER_PRINTING_ROUTE_SLUG,
         taskId: input.taskId,
-        status: quote.status as ProviderOffer["status"],
+        status: offerStatus(status),
         currency: quote.currency ?? "NGN",
         amountMin: num(quote.amountMin),
         amountMax: quote.amountMax == null ? null : num(quote.amountMax),
@@ -293,6 +426,7 @@ export const getQuoteStatus: AgentTool<z.infer<typeof quoteStatusInput>, QuoteSt
         fixed: quote.fixed === true,
         turnaround: quote.turnaround ?? "",
         confidence: quote.confidence ?? null,
+        issuedAt: quote.createdAt ?? null,
         expiresAt: quote.expiresAt ?? null,
         availabilityNote: quote.availabilityNote ?? null,
         declineReason: quote.declineReason ?? null,
@@ -313,7 +447,7 @@ const decisionInput = z.object({
  * Records the decision a HUMAN made. The runtime will not call this without a
  * matching approval (see `policy/approval.ts`); the tool itself carries the
  * same warning so an LLM reading the description cannot mistake it for
- * something it may decide alone.
+ * something it may decide alone. It is deliberately absent from `MODEL_TOOLS`.
  */
 export const recordBuyerDecision: AgentTool<z.infer<typeof decisionInput>, unknown> = {
   name: "recordBuyerDecision",
@@ -322,6 +456,8 @@ export const recordBuyerDecision: AgentTool<z.infer<typeof decisionInput>, unkno
     "itself — call it only after a human has explicitly approved the exact offer shown to them. " +
     "Accepting reveals a pre-filled WhatsApp message; it does not place an order or move money.",
   input: decisionInput,
+  output: z.unknown(),
+  mode: "mutating",
   mutating: true,
   async run(input, { http }) {
     const result = await http.request<unknown>(
@@ -347,3 +483,37 @@ export const AGENT_TOOLS = {
 } as const;
 
 export type AgentToolName = keyof typeof AGENT_TOOLS;
+
+/**
+ * The subset a model may propose calls against. `recordBuyerDecision` is
+ * excluded on purpose (BR-001) — a human approval, validated deterministically,
+ * is the only path to it. `discoverProviders` is also excluded: discovery is
+ * run once deterministically so the model always reasons over the full set.
+ */
+export const MODEL_TOOLS = {
+  getBusinessCapabilities,
+  requestQuote,
+  getQuoteStatus,
+} as const;
+
+export type ModelToolName = keyof typeof MODEL_TOOLS;
+
+export const MODEL_TOOL_NAMES = Object.keys(MODEL_TOOLS) as ModelToolName[];
+
+/** A JSON-schema view of the model-facing tools, for the system prompt. */
+export function describeToolsForModel(): Array<{
+  name: string;
+  description: string;
+  mode: ToolMode;
+  inputSchema: unknown;
+}> {
+  return MODEL_TOOL_NAMES.map((name) => {
+    const tool = MODEL_TOOLS[name];
+    return {
+      name: tool.name,
+      description: tool.description,
+      mode: tool.mode,
+      inputSchema: z.toJSONSchema(tool.input),
+    };
+  });
+}

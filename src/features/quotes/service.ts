@@ -4,6 +4,7 @@ import type { Database } from "@/lib/db/client";
 import type { QuoteRow, RecommendationRow, TaskRow } from "@/lib/db/schema";
 import { HttpError } from "@/lib/http/response";
 import { appendAuditEvent } from "@/features/audit/repository";
+import { notify } from "@/features/notifications/service";
 import { findBusinessById } from "@/features/businesses/repository";
 import { findRouteById } from "@/features/routes/repository";
 import { assertTaskTransition } from "@/features/tasks/lifecycle";
@@ -124,6 +125,11 @@ export async function submitQuote(
     taskId: task.id,
     quoteId: quote.id,
   });
+  await notify(db, {
+    event: "recommendation.created",
+    taskId: task.id,
+    quoteId: quote.id,
+  });
 
   return { quote, recommendation, task: recommended };
 }
@@ -166,6 +172,7 @@ export async function declineRequest(
     taskId: task.id,
     data: { reason: "SUPPLIER_DECLINED" },
   });
+  await notify(db, { event: "task.failed", taskId: task.id });
 
   return { quote, task: failed };
 }

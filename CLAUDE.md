@@ -196,6 +196,18 @@ not hard-code endpoints, chain ids, or token addresses elsewhere. Never
 fabricate a 402 settlement, `X-PAYMENT` verification, receipt, or tx hash; never
 log the authorisation payload; `service_payments` rows are insert-only.
 
+**Agent model phase is started** (ADR-019). `@anthropic-ai/sdk` is admitted for
+the buyer-agent model layer only (`src/features/agent/model/`). No agent
+framework (ADK / LangGraph / LangChain). The model sits **above** the
+deterministic orchestration and never holds a tool: it proposes Zod-validated
+JSON; `runBuyerAgent` executes tools and enforces every safety rail (budget cap,
+quote expiry, eligibility, the human-approval gate). `recordBuyerDecision`
+(ACCEPT) is never in the model-facing tool set — human approval bound to
+`offerFingerprint` is the only path (BR-001). Every model call is bounded
+(`DEFAULT_MODEL_LIMITS`) and any failure falls back to the deterministic path;
+with no `ANTHROPIC_API_KEY` the assisted loop _is_ the deterministic loop. Keys
+are server-only, never logged, never `NEXT_PUBLIC_`.
+
 ### 6.3 Definition of done
 
 A change is complete only when, for each requirement ID it touches:

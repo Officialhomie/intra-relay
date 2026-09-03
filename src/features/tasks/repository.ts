@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, or } from "drizzle-orm";
 
 import type { Database } from "@/lib/db/client";
 import {
@@ -23,6 +23,24 @@ export async function insertTask(db: Database, values: NewTaskRow): Promise<Task
 export async function findTaskById(db: Database, id: string): Promise<TaskRow | null> {
   const [row] = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
   return row ?? null;
+}
+
+/**
+ * Tasks a session owns (as creator or buyer claim, milestone 6 §17) that are
+ * currently in one of the given states. Used by the conversational layer to
+ * know whether "accept the quote" refers to a real open order.
+ */
+export async function listSessionTasksInStates(
+  db: Database,
+  sessionId: string,
+  states: readonly TaskRow["status"][],
+): Promise<TaskRow[]> {
+  if (states.length === 0) return [];
+  const rows = await db
+    .select()
+    .from(tasks)
+    .where(or(eq(tasks.sessionId, sessionId), eq(tasks.buyerClaimSession, sessionId)));
+  return rows.filter((row) => (states as readonly string[]).includes(row.status));
 }
 
 export async function updateTask(

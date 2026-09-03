@@ -15,6 +15,8 @@ import { ApiError, apiRequest } from "@/lib/api";
 import { formatDateTime, formatMoney, isExpired, relativeTime } from "@/lib/format";
 import { getSessionId } from "@/lib/session";
 import { BuyerPickupPanel } from "@/features/proofline/BuyerPickupPanel";
+import { OrderProblemPanel } from "./OrderProblemPanel";
+import { PriceChangePanel, type PriceChangeDto } from "@/features/quotes/PriceChangePanel";
 import type { ProoflineView } from "@/features/proofline/view";
 import { CELO_X402_NETWORKS, explorerTxUrl } from "@/features/payments/adapter/networks";
 
@@ -97,8 +99,19 @@ interface TaskViewDto {
   } | null;
   feedback: { id: string; useful: boolean; comment: string | null }[];
   timeline: { id: string; type: string; createdAt: string; data: Record<string, unknown> }[];
+  /** A price change the business proposed on an order you already agreed. */
+  priceChange: PriceChangeDto | null;
   handoffConfirmedAt: string | null;
   proofline: ProoflineView | null;
+  exception: {
+    reason: string;
+    origin: "provider" | "buyer" | "system";
+    headline: string;
+    whatHappened: string;
+    actionNeeded: string | null;
+    whatNext: string;
+    moneyNote: string;
+  } | null;
 }
 
 const EVENT_LABEL: Record<string, string> = {
@@ -116,6 +129,10 @@ const EVENT_LABEL: Record<string, string> = {
   "quote.expired": "Quote expired",
   "recommendation.created": "Recommendation prepared",
   "task.buyer_accepted": "You chose to proceed with this printer",
+  "quote.revised": "The business sent a different price",
+  "quote.change_proposed": "The business asked to change the agreed price",
+  "quote.change_accepted": "You accepted the new price",
+  "quote.change_declined": "You kept the price you had agreed",
   "task.buyer_declined": "You chose not to proceed",
   "task.handoff_ready": "Ready for your WhatsApp handoff",
   "task.handoff_confirmed": "You confirmed the message was sent",
@@ -202,6 +219,7 @@ export function TaskPage({ taskId }: { taskId: string }) {
     );
   }
 
+  const { exception } = view;
   const { task, route, supplier, quotes, payments, recommendation, timeline, handoffConfirmedAt } =
     view;
   const quote = quotes[0] ?? null;
@@ -226,27 +244,28 @@ export function TaskPage({ taskId }: { taskId: string }) {
         }
       />
 
-      {task.status === "FAILED" ? (
-        <Callout tone="warning" title="This request could not be completed">
-          {task.failureReason === "SUPPLIER_DECLINED"
-            ? `The printer declined${quote?.declineReason ? `: "${quote.declineReason}"` : "."}`
-            : "The route became unavailable before a quote could be requested. No payment was taken."}{" "}
-          You can{" "}
-          <Link href="/request" className="underline">
-            send a new request
-          </Link>
-          .
-        </Callout>
-      ) : null}
-
-      {buyerDeclined ? (
-        <Callout tone="info" title="You decided not to proceed with this quote">
-          {task.buyerDeclineReason ? `Your note: "${task.buyerDeclineReason}". ` : ""}
-          Nothing was ordered and no payment was taken. You can{" "}
-          <Link href="/request" className="underline">
-            send a new request
-          </Link>
-          .
+      {exception ? (
+        <Callout
+          tone={exception.origin === "buyer" ? "info" : "warning"}
+          title={exception.headline}
+        >
+          <p>{exception.whatHappened}</p>
+          {task.buyerDeclineReason ? (
+            <p className="mt-1.5 text-xs italic">Your note: “{task.buyerDeclineReason}”</p>
+          ) : null}
+          {exception.actionNeeded ? (
+            <p className="mt-2">
+              <span className="font-medium">What to do: </span>
+              {exception.actionNeeded}
+            </p>
+          ) : null}
+          <p className="mt-2 text-xs text-muted">{exception.whatNext}</p>
+          <p className="mt-1 text-xs text-muted">{exception.moneyNote}</p>
+          <p className="mt-3">
+            <Link href="/request" className="underline">
+              Send a new request
+            </Link>
+          </p>
         </Callout>
       ) : null}
 
@@ -332,6 +351,15 @@ export function TaskPage({ taskId }: { taskId: string }) {
         />
       ) : null}
 
+      {view.priceChange && supplier ? (
+        <PriceChangePanel
+          taskId={task.id}
+          change={view.priceChange}
+          businessName={supplier.name}
+          onDecided={load}
+        />
+      ) : null}
+
       {awaitingDecision && recommendation ? (
         <DecisionPanel taskId={task.id} onDecided={load} />
       ) : null}
@@ -356,6 +384,10 @@ export function TaskPage({ taskId }: { taskId: string }) {
 
       {handoffConfirmedAt && view.proofline ? (
         <BuyerPickupPanel taskId={task.id} proofline={view.proofline} onChanged={load} />
+      ) : null}
+
+      {readyForHandoff && !handoffConfirmedAt ? (
+        <OrderProblemPanel taskId={task.id} onChanged={load} />
       ) : null}
 
       <Card>

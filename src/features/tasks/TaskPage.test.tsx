@@ -114,6 +114,7 @@ const handoffView = {
   ],
   handoffConfirmedAt: null,
   proofline: null,
+  exception: null,
 };
 
 const PROOFLINE_READY = {
@@ -216,6 +217,15 @@ describe("TaskPage — principal buyer view (S-003)", () => {
         buyerDecision: "DECLINED",
         buyerDeclineReason: "Too pricey",
       },
+      exception: {
+        reason: "BUYER_CANCELLED",
+        origin: "buyer",
+        headline: "You cancelled this request",
+        whatHappened: "You chose not to go ahead with this request.",
+        actionNeeded: null,
+        whatNext: "The request is closed. You can start a new one any time.",
+        moneyNote: "No money moved. Nothing was ordered.",
+      },
     });
 
     render(<TaskPage taskId="t1" />);
@@ -225,7 +235,8 @@ describe("TaskPage — principal buyer view (S-003)", () => {
 
     const call = apiRequest.mock.calls.find((c) => String(c[0]).includes("/decision"));
     expect(call?.[1]).toMatchObject({ body: { decision: "DECLINE", reason: "Too pricey" } });
-    expect(await screen.findByText(/decided not to proceed/i)).toBeInTheDocument();
+    expect(await screen.findByText(/you cancelled this request/i)).toBeInTheDocument();
+    expect(screen.getByText(/Too pricey/)).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /send feedback/i })).toBeInTheDocument();
   });
 
@@ -351,11 +362,20 @@ describe("TaskPage — principal buyer view (S-003)", () => {
       supplier: null,
       recommendation: null,
       quotes: [{ ...handoffView.quotes[0], status: "DECLINED", declineReason: "Outside our area" }],
+      exception: {
+        reason: "SUPPLIER_DECLINED",
+        origin: "provider",
+        headline: "The business turned this request down",
+        whatHappened:
+          "The business you asked said it can't take this job — usually because of the area, the timing or how busy it is.",
+        actionNeeded: "Start a new request and I'll look for another business.",
+        whatNext: "This request is closed. Your details were not shared any further.",
+        moneyNote: "No money moved. Nothing was ordered.",
+      },
     });
     render(<TaskPage taskId="t1" />);
 
-    expect(await screen.findByText(/could not be completed/i)).toBeInTheDocument();
-    expect(screen.getByText(/Outside our area/)).toBeInTheDocument();
+    expect(await screen.findByText(/turned this request down/i)).toBeInTheDocument();
     expect(screen.queryByText(/order handoff/i)).toBeNull();
   });
 

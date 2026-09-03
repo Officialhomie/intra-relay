@@ -64,6 +64,8 @@ export interface ProviderOffer {
   fixed: boolean;
   turnaround: string;
   confidence: "low" | "medium" | "high" | null;
+  /** When the printer issued this quote. */
+  issuedAt: string | null;
   expiresAt: string | null;
   availabilityNote: string | null;
   declineReason: string | null;

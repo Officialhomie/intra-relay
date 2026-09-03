@@ -1,4 +1,4 @@
-import type { BuyerIntent, DecisionReason } from "../types";
+import type { DecisionReason } from "../types";
 import type { OfferSelection } from "./offers";
 
 /**
@@ -65,6 +65,10 @@ export function offerFingerprint(input: {
   ].join("|");
 }
 
+function money(currency: string, amount: number): string {
+  return `${currency} ${amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+}
+
 export function buildApprovalCard(selection: OfferSelection): ApprovalCard | null {
   const chosen = selection.selected;
   if (!chosen) return null;
@@ -72,8 +76,8 @@ export function buildApprovalCard(selection: OfferSelection): ApprovalCard | nul
   const { offer } = chosen;
   const price =
     chosen.totalMax != null && chosen.totalMax !== chosen.totalMin
-      ? `${offer.currency} ${chosen.totalMin}–${chosen.totalMax}`
-      : `${offer.currency} ${chosen.totalMin}`;
+      ? `${money(offer.currency, chosen.totalMin)}–${money(offer.currency, chosen.totalMax)}`
+      : money(offer.currency, chosen.totalMin);
 
   return {
     businessName: offer.businessName,
@@ -108,7 +112,6 @@ export function buildApprovalCard(selection: OfferSelection): ApprovalCard | nul
 export function evaluateApproval(
   selection: OfferSelection,
   approval: { granted: boolean; offerFingerprint: string } | null,
-  _intent?: BuyerIntent,
 ): ApprovalOutcome {
   const card = buildApprovalCard(selection);
   if (!card) {
