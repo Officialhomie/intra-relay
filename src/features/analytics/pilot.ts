@@ -18,7 +18,19 @@ import { auditEvents } from "@/lib/db/schema";
  */
 
 export type PilotEventName =
-  "conversation_started" | "conversation_run_started" | "notification_opened";
+  | "conversation_started"
+  | "conversation_run_started"
+  // Attention funnel (§32, §33): created → opened → resumed → acted.
+  | "notification_created"
+  | "notification_opened"
+  | "workflow_resumed"
+  // Push + install (never records payload contents or personal data, §32).
+  | "push_permission_prompted"
+  | "push_permission_granted"
+  | "push_permission_denied"
+  | "push_subscribed"
+  | "pwa_install_prompted"
+  | "pwa_install_accepted";
 
 export interface PilotEventInput {
   name: PilotEventName;
@@ -73,7 +85,11 @@ export interface PilotFunnel {
   buyerAccepted: number;
   handoffsConfirmed: number;
   ordersCompleted: number;
+  /** The attention funnel (§33): does a person actually resume the work? */
+  notificationsCreated: number;
   notificationsOpened: number;
+  workflowsResumed: number;
+  pushSubscribed: number;
 }
 
 export async function getPilotFunnel(db: Database): Promise<PilotFunnel> {
@@ -85,7 +101,10 @@ export async function getPilotFunnel(db: Database): Promise<PilotFunnel> {
     buyerAccepted,
     handoffsConfirmed,
     ordersCompleted,
+    notificationsCreated,
     notificationsOpened,
+    workflowsResumed,
+    pushSubscribed,
   ] = await Promise.all([
     countEvents(db, "pilot.conversation_started"),
     countEvents(db, "pilot.conversation_run_started"),
@@ -94,7 +113,10 @@ export async function getPilotFunnel(db: Database): Promise<PilotFunnel> {
     countTasksWithEvent(db, "task.buyer_accepted"),
     countTasksWithEvent(db, "task.handoff_confirmed"),
     countTasksWithEvent(db, "proofline.pickup_confirmed"),
+    countEvents(db, "pilot.notification_created"),
     countEvents(db, "pilot.notification_opened"),
+    countEvents(db, "pilot.workflow_resumed"),
+    countEvents(db, "pilot.push_subscribed"),
   ]);
   return {
     conversationsStarted,
@@ -104,6 +126,9 @@ export async function getPilotFunnel(db: Database): Promise<PilotFunnel> {
     buyerAccepted,
     handoffsConfirmed,
     ordersCompleted,
+    notificationsCreated,
     notificationsOpened,
+    workflowsResumed,
+    pushSubscribed,
   };
 }

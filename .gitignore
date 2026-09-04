@@ -41,3 +41,4 @@ Thumbs.db
 
 # local tooling (Claude Code preview launcher, etc.)
 .claude/
+.vercel

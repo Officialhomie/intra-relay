@@ -438,6 +438,30 @@ export const pushSubscriptions = pgTable(
   (table) => [index("push_subscriptions_recipient_idx").on(table.audience, table.recipientKey)],
 );
 
+/**
+ * Per-recipient notification preferences (milestone 7 §16). Deliberately tiny —
+ * the person controls whether push happens at all, and whether the low-priority
+ * (informational) notifications reach them; action-required always does while
+ * push is on. One row per (audience, recipientKey); absent row = defaults.
+ */
+export const notificationPreferences = pgTable(
+  "notification_preferences",
+  {
+    id: id(),
+    audience: notificationAudienceEnum("audience").notNull(),
+    recipientKey: text("recipient_key").notNull(),
+    /** Master switch for browser/OS push. In-app notifications are unaffected. */
+    pushEnabled: boolean("push_enabled").notNull().default(false),
+    /** Push the low-priority informational / completed updates too. */
+    pushInformational: boolean("push_informational").notNull().default(false),
+    updatedAt: updatedAt(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    uniqueIndex("notification_preferences_recipient_uq").on(table.audience, table.recipientKey),
+  ],
+);
+
 export const idempotencyKeys = pgTable(
   "idempotency_keys",
   {
@@ -517,3 +541,5 @@ export type NotificationRow = typeof notifications.$inferSelect;
 export type NewNotificationRow = typeof notifications.$inferInsert;
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type NewPushSubscriptionRow = typeof pushSubscriptions.$inferInsert;
+export type NotificationPreferenceRow = typeof notificationPreferences.$inferSelect;
+export type NewNotificationPreferenceRow = typeof notificationPreferences.$inferInsert;

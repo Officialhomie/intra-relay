@@ -675,3 +675,67 @@ tag2, endpoint, feedbackURI, feedbackHash)`; the submitter MUST NOT be the
   CLAUDE.md §6.2 updated. No change to BR-001, the payment rules, or the
   attestation layer.
 - **Requirements:** `BR-001` (upheld), `ADR-003` (upheld), `NFR-SEC-002`.
+
+## ADR-020 — PWA + web push: an attention layer, never a workflow dependency
+
+- **Date:** 2026-09-04
+- **Status:** Accepted (milestone 7 phase C)
+- **Context:** Phases A–B made the product resumable _inside a tab_: a person
+  returns to `/agent` or `/activity` and sees their work and notifications. But
+  the defining requirement of M7 is that Intra can reach a human who is **not
+  looking at it**, and take them straight back to the live workflow. That needs
+  a PWA (installable, service worker) and real web push.
+- **Decision:**
+  - **Installable PWA.** `app/manifest.ts` (`/manifest.webmanifest`),
+    `public/icons/*` (generated from one SVG by `scripts/generate-icons.mjs` —
+    committed, so the build has no image tooling), `viewport`/`appleWebApp`
+    metadata, and a hand-written `public/sw.js`. `start_url` is `/agent`. The
+    app stays a **normal website**; nothing forces or blocks installation.
+  - **Service-worker cache policy — server state is always authoritative.**
+    `/api/*` is **network-only, never cached** (offline → a clean 503 JSON so
+    the UI shows "you're offline", never a false success). `/_next/static` and
+    `/icons` are cache-first (content-hashed). Navigations are network-first
+    with a cached `/offline` fallback. Nothing about prices, quotes, approval,
+    payment, fulfilment, cancellation, handover or permissions is ever served
+    from cache.
+  - **Update policy.** A new worker installs and _waits_; it only activates on
+    a `SKIP_WAITING` message the page sends via a dismissible "Update now"
+    banner. No forced refresh mid-transaction.
+  - **Web push via `web-push` + self-generated VAPID.** New deps: `web-push`,
+    `@types/web-push`. VAPID keys are generated locally
+    (`npx web-push generate-vapid-keys`), a **separate pair per environment**,
+    the private key set only in the deployment's env — never committed. New env
+    vars `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`,
+    `NEXT_PUBLIC_VAPID_PUBLIC_KEY`. With any of the three server vars unset,
+    push is `UNAVAILABLE` and the app falls back to in-app notifications only —
+    exactly like x402 and attestation, nothing breaks (CLAUDE.md §4.1 spirit).
+  - **A subscription is a delivery endpoint, not an authorization.** Every
+    `push_subscriptions` row is bound to the recipient the **server** resolves
+    from the session / manage token (`resolveRecipient`); a client-sent id is
+    never trusted. Delete is recipient-scoped. Payloads carry only
+    `{ title, body, url, tag }` — no id, amount, address, code or secret (§11,
+    §18); protected detail is fetched after re-authorisation on the deep-linked
+    page.
+  - **Push is fire-and-forget from `notify()`.** `deliverPush` swallows every
+    error; a failed or slow push service can never fail — or roll back — the
+    domain action. Invalid subscriptions (404/410) are deleted; repeated soft
+    failures prune after three (§17, §35). The in-app notification row always
+    stands.
+  - **Level gate (§15).** `ACTION_REQUIRED` / `TIME_SENSITIVE` push whenever
+    push is on; `INFORMATIONAL` / `COMPLETED` only if the person opted in
+    (`notification_preferences.push_informational`). Preferences are two
+    switches, not a settings system (§16).
+  - **Contextual prompts (§4, §5).** Neither the notification-permission ask
+    nor the install nudge fires on first load. They appear only once a person
+    has real asynchronous work — something to come back to — and are dismissed
+    permanently once declined.
+  - **Deployment.** `vercel.json` runs `npm run db:migrate` before `next build`
+    so the `pg` schema is current (migrations still never run at request time).
+- **Consequences:** migrations `0009` (`notification_preferences`). New routes
+  `/api/push/{config,subscribe,unsubscribe}`, `/api/notifications/preferences`,
+  `/api/pilot/event`. `NEXT_PUBLIC_VAPID_PUBLIC_KEY` is the only new
+  `NEXT_PUBLIC_*`. Pilot events extended with the attention funnel
+  (`notification_created/opened`, `workflow_resumed`, push/install events) —
+  never recording payload contents or personal data (§32).
+- **Requirements:** M7 phase C §2–§18, §25, §27, §30–§37; CLAUDE.md §4.1, §4.3,
+  §6.1 (`vercel.json` added, justified), NFR-SEC-001/002.

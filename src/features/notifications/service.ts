@@ -7,7 +7,9 @@ import { findTaskById, listTaskQuotes } from "@/features/tasks/repository";
 import type { AttentionLevel, NotificationAudience } from "./attention";
 import { needsAttention } from "./attention";
 import { specsForEvent, type DomainEventContext, type EventBusiness } from "./catalogue";
+import { deliverPush } from "./push";
 import { countUnread, listNotifications, upsertNotification } from "./repository";
+import { recordPilotEvent } from "@/features/analytics/pilot";
 
 /**
  * Turn a domain event into whatever human notifications it warrants
@@ -60,10 +62,18 @@ export async function notify(db: Database, input: NotifyInput): Promise<Notifica
     const specs = specsForEvent(ctx);
     const rows: NotificationRow[] = [];
     for (const spec of specs) {
-      rows.push(await upsertNotification(db, spec));
+      const row = await upsertNotification(db, spec);
+      rows.push(row);
+      void recordPilotEvent(db, {
+        name: "notification_created",
+        actorKey: row.recipientKey,
+        taskId: row.entityType === "task" ? row.entityId : null,
+        props: { level: row.level, event: row.event },
+      });
+      // Attention mechanism, not a workflow dependency: fire-and-forget, and
+      // `deliverPush` swallows every error (§17, §18, §37).
+      void deliverPush(db, row);
     }
-    // Phase C hooks web-push here: for each row whose level needsAttention,
-    // deliver a safe payload to the recipient's stored subscriptions.
     return rows;
   } catch {
     return [];
