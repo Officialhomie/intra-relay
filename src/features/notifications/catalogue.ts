@@ -52,8 +52,8 @@ function orderPath(taskId: string): string {
   return `/tasks/${taskId}`;
 }
 
-function requestsPath(business: EventBusiness): string {
-  return `/supplier/${business.slug}/requests?t=${business.manageToken}`;
+function requestsPath(business: EventBusiness, taskId: string): string {
+  return `/supplier/${business.slug}/requests?t=${business.manageToken}&task=${taskId}`;
 }
 
 function buyerOrderSpec(
@@ -95,7 +95,7 @@ function businessRequestSpec(
     level,
     title,
     body,
-    deeplink: requestsPath(business),
+    deeplink: requestsPath(business, task.id),
     entityType: "task",
     entityId: task.id,
     dedupeKey: `request:${task.id}`,

@@ -10,11 +10,12 @@ import { Callout } from "@/components/ui/Callout";
 import { DataList, DataRow } from "@/components/ui/DataList";
 import { ErrorState, LoadingPanel } from "@/components/ui/States";
 import { Card, CardTitle, SectionHeader } from "@/components/ui/Section";
-import { StatusPill, taskStatusTone } from "@/components/ui/StatusPill";
+import { StatusPill, taskStatusLabel, taskStatusTone } from "@/components/ui/StatusPill";
 import { ApiError, apiRequest } from "@/lib/api";
 import { formatDateTime, formatMoney, isExpired, relativeTime } from "@/lib/format";
 import { getSessionId } from "@/lib/session";
 import { BuyerPickupPanel } from "@/features/proofline/BuyerPickupPanel";
+import { ResumeSignal } from "@/features/pwa/ResumeSignal";
 import { OrderProblemPanel } from "./OrderProblemPanel";
 import { PriceChangePanel, type PriceChangeDto } from "@/features/quotes/PriceChangePanel";
 import type { ProoflineView } from "@/features/proofline/view";
@@ -140,7 +141,50 @@ const EVENT_LABEL: Record<string, string> = {
   "proofline.ready_for_pickup": "Printer marked the order ready for pickup",
   "proofline.pickup_confirmed": "You confirmed you collected the order",
   "feedback.received": "Feedback recorded",
+  "commitment.created": "Order recorded",
+  "commitment.attested": "Order handover secured",
+  "commitment.attestation_failed": "Order recorded (handover record retrying)",
 };
+
+/** A readable label for a timeline event — never the raw dotted name (§22). */
+function eventLabel(type: string): string {
+  if (EVENT_LABEL[type]) return EVENT_LABEL[type];
+  const tail = type.split(".").pop() ?? type;
+  return tail.charAt(0).toUpperCase() + tail.slice(1).replace(/_/g, " ");
+}
+
+/** Plain labels + values for the structured brief keys (§22). */
+const BRIEF_FIELD_LABEL: Record<string, string> = {
+  size: "Paper size",
+  quantity: "How many",
+  colour: "Colour",
+  deadline: "Needed by",
+  deliveryArea: "Delivery / pick-up",
+  pages: "Pages",
+  copies: "Copies",
+  device: "Device",
+  fault: "What is wrong",
+};
+
+function briefLabel(key: string): string {
+  return (
+    BRIEF_FIELD_LABEL[key] ??
+    key.charAt(0).toUpperCase() +
+      key
+        .slice(1)
+        .replace(/([A-Z])/g, " $1")
+        .toLowerCase()
+  );
+}
+
+function briefDisplayValue(key: string, value: unknown): string {
+  const raw = String(value).trim();
+  if (key === "colour") {
+    const v = raw.toLowerCase().replace(/-/g, " ");
+    return v.charAt(0).toUpperCase() + v.slice(1);
+  }
+  return raw;
+}
 
 export function TaskPage({ taskId }: { taskId: string }) {
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -184,7 +228,7 @@ export function TaskPage({ taskId }: { taskId: string }) {
         title="This request belongs to another device"
         description="Requests are tied to the browser that created them. Open the link on that device, or start a new request."
         action={
-          <Link href="/request" className="text-sm font-medium text-primary underline">
+          <Link href="/agent" className="text-sm font-medium text-primary underline">
             Start a new request
           </Link>
         }
@@ -198,7 +242,7 @@ export function TaskPage({ taskId }: { taskId: string }) {
         title="Request not found"
         description="The link may be wrong or the request was removed."
         action={
-          <Link href="/request" className="text-sm font-medium text-primary underline">
+          <Link href="/agent" className="text-sm font-medium text-primary underline">
             Start a new request
           </Link>
         }
@@ -233,14 +277,13 @@ export function TaskPage({ taskId }: { taskId: string }) {
 
   return (
     <div className="space-y-8">
+      <ResumeSignal />
       <SectionHeader
         eyebrow="Your request"
         title={route?.name ?? "Printing quote"}
         description={`Created ${relativeTime(task.createdAt)}`}
         actions={
-          <StatusPill tone={taskStatusTone(task.status)}>
-            {task.status.replace(/_/g, " ")}
-          </StatusPill>
+          <StatusPill tone={taskStatusTone(task.status)}>{taskStatusLabel(task.status)}</StatusPill>
         }
       />
 
@@ -262,7 +305,7 @@ export function TaskPage({ taskId }: { taskId: string }) {
           <p className="mt-2 text-xs text-muted">{exception.whatNext}</p>
           <p className="mt-1 text-xs text-muted">{exception.moneyNote}</p>
           <p className="mt-3">
-            <Link href="/request" className="underline">
+            <Link href="/agent" className="underline">
               Send a new request
             </Link>
           </p>
@@ -273,8 +316,8 @@ export function TaskPage({ taskId }: { taskId: string }) {
         <CardTitle>Your brief</CardTitle>
         <DataList className="mt-4">
           {Object.entries(brief).map(([key, value]) => (
-            <DataRow key={key} label={key}>
-              {String(value)}
+            <DataRow key={key} label={briefLabel(key)}>
+              {briefDisplayValue(key, value)}
             </DataRow>
           ))}
           {route ? (
@@ -361,7 +404,7 @@ export function TaskPage({ taskId }: { taskId: string }) {
       ) : null}
 
       {awaitingDecision && recommendation ? (
-        <DecisionPanel taskId={task.id} onDecided={load} />
+        <DecisionPanel taskId={task.id} quoteExpired={quoteExpired} onDecided={load} />
       ) : null}
 
       {payments.length > 0 ? (
@@ -397,7 +440,7 @@ export function TaskPage({ taskId }: { taskId: string }) {
             <li key={event.id} className="flex gap-3 text-sm">
               <CheckCircle2 aria-hidden className="mt-0.5 size-4 shrink-0 text-success" />
               <div>
-                <p className="text-foreground">{EVENT_LABEL[event.type] ?? event.type}</p>
+                <p className="text-foreground">{eventLabel(event.type)}</p>
                 <p className="text-xs text-subtle">{formatDateTime(event.createdAt)}</p>
               </div>
             </li>
@@ -474,7 +517,15 @@ function RecommendationCard({
   );
 }
 
-function DecisionPanel({ taskId, onDecided }: { taskId: string; onDecided: () => void }) {
+function DecisionPanel({
+  taskId,
+  quoteExpired,
+  onDecided,
+}: {
+  taskId: string;
+  quoteExpired: boolean;
+  onDecided: () => void;
+}) {
   const [mode, setMode] = useState<"idle" | "declining">("idle");
   const [reason, setReason] = useState("");
   const [pending, setPending] = useState<null | "ACCEPT" | "DECLINE">(null);
@@ -507,10 +558,17 @@ function DecisionPanel({ taskId, onDecided }: { taskId: string; onDecided: () =>
         you send the message yourself and agree the order directly.
       </p>
 
+      {quoteExpired ? (
+        <Callout tone="warning" title="This quote has expired">
+          You can still go ahead, but the price is no longer guaranteed. If you proceed, the message
+          to the business asks them to reconfirm the current price and turnaround before you pay.
+        </Callout>
+      ) : null}
+
       {mode === "idle" ? (
         <div className="flex flex-wrap gap-2">
           <Button pending={pending === "ACCEPT"} onClick={() => decide("ACCEPT")}>
-            Proceed with this printer
+            {quoteExpired ? "Proceed anyway — I'll reconfirm" : "Proceed with this printer"}
           </Button>
           <Button variant="secondary" onClick={() => setMode("declining")}>
             Not this one
@@ -576,6 +634,14 @@ function PaymentReceipt({
 }) {
   const settled = payments.find((p) => p.status === "SETTLED");
   const primary = settled ?? payments[0];
+  const PAYMENT_LABEL: Record<string, string> = {
+    NOT_REQUIRED: "Not charged",
+    REQUESTED_402: "Payment requested",
+    AUTHORISED: "Reconciling",
+    SETTLED: "Paid",
+    FAILED: "Did not go through",
+    UNAVAILABLE: "Unavailable",
+  };
   const tone =
     primary.status === "SETTLED"
       ? "active"
@@ -589,7 +655,9 @@ function PaymentReceipt({
     <Card className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <CardTitle>Agent service payment</CardTitle>
-        <StatusPill tone={tone}>{primary.status.replace(/_/g, " ")}</StatusPill>
+        <StatusPill tone={tone}>
+          {PAYMENT_LABEL[primary.status] ?? primary.status.replace(/_/g, " ")}
+        </StatusPill>
       </div>
 
       {primary.status === "SETTLED" && settled ? (
@@ -668,7 +736,7 @@ function PaymentReceipt({
         <ol className="space-y-1.5 border-t border-border pt-3 text-xs text-subtle">
           {timeline.map((event) => (
             <li key={event.id}>
-              {EVENT_LABEL[event.type] ?? event.type} · {formatDateTime(event.createdAt)}
+              {eventLabel(event.type)} · {formatDateTime(event.createdAt)}
             </li>
           ))}
         </ol>

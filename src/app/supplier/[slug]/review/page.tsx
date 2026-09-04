@@ -7,7 +7,7 @@ import { BadgeCheck, Clock3, ShieldQuestion } from "lucide-react";
 import { Callout } from "@/components/ui/Callout";
 import { DataList, DataRow } from "@/components/ui/DataList";
 import { Card, CardTitle, SectionHeader } from "@/components/ui/Section";
-import { StatusPill, routeStatusTone } from "@/components/ui/StatusPill";
+import { StatusPill, routeStatusLabel, routeStatusTone } from "@/components/ui/StatusPill";
 import { getDb } from "@/lib/db/client";
 import { shortenEvmAddress } from "@/lib/address";
 import { formatDateTime, relativeTime } from "@/lib/format";
@@ -146,7 +146,7 @@ export default async function SupplierReviewPage({
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     <StatusPill tone={routeStatusTone(route.status)}>
-                      {route.status.replace(/_/g, " ")}
+                      {routeStatusLabel(route.status)}
                     </StatusPill>
                     {stale ? <StatusPill tone="warning">Stale</StatusPill> : null}
                   </div>
@@ -222,7 +222,7 @@ export default async function SupplierReviewPage({
                     <PauseRouteButton routeId={route.id} manageToken={t} />
                   ) : (
                     <p className="text-xs text-muted">
-                      This route is {route.status.replace(/_/g, " ").toLowerCase()}. An operator
+                      This route is {routeStatusLabel(route.status).toLowerCase()}. An operator
                       controls activation; you can pause it once it is live.
                     </p>
                   )

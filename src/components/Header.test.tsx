@@ -15,8 +15,9 @@ describe("Header", () => {
     render(<Header />);
 
     expect(screen.getByRole("link", { name: "Intra" })).toHaveAttribute("href", "/");
-    expect(screen.getByRole("link", { name: "Request" })).toHaveAttribute("href", "/request");
-    expect(screen.getByRole("link", { name: "Supplier" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/agent");
+    expect(screen.getByRole("link", { name: "Activity" })).toHaveAttribute("href", "/activity");
+    expect(screen.getByRole("link", { name: "For businesses" })).toHaveAttribute(
       "href",
       "/supplier/onboard",
     );

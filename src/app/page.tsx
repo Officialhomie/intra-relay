@@ -55,10 +55,10 @@ export default function HomePage() {
               Make my business agent-ready <ArrowRight aria-hidden className="size-4" />
             </Link>
             <Link
-              href="/request"
+              href="/agent"
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-border bg-bg px-4 text-sm font-medium hover:bg-surface"
             >
-              Try a buyer request
+              Try it as a buyer
             </Link>
           </div>
           <p className="text-xs text-muted">

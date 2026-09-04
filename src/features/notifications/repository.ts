@@ -98,26 +98,28 @@ export async function findNotificationById(
   return row ?? null;
 }
 
-/** Mark one notification read — scoped to its owner so it cannot be crossed. */
+/**
+ * Mark one notification read — scoped to its owner so it cannot be crossed.
+ * Idempotent: re-marking an already-read item of your own still returns it;
+ * only a wrong owner / missing id returns null.
+ */
 export async function markNotificationRead(
   db: Database,
   id: string,
   audience: NotificationAudience,
   recipientKey: string,
 ): Promise<NotificationRow | null> {
+  const existing = await findNotificationById(db, id);
+  if (!existing || existing.audience !== audience || existing.recipientKey !== recipientKey) {
+    return null;
+  }
+  if (existing.readAt) return existing;
   const [row] = await db
     .update(notifications)
     .set({ readAt: new Date() })
-    .where(
-      and(
-        eq(notifications.id, id),
-        eq(notifications.audience, audience),
-        eq(notifications.recipientKey, recipientKey),
-        isNull(notifications.readAt),
-      ),
-    )
+    .where(eq(notifications.id, id))
     .returning();
-  return row ?? null;
+  return row ?? existing;
 }
 
 export async function markAllNotificationsRead(
@@ -186,6 +188,27 @@ export async function listPushSubscriptions(
 
 export async function deletePushSubscription(db: Database, endpoint: string): Promise<void> {
   await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
+}
+
+/**
+ * Delete an endpoint only if it belongs to this recipient (§9, §24). A caller
+ * cannot remove another identity's device even with a valid endpoint string.
+ */
+export async function deletePushSubscriptionForRecipient(
+  db: Database,
+  audience: NotificationAudience,
+  recipientKey: string,
+  endpoint: string,
+): Promise<void> {
+  await db
+    .delete(pushSubscriptions)
+    .where(
+      and(
+        eq(pushSubscriptions.endpoint, endpoint),
+        eq(pushSubscriptions.audience, audience),
+        eq(pushSubscriptions.recipientKey, recipientKey),
+      ),
+    );
 }
 
 /** A push service said the subscription is gone — drop it after repeated failure. */

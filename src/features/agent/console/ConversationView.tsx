@@ -229,7 +229,7 @@ export function ConversationView() {
           placeholder="e.g. I need 500 flyers by Friday in Yaba"
           className="min-h-11 w-full resize-none rounded-md border border-border bg-bg px-3 py-2.5 text-base outline-none focus-visible:border-foreground"
         />
-        <Button type="submit" pending={pending} aria-label="Send" className="shrink-0">
+        <Button type="submit" pending={pending} aria-label="Send" className="w-auto shrink-0 px-4">
           <ArrowUp aria-hidden className="size-4" />
         </Button>
       </form>

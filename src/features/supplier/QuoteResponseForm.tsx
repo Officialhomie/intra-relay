@@ -167,14 +167,6 @@ export function QuoteResponseForm({ routeId, taskId, manageToken, currency }: Pr
             ) : null}
           </div>
           <TextField
-            label={`Delivery charge (${currency}, optional)`}
-            inputMode="decimal"
-            hint="Leave blank if delivery is included or not applicable."
-            value={values.deliveryCharge}
-            onChange={(event) => set("deliveryCharge", event.target.value)}
-            error={errors.deliveryCharge}
-          />
-          <TextField
             label="Turnaround"
             required
             placeholder="e.g. same day, 2 working days"
@@ -183,36 +175,50 @@ export function QuoteResponseForm({ routeId, taskId, manageToken, currency }: Pr
             error={errors.turnaround}
           />
           <TextField
-            label="Availability note"
-            placeholder="e.g. can start after 2pm today"
-            value={values.availabilityNote}
-            onChange={(event) => set("availabilityNote", event.target.value)}
+            label="Quote valid until"
+            type="datetime-local"
+            hint="Optional — after this the customer must ask again."
+            value={values.expiresAt}
+            onChange={(event) => set("expiresAt", event.target.value)}
           />
-          <TextField
-            label="Assumptions"
-            placeholder="e.g. artwork supplied print-ready"
-            value={values.assumptions}
-            onChange={(event) => set("assumptions", event.target.value)}
-          />
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <SelectField
-              label="Confidence"
-              value={values.confidence}
-              onChange={(event) => set("confidence", event.target.value)}
-              options={[
-                { value: "low", label: "Low" },
-                { value: "medium", label: "Medium" },
-                { value: "high", label: "High" },
-              ]}
-            />
-            <TextField
-              label="Quote expires"
-              type="datetime-local"
-              hint="Optional — after this the buyer must ask again."
-              value={values.expiresAt}
-              onChange={(event) => set("expiresAt", event.target.value)}
-            />
-          </div>
+
+          <details className="rounded-md border border-border bg-bg px-3 py-2 text-sm">
+            <summary className="cursor-pointer font-medium text-muted">
+              Add more detail (optional)
+            </summary>
+            <div className="mt-3 space-y-4">
+              <TextField
+                label={`Delivery charge (${currency})`}
+                inputMode="decimal"
+                hint="Leave blank if delivery is included or not applicable."
+                value={values.deliveryCharge}
+                onChange={(event) => set("deliveryCharge", event.target.value)}
+                error={errors.deliveryCharge}
+              />
+              <TextField
+                label="Availability note"
+                placeholder="e.g. can start after 2pm today"
+                value={values.availabilityNote}
+                onChange={(event) => set("availabilityNote", event.target.value)}
+              />
+              <TextField
+                label="Assumptions"
+                placeholder="e.g. artwork supplied print-ready"
+                value={values.assumptions}
+                onChange={(event) => set("assumptions", event.target.value)}
+              />
+              <SelectField
+                label="Confidence"
+                value={values.confidence}
+                onChange={(event) => set("confidence", event.target.value)}
+                options={[
+                  { value: "low", label: "Low" },
+                  { value: "medium", label: "Medium" },
+                  { value: "high", label: "High" },
+                ]}
+              />
+            </div>
+          </details>
         </>
       ) : (
         <TextField

@@ -13,10 +13,10 @@ export const site = {
 } as const;
 
 export const primaryNav = [
-  { href: "/", label: "Home" },
-  { href: "/request", label: "Request" },
-  { href: "/agent", label: "Agent" },
-  { href: "/supplier/onboard", label: "Supplier" },
+  { href: "/", label: "About" },
+  { href: "/agent", label: "Home" },
+  { href: "/activity", label: "Activity" },
+  { href: "/supplier/onboard", label: "For businesses" },
   { href: "/operator", label: "Operator" },
   { href: "/docs", label: "Docs" },
   { href: "/evidence", label: "Evidence" },

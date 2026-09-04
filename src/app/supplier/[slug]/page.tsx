@@ -8,12 +8,11 @@ import { Callout } from "@/components/ui/Callout";
 import { Card, CardTitle, SectionHeader } from "@/components/ui/Section";
 import { getDb } from "@/lib/db/client";
 import { manageTokenMatchesBusinessSlug } from "@/features/businesses/access";
-import {
-  getBusinessValueSummary,
-  nextActionForBusiness,
-  valueHeadline,
-} from "@/features/businesses/value";
+import { getBusinessValueSummary } from "@/features/businesses/value";
+import { ActionCentre } from "@/features/notifications/ActionCentre";
+import { NotificationSettings } from "@/features/notifications/NotificationSettings";
 import { describePricingForBusiness } from "@/features/pricing/model";
+import { PushPrompt } from "@/features/pwa/PushPrompt";
 import { getSupplierWorkspace } from "@/features/routes/reads";
 import { EditPublishedPriceForm } from "@/features/supplier/EditPublishedPriceForm";
 
@@ -22,11 +21,11 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Your business" };
 
 /**
- * The business's own overview — the answer to "what is this doing for me?".
+ * The business workspace, action-first (milestone 7 §4, §21).
  *
- * Every figure is counted from real rows. Where there is nothing yet, the page
- * says so plainly and explains what would put something there, rather than
- * showing a zero-filled dashboard or a projection (§7, §8).
+ * It answers, in order: what needs me, what is happening, what have I done, is
+ * this useful. Every figure is counted from real rows — where there is nothing
+ * yet, it says so rather than showing a zero-filled dashboard.
  */
 export default async function BusinessOverviewPage({
   params,
@@ -43,64 +42,106 @@ export default async function BusinessOverviewPage({
   if (!workspace) notFound();
 
   const canManage = t ? await manageTokenMatchesBusinessSlug(db, slug, t) : false;
-  const { business, routes, incoming, handedOff } = workspace;
+  const { business, routes, incoming, quoted, handedOff } = workspace;
   const summary = await getBusinessValueSummary(db, business.id);
-  const nextAction = nextActionForBusiness({
-    summary,
-    waitingForQuote: incoming.length,
-    awaitingHandover: handedOff.length,
-  });
   const suffix = t ? `?t=${t}` : "";
-  const liveServices = routes.filter((r) => r.status === "ACTIVE");
+
+  const reviewingQuote = quoted.filter((q) => !q.agreed && !q.changePending).length;
+  const priceChangeWaiting = quoted.filter((q) => q.changePending).length;
+  const inProgress = quoted.filter((q) => q.agreed).length;
+  const toHandOver = handedOff.filter(
+    (h) => h.proofline.evidenceStatus === "NOT_STARTED" || h.proofline.readyForPickupAt === null,
+  ).length;
+
+  const happening = reviewingQuote + inProgress + toHandOver;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       <SectionHeader
         eyebrow="Your business"
         title={business.name}
         description={`${business.city}, ${business.country}`}
       />
 
-      <Card as="section" className="space-y-4">
-        <p className="text-base leading-relaxed text-foreground">{valueHeadline(summary)}</p>
-        {nextAction ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <p className="text-sm text-muted">{nextAction}</p>
-            {incoming.length > 0 && canManage ? (
-              <Link
-                href={`/supplier/${slug}/requests${suffix}`}
-                className="inline-flex min-h-11 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-contrast hover:opacity-90"
-              >
-                Open requests
-                <ArrowRight aria-hidden className="size-4" />
-              </Link>
-            ) : null}
-          </div>
+      {canManage && t ? (
+        <>
+          {incoming.length > 0 || quoted.length > 0 ? (
+            <PushPrompt
+              reason="Customers are waiting on you."
+              authQuery={`businessSlug=${slug}&t=${t}`}
+            />
+          ) : null}
+          <ActionCentre authQuery={`businessSlug=${slug}&t=${t}`} heading="What needs you" />
+        </>
+      ) : (
+        <Callout tone="info" title="Read-only view">
+          Open your manage link to see what needs you, send prices, and mark work ready.
+        </Callout>
+      )}
+
+      {canManage && incoming.length > 0 ? (
+        <Link
+          href={`/supplier/${slug}/requests${suffix}`}
+          className="border-warning/40 bg-warning-wash/40 hover:border-warning/60 flex items-center justify-between gap-3 rounded-md border p-4 transition-colors"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <Inbox aria-hidden className="size-4 text-warning" />
+            {incoming.length} {incoming.length === 1 ? "customer is" : "customers are"} waiting for
+            your price
+          </span>
+          <ArrowRight aria-hidden className="size-4 shrink-0 text-muted" />
+        </Link>
+      ) : null}
+
+      <section aria-labelledby="happening-heading" className="space-y-3">
+        <h2 id="happening-heading" className="text-lg font-light tracking-tight">
+          What&apos;s happening
+        </h2>
+        {happening === 0 && incoming.length === 0 && priceChangeWaiting === 0 ? (
+          <Card className="text-sm text-muted">
+            Nothing is in flight right now. New requests will appear here and in your requests
+            inbox.
+          </Card>
+        ) : (
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <Stat label="Reviewing your quote" value={reviewingQuote} icon={Clock3} />
+            <Stat label="Price change waiting" value={priceChangeWaiting} icon={Clock3} />
+            <Stat label="In progress" value={inProgress} icon={Clock3} />
+            <Stat label="To hand over" value={toHandOver} icon={Inbox} />
+          </dl>
+        )}
+        {canManage ? (
+          <Link
+            href={`/supplier/${slug}/requests${suffix}`}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline underline-offset-2"
+          >
+            Open your requests
+            <ArrowRight aria-hidden className="size-3.5" />
+          </Link>
         ) : null}
-      </Card>
+      </section>
 
       {summary.hasActivity ? (
         <section aria-labelledby="activity-heading" className="space-y-3">
           <h2 id="activity-heading" className="text-lg font-light tracking-tight">
-            Your activity so far
+            Your record so far
           </h2>
           <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <Metric label="Requests received" value={summary.requestsReceived} />
-            <Metric label="Prices sent" value={summary.quotesSent} />
-            <Metric label="Customers who agreed" value={summary.jobsAgreed} />
-            <Metric label="Jobs completed" value={summary.jobsCompleted} />
-            <Metric
+            <Stat label="Requests received" value={summary.requestsReceived} />
+            <Stat label="Prices sent" value={summary.quotesSent} />
+            <Stat label="Customers who agreed" value={summary.jobsAgreed} />
+            <Stat label="Jobs completed" value={summary.jobsCompleted} />
+            <Stat
               label="Typical reply time"
-              value={
+              text={
                 summary.medianResponseMinutes === null
                   ? "—"
                   : `${summary.medianResponseMinutes} min`
               }
-              hint={summary.medianResponseMinutes === null ? "No priced replies yet" : undefined}
             />
-            <Metric
+            <Stat
               label="Requests you priced"
-              value={summary.responseRate === null ? "—" : `${summary.responseRate}%`}
+              text={summary.responseRate === null ? "—" : `${summary.responseRate}%`}
             />
           </dl>
           <p className="text-xs text-subtle">
@@ -111,11 +152,11 @@ export default async function BusinessOverviewPage({
         <Card as="section" className="space-y-3">
           <div className="flex items-center gap-2">
             <Inbox aria-hidden className="size-5 shrink-0 text-muted" />
-            <CardTitle>No requests yet</CardTitle>
+            <CardTitle>No customer requests yet</CardTitle>
           </div>
           <p className="text-sm leading-relaxed text-muted">
-            Once customers start asking for what you offer, you will see the requests you received,
-            the prices you sent, and the jobs you completed here.
+            When someone needs one of your services, their request will appear here and in your
+            requests inbox — with everything they have told us about the job.
           </p>
         </Card>
       )}
@@ -188,30 +229,33 @@ export default async function BusinessOverviewPage({
             ))}
           </ul>
         )}
-
-        {liveServices.length === 0 && routes.length > 0 ? (
-          <Callout tone="info" title="Nothing is live yet">
-            Customers can only reach a service once an operator has checked your details and made it
-            available.
-          </Callout>
-        ) : null}
       </section>
 
-      {!canManage ? (
-        <Callout tone="info" title="Read-only view">
-          Open your manage link to send prices, mark work ready, or pause a service.
-        </Callout>
-      ) : null}
+      {canManage && t ? <NotificationSettings authQuery={`businessSlug=${slug}&t=${t}`} /> : null}
     </div>
   );
 }
 
-function Metric({ label, value, hint }: { label: string; value: number | string; hint?: string }) {
+function Stat({
+  label,
+  value,
+  text,
+  icon: Icon,
+}: {
+  label: string;
+  value?: number;
+  text?: string;
+  icon?: typeof Clock3;
+}) {
   return (
     <div className="rounded-md border border-border bg-surface px-4 py-3">
-      <dd className="text-2xl font-medium tracking-tight text-foreground">{value}</dd>
-      <dt className="mt-0.5 text-xs text-muted">{label}</dt>
-      {hint ? <p className="mt-0.5 text-xs text-subtle">{hint}</p> : null}
+      <div className="flex items-center gap-1.5">
+        {Icon ? <Icon aria-hidden className="size-3.5 text-subtle" /> : null}
+        <span className="text-2xl font-medium tracking-tight text-foreground">
+          {text ?? value ?? 0}
+        </span>
+      </div>
+      <p className="mt-0.5 text-xs text-muted">{label}</p>
     </div>
   );
 }

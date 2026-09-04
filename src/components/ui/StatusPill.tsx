@@ -38,6 +38,24 @@ export function StatusPill({ tone = "neutral", children, className }: StatusPill
   );
 }
 
+/** A plain-language label for a route status (§22). */
+export function routeStatusLabel(status: string): string {
+  switch (status) {
+    case "DRAFT":
+      return "Draft";
+    case "PENDING_VERIFICATION":
+      return "Awaiting operator check";
+    case "ACTIVE":
+      return "Available to customers";
+    case "PAUSED":
+      return "Paused";
+    case "ARCHIVED":
+      return "Archived";
+    default:
+      return status.replace(/_/g, " ").toLowerCase();
+  }
+}
+
 /** Map a route lifecycle status to a pill tone. */
 export function routeStatusTone(status: string): Tone {
   switch (status) {
@@ -69,5 +87,27 @@ export function taskStatusTone(status: string): Tone {
       return "neutral";
     default:
       return "neutral";
+  }
+}
+
+/** A plain-language label for a task status — never the raw enum (§10, §22). */
+export function taskStatusLabel(status: string): string {
+  switch (status) {
+    case "DRAFT":
+      return "Draft";
+    case "SUBMITTED":
+      return "Sent";
+    case "AWAITING_QUOTE":
+      return "Waiting for a price";
+    case "RECOMMENDED":
+      return "Quote ready — your decision";
+    case "HANDOFF_READY":
+      return "Ready to send";
+    case "FAILED":
+      return "Closed";
+    case "CANCELLED":
+      return "Cancelled";
+    default:
+      return status.replace(/_/g, " ").toLowerCase();
   }
 }
