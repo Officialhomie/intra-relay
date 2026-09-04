@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "npm run db:migrate && npm run build",
+  "buildCommand": "case \"$DATABASE_URL\" in postgres*) npm run db:migrate ;; *) echo 'No Postgres DATABASE_URL — skipping migrate (dev/PGlite runs migrations at runtime)';; esac && npm run build",
   "installCommand": "npm ci"
 }
