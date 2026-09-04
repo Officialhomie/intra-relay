@@ -19,6 +19,10 @@ describe("non-commercial messages stay conversational", () => {
     const r = read("Hey");
     expect(r.intent).toBe("CONVERSATION");
     expect(r.commercial).toBe(false);
+    // A capitalised greeting must never be misread as a bare place name —
+    // found live in production (phase D): "Hey" was captured as the location
+    // and stuck through the rest of the conversation.
+    expect(r.extracted.location).toBeUndefined();
   });
 
   it("thanks is CONVERSATION", () => {
@@ -40,6 +44,16 @@ describe("questions about capability are INFORMATIONAL", () => {
 
   it("'How does this work?' is INFORMATIONAL", () => {
     expect(read("How does this work?").intent).toBe("INFORMATIONAL");
+  });
+});
+
+describe("category keywords cover common phrasing", () => {
+  it("'find me the cheapest printer around Yaba' reads the printing category", () => {
+    // Live production bug (phase D): "printer" didn't match the printing
+    // category's \bprint\b pattern (no word boundary before "-er"), so this
+    // asked "what service?" right after the buyer had already said one.
+    const r = read("find me the cheapest printer around Yaba");
+    expect(r.extracted.category).toBe("printing");
   });
 });
 
@@ -68,6 +82,15 @@ describe("commercial intent is detected", () => {
 
   it("a deadline-only constraint still reads the deadline", () => {
     expect(read("can you get it done by tomorrow?").extracted.deadline?.phrase).toBe("tomorrow");
+  });
+
+  it("a bare deadline reply is not also misread as a location", () => {
+    // Live production bug (phase D): "By Friday." was read as both the
+    // deadline AND the location ("...to By Friday"), because a capitalised
+    // two-word phrase at message-end matched the bare-place fallback.
+    const r = read("By Friday.");
+    expect(r.extracted.deadline?.phrase).toBe("by friday");
+    expect(r.extracted.location).toBeUndefined();
   });
 
   it("a combined constraint reads quantity, deadline and area", () => {
@@ -103,6 +126,13 @@ describe("other categories are still classified (marketplace not built)", () => 
     expect(r.extracted.category).toBe("electronics");
     expect(r.extracted.condition).toBe("used");
     expect(r.extracted.budget).toEqual({ amount: 200000, currency: "NGN" });
+  });
+
+  it("reads a 'X.Ym' budget as millions, not just the leading digit", () => {
+    // Live production bug (phase D): "under 1.5m" parsed to amount: 1 — the
+    // decimal point and the "m" (million) suffix were both dropped.
+    const r = read("find me a used iPhone under 1.5m around Lagos");
+    expect(r.extracted.budget).toEqual({ amount: 1_500_000, currency: "NGN" });
   });
 });
 

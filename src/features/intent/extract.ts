@@ -99,31 +99,47 @@ function readQuantity(text: string, quantityExpected = false): number | undefine
 const CURRENCY_BY_SYMBOL: Record<string, string> = { "₦": "NGN", $: "USD", "£": "GBP", "€": "EUR" };
 
 function readBudget(text: string): UserIntent["budget"] | undefined {
-  // "under ₦20,000", "less than 20k", "$150 max", "budget is 50000"
+  // "under ₦20,000", "less than 20k", "$150 max", "budget is 50000", "1.5m"
   const m = text.match(
-    /(?:under|below|less than|max(?:imum)?|no more than|budget(?:\s+is|\s+of)?|around|about|up to)\s*([₦$£€])?\s*(\d[\d,]*)\s*(k|000)?/i,
+    /(?:under|below|less than|max(?:imum)?|no more than|budget(?:\s+is|\s+of)?|around|about|up to)\s*([₦$£€])?\s*(\d[\d,]*(?:\.\d+)?)\s*(k|m|000|thousand|million)?/i,
   );
   if (!m) return undefined;
   let amount = Number(m[2].replace(/,/g, ""));
   if (!Number.isFinite(amount) || amount <= 0) return undefined;
-  if (m[3]?.toLowerCase() === "k") amount *= 1000;
+  const suffix = m[3]?.toLowerCase();
+  if (suffix === "k" || suffix === "000" || suffix === "thousand") amount *= 1000;
+  if (suffix === "m" || suffix === "million") amount *= 1_000_000;
   const currency = m[1] ? (CURRENCY_BY_SYMBOL[m[1]] ?? "NGN") : "NGN";
   return { amount, currency };
 }
 
-function readLocation(text: string): string | undefined {
+// Words that can stand alone as a short capitalised message but are never
+// themselves a place ("Hey", "Thanks", "Ok") — the bare-location fallback
+// below must not mistake them for one.
+const NON_LOCATION_BARE =
+  /^(?:hi|hey+|hello|yo|sup|howdy|good\s+(?:morning|afternoon|evening)|thanks|thank\s*you|thx|cheers|ok(?:ay)?|yes|no|sure|please|maybe|got\s+it|alright|cool|nice)$/i;
+
+function readLocation(text: string, now: Date): string | undefined {
   const m = text.match(
     /\b(?:in|at|near|around|to|from)\s+([A-Z][\w'-]+(?:\s+[A-Z][\w'-]+){0,2})\b/,
   );
   if (m) return m[1].trim();
-  // A bare capitalised place at the end of a short message ("Yaba").
-  const bare = text.trim().match(/^([A-Z][\w'-]+(?:\s+[A-Z][\w'-]+)?)[.!?]?$/);
-  return bare ? bare[1].trim() : undefined;
+  const trimmed = text.trim();
+  // A bare capitalised place at the end of a short message ("Yaba") — but not
+  // a deadline phrase that happens to be capitalised ("By Friday") or a
+  // greeting/affirmation ("Hey", "Thanks"), both common at this same length.
+  if (readDeadline(trimmed, now)) return undefined;
+  const bare = trimmed.match(/^([A-Z][\w'-]+(?:\s+[A-Z][\w'-]+)?)[.!?]?$/);
+  if (!bare || NON_LOCATION_BARE.test(bare[1].trim())) return undefined;
+  return bare[1].trim();
 }
 
 const CATEGORY_KEYWORDS: ReadonlyArray<{ re: RegExp; category: string; service?: string }> = [
   { re: /\b(flyer|flier|leaflet|handbill)s?\b/i, category: "printing", service: "flyers" },
-  { re: /\b(print|printing|photocopy|copies|copy centre|lamination)\b/i, category: "printing" },
+  {
+    re: /\b(print|printer|printers|printing|photocopy|copies|copy centre|lamination)\b/i,
+    category: "printing",
+  },
   { re: /\b(poster|banner|business card)s?\b/i, category: "printing" },
   { re: /\b(design|graphic|logo|artwork)\b/i, category: "design" },
   { re: /\b(food|dinner|lunch|eat|hungry|restaurant|jollof|catering|meal)\b/i, category: "food" },
@@ -207,7 +223,7 @@ export function extractUserIntent(
   const budget = readBudget(text);
   if (budget) out.budget = budget;
 
-  const location = readLocation(text);
+  const location = readLocation(text, now);
   if (location) out.location = location;
 
   const deadline = readDeadline(text, now);
