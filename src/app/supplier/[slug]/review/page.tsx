@@ -37,10 +37,14 @@ export default async function SupplierReviewPage({
   const { t } = await searchParams;
 
   const db = await getDb();
+  const canManage = t ? await manageTokenMatchesBusinessSlug(db, slug, t) : false;
+  // Contact details and payout address are private to the business owner — a
+  // wrong or missing manage token must fail closed, not render a "read-only"
+  // view of someone else's business details.
+  if (!canManage) notFound();
   const workspace = await getSupplierWorkspace(db, slug);
   if (!workspace) notFound();
 
-  const canManage = t ? await manageTokenMatchesBusinessSlug(db, slug, t) : false;
   const { business, routes } = workspace;
   const addressVerified = business.verifiedByOperatorAt !== null;
 

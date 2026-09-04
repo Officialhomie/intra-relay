@@ -50,6 +50,29 @@ describe("API route handlers", () => {
     expect((body.error as { code: string }).code).toBe("IDEMPOTENCY_KEY_REQUIRED");
   });
 
+  it("rejects creating a service route on a business with no operator key or manage token (phase D)", async () => {
+    const business = (
+      await readJson(
+        await createBusiness(
+          post("/api/businesses", businessInput(), { "idempotency-key": "idem-key-authz-biz-01" }),
+          params({}),
+        ),
+      )
+    ).body.data as { slug: string };
+
+    const res = await createRoute(
+      post(
+        `/api/businesses/${business.slug}/routes`,
+        {},
+        { "idempotency-key": "idem-key-authz-01" },
+      ),
+      params({ slug: business.slug }),
+    );
+    const { status, body } = await readJson(res);
+    expect(status).toBe(401);
+    expect((body.error as { code: string }).code).toBe("SUPPLIER_AUTH_REQUIRED");
+  });
+
   it("replays the stored response for a repeated Idempotency-Key and rejects a reuse with a new body", async () => {
     const key = "idem-key-000001";
     const first = await readJson(
@@ -93,7 +116,7 @@ describe("API route handlers", () => {
     const route = (
       await readJson(
         await createRoute(
-          post(`/api/businesses/${business.slug}/routes`, {}, idem("route")),
+          post(`/api/businesses/${business.slug}/routes`, {}, { ...idem("route"), ...op }),
           params({ slug: business.slug }),
         ),
       )

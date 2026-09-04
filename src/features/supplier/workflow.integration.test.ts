@@ -60,7 +60,7 @@ async function onboardActiveRoute() {
   const route = (
     await read(
       await createRoute(
-        json(`/api/businesses/${biz.slug}/routes`, {}, idem()),
+        json(`/api/businesses/${biz.slug}/routes`, {}, { ...idem(), "x-operator-key": OPERATOR }),
         params({ slug: biz.slug }),
       ),
     )
@@ -118,7 +118,7 @@ describe("supplier + buyer end-to-end workflow", () => {
     const route = (
       await read(
         await createRoute(
-          json(`/api/businesses/${biz.slug}/routes`, {}, idem()),
+          json(`/api/businesses/${biz.slug}/routes`, {}, { ...idem(), "x-operator-key": OPERATOR }),
           params({ slug: biz.slug }),
         ),
       )

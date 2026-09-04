@@ -65,6 +65,10 @@ export default async function SupplierRequestsPage({
 
   const db = await getDb();
   const canManage = t ? await manageTokenMatchesBusinessSlug(db, slug, t) : false;
+  // This inbox is never a public surface — a wrong or missing manage token
+  // must fail closed, the same as a buyer's own task page does, not fall
+  // through to a "read-only" render of someone else's live customer briefs.
+  if (!canManage) notFound();
   const workspace = await getSupplierWorkspace(db, slug, { includePickupCodes: canManage });
   if (!workspace) notFound();
 

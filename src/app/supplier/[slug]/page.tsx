@@ -93,24 +93,24 @@ export default async function BusinessOverviewPage({
         </Link>
       ) : null}
 
-      <section aria-labelledby="happening-heading" className="space-y-3">
-        <h2 id="happening-heading" className="text-lg font-light tracking-tight">
-          What&apos;s happening
-        </h2>
-        {happening === 0 && incoming.length === 0 && priceChangeWaiting === 0 ? (
-          <Card className="text-sm text-muted">
-            Nothing is in flight right now. New requests will appear here and in your requests
-            inbox.
-          </Card>
-        ) : (
-          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <Stat label="Reviewing your quote" value={reviewingQuote} icon={Clock3} />
-            <Stat label="Price change waiting" value={priceChangeWaiting} icon={Clock3} />
-            <Stat label="In progress" value={inProgress} icon={Clock3} />
-            <Stat label="To hand over" value={toHandOver} icon={Inbox} />
-          </dl>
-        )}
-        {canManage ? (
+      {canManage ? (
+        <section aria-labelledby="happening-heading" className="space-y-3">
+          <h2 id="happening-heading" className="text-lg font-light tracking-tight">
+            What&apos;s happening
+          </h2>
+          {happening === 0 && incoming.length === 0 && priceChangeWaiting === 0 ? (
+            <Card className="text-sm text-muted">
+              Nothing is in flight right now. New requests will appear here and in your requests
+              inbox.
+            </Card>
+          ) : (
+            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <Stat label="Reviewing your quote" value={reviewingQuote} icon={Clock3} />
+              <Stat label="Price change waiting" value={priceChangeWaiting} icon={Clock3} />
+              <Stat label="In progress" value={inProgress} icon={Clock3} />
+              <Stat label="To hand over" value={toHandOver} icon={Inbox} />
+            </dl>
+          )}
           <Link
             href={`/supplier/${slug}/requests${suffix}`}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline underline-offset-2"
@@ -118,10 +118,12 @@ export default async function BusinessOverviewPage({
             Open your requests
             <ArrowRight aria-hidden className="size-3.5" />
           </Link>
-        ) : null}
-      </section>
+        </section>
+      ) : null}
 
-      {summary.hasActivity ? (
+      {/* Activity counts and reply-time metrics are the business's own
+          performance record — only ever shown to the owner (canManage). */}
+      {canManage && summary.hasActivity ? (
         <section aria-labelledby="activity-heading" className="space-y-3">
           <h2 id="activity-heading" className="text-lg font-light tracking-tight">
             Your record so far
@@ -148,7 +150,7 @@ export default async function BusinessOverviewPage({
             Counted from your own requests and orders. Nothing here is estimated.
           </p>
         </section>
-      ) : (
+      ) : canManage ? (
         <Card as="section" className="space-y-3">
           <div className="flex items-center gap-2">
             <Inbox aria-hidden className="size-5 shrink-0 text-muted" />
@@ -159,9 +161,9 @@ export default async function BusinessOverviewPage({
             requests inbox — with everything they have told us about the job.
           </p>
         </Card>
-      )}
+      ) : null}
 
-      {summary.jobsCompleted > 0 ? (
+      {canManage && summary.jobsCompleted > 0 ? (
         <Callout tone="success" title="Why finishing jobs here matters">
           Completed jobs can contribute to a verifiable history attached to your business. That
           record shows the jobs both sides confirmed — it is not a rating, and it does not vouch for
