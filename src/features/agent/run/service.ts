@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { after } from "next/server";
+
 import { AgentHttpClient } from "../tools/client";
 import type { ToolContext } from "../tools/registry";
 import {
@@ -172,11 +174,19 @@ export function startAgentRun(input: StartAgentRunInput): StoredAgentRun {
     ...input.options,
     briefCorrection: input.briefCorrection,
   };
-  // Fire-and-forget: the HTTP response returns immediately and the client polls
-  // GET /api/agent/run/:id. On a long-lived Node server (next dev / a container)
-  // this completes normally; a serverless cold-stop would leave it RUNNING,
-  // which the store's TTL eventually reaps.
-  void executeRun(runId, options);
+  // The HTTP response returns immediately and the client polls
+  // GET /api/agent/run/:id. `after()` keeps the serverless function alive
+  // until executeRun finishes, instead of letting the platform freeze/tear
+  // down the instance the moment the response is sent (verified live: without
+  // this, a real Vercel deployment left every run stuck at "understand"
+  // forever — phase D). Outside a request scope (e.g. a unit test calling
+  // this directly) `after()` throws, so fall back to plain fire-and-forget,
+  // which is safe there because the test process stays alive regardless.
+  try {
+    after(() => executeRun(runId, options));
+  } catch {
+    void executeRun(runId, options);
+  }
 
   return run;
 }
