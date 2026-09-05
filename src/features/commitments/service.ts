@@ -218,7 +218,11 @@ export async function attestCommitment(
   }
 }
 
-/** Public view. Never exposes the salt or the buyer's handover code. */
+/**
+ * Public view. Never exposes the salt or the buyer's handover code — the code
+ * reaches the buyer through their own session-scoped `getTaskView`
+ * (`tasks/service.ts`), never this shape.
+ */
 export function toPublicCommitment(row: CommitmentRow) {
   return {
     taskId: row.taskId,

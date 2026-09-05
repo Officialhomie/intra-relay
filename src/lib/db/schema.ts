@@ -27,6 +27,8 @@ import {
   PROOFLINE_EVIDENCE_STATUSES,
 } from "@/features/proofline/status";
 import { COMMITMENT_EXPIRY_SOURCES, COMMITMENT_STATUSES } from "@/features/commitments/status";
+import { HANDOVER_ATTESTATION_STATUSES } from "@/features/attestation/handover-status";
+import { ATTESTATION_OUTCOMES } from "@/features/attestation/schema";
 import { ATTENTION_LEVELS, NOTIFICATION_AUDIENCES } from "@/features/notifications/attention";
 import { PRICING_MODELS } from "@/features/pricing/model";
 import { BUYER_DECISIONS, QUOTE_CONFIDENCE, QUOTE_STATUSES } from "@/features/quotes/status";
@@ -62,6 +64,11 @@ export const quoteConfidenceEnum = pgEnum("quote_confidence", QUOTE_CONFIDENCE);
 export const buyerDecisionEnum = pgEnum("buyer_decision", BUYER_DECISIONS);
 export const paymentStatusEnum = pgEnum("payment_status", PAYMENT_STATUSES);
 export const commitmentStatusEnum = pgEnum("commitment_status", COMMITMENT_STATUSES);
+export const handoverAttestationStatusEnum = pgEnum(
+  "handover_attestation_status",
+  HANDOVER_ATTESTATION_STATUSES,
+);
+export const attestationOutcomeEnum = pgEnum("attestation_outcome", ATTESTATION_OUTCOMES);
 export const commitmentExpirySourceEnum = pgEnum(
   "commitment_expiry_source",
   COMMITMENT_EXPIRY_SOURCES,
@@ -376,6 +383,56 @@ export const commitments = pgTable("commitments", {
 });
 
 /**
+ * Handover attestations (ADR-018, milestone 9) — the genuine second signature.
+ *
+ * One row per task, created the first time a merchant presents the buyer's
+ * handover code. Unlike `commitments` (attested by Intra), the resulting EAS
+ * attestation is signed by the **merchant's own wallet** via EAS's native
+ * `attestByDelegation`; Intra only relays the already-signed request and pays
+ * gas (`src/features/attestation/writer.ts`). `signNonce`/`signDeadline` freeze
+ * the exact EIP-712 request a merchant is asked to sign, so a submitted
+ * signature can only ever be replayed against the request it was made for.
+ *
+ * `revealedCode`/`revealedSalt` duplicate the commitment's own secret at the
+ * instant it was correctly presented — kept here, not re-read from
+ * `commitments`, so this row is a self-contained record of exactly what was
+ * signed. Same handling rules as `commitments.handoverCode/handoverSalt`:
+ * server-only, never returned by an API, never logged (NFR-SEC-001).
+ */
+export const handoverAttestations = pgTable("handover_attestations", {
+  id: id(),
+  taskId: text("task_id")
+    .notNull()
+    .unique()
+    .references(() => tasks.id, { onDelete: "cascade" }),
+  commitmentId: text("commitment_id")
+    .notNull()
+    .references(() => commitments.id, { onDelete: "cascade" }),
+  /** The merchant's own address — the attester this row expects a signature from. */
+  providerAddress: text("provider_address").notNull(),
+  buyerAddress: text("buyer_address").notNull(),
+  outcome: attestationOutcomeEnum("outcome"),
+  fulfilledAt: timestamp("fulfilled_at", { withTimezone: true }),
+  /** SERVER-ONLY. Frozen at the moment the code was verified. */
+  revealedCode: text("revealed_code"),
+  revealedSalt: text("revealed_salt"),
+  /** The exact EAS account nonce this signing request was built against. */
+  signNonce: text("sign_nonce"),
+  signDeadline: timestamp("sign_deadline", { withTimezone: true }),
+  status: handoverAttestationStatusEnum("status").notNull().default("PENDING_CODE"),
+  /** refUID — the commitment's own attestation UID, once known. */
+  refUid: text("ref_uid"),
+  attestationUid: text("attestation_uid"),
+  attestationTxHash: text("attestation_tx_hash"),
+  attestationMode: text("attestation_mode"),
+  attestationError: text("attestation_error"),
+  attestedAt: timestamp("attested_at", { withTimezone: true }),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/**
  * Human-attention notifications (milestone 7 §13–§15).
  *
  * A notification is a *current* attention item, not a log line — the audit
@@ -508,6 +565,14 @@ export const prooflineEventsRelations = relations(prooflineEvents, ({ one }) => 
   task: one(tasks, { fields: [prooflineEvents.taskId], references: [tasks.id] }),
 }));
 
+export const handoverAttestationsRelations = relations(handoverAttestations, ({ one }) => ({
+  task: one(tasks, { fields: [handoverAttestations.taskId], references: [tasks.id] }),
+  commitment: one(commitments, {
+    fields: [handoverAttestations.commitmentId],
+    references: [commitments.id],
+  }),
+}));
+
 export const quotesRelations = relations(quotes, ({ one }) => ({
   task: one(tasks, { fields: [quotes.taskId], references: [tasks.id] }),
   route: one(quoteRoutes, { fields: [quotes.routeId], references: [quoteRoutes.id] }),
@@ -535,6 +600,8 @@ export type ServicePaymentRow = typeof servicePayments.$inferSelect;
 export type AuditEventRow = typeof auditEvents.$inferSelect;
 export type CommitmentRow = typeof commitments.$inferSelect;
 export type NewCommitmentRow = typeof commitments.$inferInsert;
+export type HandoverAttestationRow = typeof handoverAttestations.$inferSelect;
+export type NewHandoverAttestationRow = typeof handoverAttestations.$inferInsert;
 export type ProoflineEventRow = typeof prooflineEvents.$inferSelect;
 export type NewProoflineEventRow = typeof prooflineEvents.$inferInsert;
 export type NotificationRow = typeof notifications.$inferSelect;

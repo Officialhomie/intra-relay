@@ -15,6 +15,7 @@ import { ApiError, apiRequest } from "@/lib/api";
 import { formatDateTime, formatMoney, isExpired, relativeTime } from "@/lib/format";
 import { getSessionId } from "@/lib/session";
 import { BuyerPickupPanel } from "@/features/proofline/BuyerPickupPanel";
+import { HandoverCodePanel } from "@/features/attestation/HandoverCodePanel";
 import { ResumeSignal } from "@/features/pwa/ResumeSignal";
 import { OrderProblemPanel } from "./OrderProblemPanel";
 import { PriceChangePanel, type PriceChangeDto } from "@/features/quotes/PriceChangePanel";
@@ -104,6 +105,7 @@ interface TaskViewDto {
   priceChange: PriceChangeDto | null;
   handoffConfirmedAt: string | null;
   proofline: ProoflineView | null;
+  handoverCode: string | null;
   exception: {
     reason: string;
     origin: "provider" | "buyer" | "system";
@@ -424,6 +426,8 @@ export function TaskPage({ taskId }: { taskId: string }) {
           onConfirmed={load}
         />
       ) : null}
+
+      {readyForHandoff && recommendation ? <HandoverCodePanel code={view.handoverCode} /> : null}
 
       {handoffConfirmedAt && view.proofline ? (
         <BuyerPickupPanel taskId={task.id} proofline={view.proofline} onChanged={load} />

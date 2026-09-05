@@ -12,6 +12,7 @@ import { HttpError } from "@/lib/http/response";
 import { appendAuditEvent, listTaskAuditEvents } from "@/features/audit/repository";
 import { notify } from "@/features/notifications/service";
 import { createCommitmentForApproval } from "@/features/commitments/service";
+import { findCommitmentByTaskId } from "@/features/commitments/repository";
 import { flyerPrintingInputSchema } from "@/features/routes/flyer-printing";
 import { findRouteByBusinessAndSlug, findRouteById } from "@/features/routes/repository";
 import { findBusinessById, findBusinessBySlug } from "@/features/businesses/repository";
@@ -233,6 +234,13 @@ export interface TaskView {
    */
   proofline: ProoflineView | null;
   /**
+   * The buyer's handover code (ADR-018 milestone 9) — the "buyer -> merchant"
+   * secret they say aloud at collection. Present once a commitment exists;
+   * the buyer's own session-scoped view is the one place it is shown. The
+   * withheld `salt` is never included.
+   */
+  handoverCode: string | null;
+  /**
    * When an order ended in an exception rather than a clean handover, the
    * semantic account of it: what happened, whether the buyer must act, what
    * happens next (milestone 6 §18). Null for a live or cleanly-handed-off order.
@@ -434,13 +442,15 @@ export async function getTaskView(
   assertSession(task, sessionId);
 
   const now = new Date();
-  const [quoteRows, payments, recommendationRow, feedback, timeline] = await Promise.all([
-    listTaskQuotes(db, taskId),
-    listTaskPayments(db, taskId),
-    findTaskRecommendation(db, taskId),
-    listTaskFeedback(db, taskId),
-    listTaskAuditEvents(db, taskId),
-  ]);
+  const [quoteRows, payments, recommendationRow, feedback, timeline, commitment] =
+    await Promise.all([
+      listTaskQuotes(db, taskId),
+      listTaskPayments(db, taskId),
+      findTaskRecommendation(db, taskId),
+      listTaskFeedback(db, taskId),
+      listTaskAuditEvents(db, taskId),
+      findCommitmentByTaskId(db, taskId),
+    ]);
 
   const quotes: TaskQuoteView[] = quoteRows.map((quote) => ({
     ...quote,
@@ -525,6 +535,7 @@ export async function getTaskView(
       proposedChange && agreedQuote ? priceChangeView(proposedChange, agreedQuote, now) : null,
     handoffConfirmedAt,
     proofline,
+    handoverCode: commitment?.handoverCode ?? null,
     exception: describeTaskException(task),
   };
 }

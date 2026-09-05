@@ -18,6 +18,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/lib/db/migrate-cli.ts",
     "db:seed": "tsx src/lib/db/seed.ts",
+    "eas:new-signer": "tsx src/features/attestation/new-signer-cli.ts",
+    "eas:register": "tsx src/features/attestation/register-schemas-cli.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {

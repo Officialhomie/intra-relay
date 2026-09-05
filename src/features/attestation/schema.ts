@@ -4,6 +4,7 @@ import {
   getAddress,
   keccak256,
   parseAbiParameters,
+  recoverTypedDataAddress,
   type Hex,
 } from "viem";
 
@@ -137,4 +138,95 @@ export function encodeHandoverData(data: HandoverAttestationData): Hex {
  */
 export function jobRef(taskId: string): Hex {
   return keccak256(encodePacked(["string", "string"], ["intra:job:", taskId]));
+}
+
+/**
+ * EAS's own `attestByDelegation` (core contract, no proxy — verified against
+ * `eas-contracts` `EIP1271Verifier.sol` / `EAS.sol`, 2026-09-05). It takes an
+ * explicit `attester` distinct from whoever submits the transaction: the
+ * attester signs this EIP-712 struct off-chain, and ANY funded account can
+ * relay it on-chain while the recorded attester stays genuinely theirs. This
+ * is the entire mechanism behind a merchant signing their own handover
+ * attestation while Intra only pays gas (ADR-018 milestone 9).
+ *
+ * Domain name/version are the EAS contract's own (`EAS`, `1.4.0` at the time
+ * of writing) — not ours to choose, and wrong values simply fail to recover
+ * the right signer rather than throwing.
+ */
+export const EAS_EIP712_DOMAIN_NAME = "EAS";
+export const EAS_EIP712_DOMAIN_VERSION = "1.4.0";
+
+export const EAS_DELEGATED_ATTEST_TYPES = {
+  Attest: [
+    { name: "attester", type: "address" },
+    { name: "schema", type: "bytes32" },
+    { name: "recipient", type: "address" },
+    { name: "expirationTime", type: "uint64" },
+    { name: "revocable", type: "bool" },
+    { name: "refUID", type: "bytes32" },
+    { name: "data", type: "bytes" },
+    { name: "value", type: "uint256" },
+    { name: "nonce", type: "uint256" },
+    { name: "deadline", type: "uint64" },
+  ],
+} as const;
+
+export interface DelegatedAttestMessage {
+  attester: Hex;
+  schema: Hex;
+  recipient: Hex;
+  expirationTime: bigint;
+  revocable: boolean;
+  refUID: Hex;
+  data: Hex;
+  value: bigint;
+  nonce: bigint;
+  deadline: bigint;
+}
+
+/**
+ * The exact typed-data object a merchant's wallet must sign
+ * (`eth_signTypedData_v4`), and the exact object the server recomputes before
+ * trusting a returned signature. Building it in one place means the value the
+ * merchant is shown, the value hashed for the signature, and the value
+ * relayed on-chain can never silently drift apart.
+ */
+export function buildDelegatedAttestTypedData(
+  message: DelegatedAttestMessage,
+  chainId: number,
+  verifyingContract: Hex,
+) {
+  return {
+    domain: {
+      name: EAS_EIP712_DOMAIN_NAME,
+      version: EAS_EIP712_DOMAIN_VERSION,
+      chainId,
+      verifyingContract,
+    },
+    types: EAS_DELEGATED_ATTEST_TYPES,
+    primaryType: "Attest" as const,
+    message,
+  };
+}
+
+export const ZERO_BYTES32 = `0x${"0".repeat(64)}` as const;
+
+/**
+ * Recovers the signer of a delegated-attest EIP-712 signature and confirms it
+ * is genuinely `message.attester` — the check that turns "a signature exists"
+ * into "the merchant themselves signed this exact message" (M9 §19: altered
+ * payload / wrong signer / cross-task signature must all fail here). Called
+ * server-side before ever relaying a request on-chain; the EAS contract
+ * enforces the same check independently, so this is defense in depth, not the
+ * only gate.
+ */
+export async function verifyDelegatedAttestSignature(
+  message: DelegatedAttestMessage,
+  signature: Hex,
+  chainId: number,
+  verifyingContract: Hex,
+): Promise<boolean> {
+  const typedData = buildDelegatedAttestTypedData(message, chainId, verifyingContract);
+  const recovered = await recoverTypedDataAddress({ ...typedData, signature });
+  return getAddress(recovered) === getAddress(message.attester);
 }

@@ -260,6 +260,10 @@ describe("commitment attestation", () => {
       attestCommitment: async () => {
         throw new AttestationUnavailableError("RPC_DOWN", "Celo RPC unreachable.");
       },
+      attestHandoverDelegated: async () => {
+        throw new AttestationUnavailableError("RPC_DOWN", "Celo RPC unreachable.");
+      },
+      readDelegationNonce: async () => 0n,
     };
     const result = await attestCommitment(db, task.id, broken);
 
@@ -277,6 +281,10 @@ describe("commitment attestation", () => {
       attestCommitment: async () => {
         throw new Error("transient");
       },
+      attestHandoverDelegated: async () => {
+        throw new Error("transient");
+      },
+      readDelegationNonce: async () => 0n,
     };
     await attestCommitment(db, task.id, broken);
 

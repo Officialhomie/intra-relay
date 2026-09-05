@@ -71,6 +71,13 @@
       "when": 1788482330698,
       "tag": "0009_sparkling_mathemanic",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788588759653,
+      "tag": "0010_cynical_meteorite",
+      "breakpoints": true
     }
   ]
 }

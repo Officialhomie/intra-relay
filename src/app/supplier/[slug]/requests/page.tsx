@@ -12,6 +12,7 @@ import { getDb } from "@/lib/db/client";
 import { formatMoney, relativeTime } from "@/lib/format";
 import { manageTokenMatchesBusinessSlug } from "@/features/businesses/access";
 import { MerchantFulfilmentPanel } from "@/features/proofline/MerchantFulfilmentPanel";
+import { HandoverAttestPanel } from "@/features/attestation/HandoverAttestPanel";
 import { ResumeSignal } from "@/features/pwa/ResumeSignal";
 import { getSupplierWorkspace } from "@/features/routes/reads";
 import { ChangePriceForm } from "@/features/supplier/ChangePriceForm";
@@ -222,7 +223,7 @@ export default async function SupplierRequestsPage({
             </p>
           </div>
           <ol className="space-y-6">
-            {handedOff.map(({ task, route, proofline }) => {
+            {handedOff.map(({ task, route, proofline, handover }) => {
               const brief = (task.structuredInput ?? {}) as Record<string, unknown>;
               return (
                 <li key={task.id} id={`request-${task.id}`}>
@@ -244,11 +245,14 @@ export default async function SupplierRequestsPage({
                       ))}
                     </DataList>
                     {canManage && t ? (
-                      <MerchantFulfilmentPanel
-                        taskId={task.id}
-                        manageToken={t}
-                        proofline={proofline}
-                      />
+                      <>
+                        <MerchantFulfilmentPanel
+                          taskId={task.id}
+                          manageToken={t}
+                          proofline={proofline}
+                        />
+                        <HandoverAttestPanel taskId={task.id} manageToken={t} handover={handover} />
+                      </>
                     ) : (
                       <Callout tone="unavailable">{proofline.disclaimer}</Callout>
                     )}

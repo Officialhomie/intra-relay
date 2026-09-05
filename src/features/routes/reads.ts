@@ -15,6 +15,9 @@ import { acceptedOffer, currentOffer, pendingChange } from "@/features/quotes/re
 import { listTaskQuotes } from "@/features/tasks/repository";
 import { listProoflineEvents } from "@/features/proofline/repository";
 import { buildProoflineView, type ProoflineView } from "@/features/proofline/view";
+import { findCommitmentByTaskId } from "@/features/commitments/repository";
+import { findHandoverAttestationByTaskId } from "@/features/attestation/handover-repository";
+import { toPublicHandoverAttestation } from "@/features/attestation/handover-service";
 
 /** Public (safe) view of a business — never includes the manage token. */
 export type PublicBusiness = Omit<BusinessRow, "manageToken">;
@@ -46,9 +49,16 @@ export interface SupplierWorkspace {
   }[];
   /**
    * Orders the buyer has personally handed off — eligible for the Proofline
-   * fulfilment-evidence pilot. `proofline` carries the pickup code (merchant view).
+   * fulfilment-evidence pilot. `proofline` carries the pickup code (merchant
+   * view). `handover` is the separate, cryptographic two-party attestation
+   * (ADR-018 milestone 9) — `null` only if no commitment exists yet.
    */
-  handedOff: { task: TaskRow; route: QuoteRouteRow; proofline: ProoflineView }[];
+  handedOff: {
+    task: TaskRow;
+    route: QuoteRouteRow;
+    proofline: ProoflineView;
+    handover: ReturnType<typeof toPublicHandoverAttestation> | null;
+  }[];
 }
 
 export async function getSupplierWorkspace(
@@ -122,12 +132,15 @@ export async function getSupplierWorkspace(
   for (const row of handedOffRows) {
     if (!row.task.handoffConfirmedAt) continue;
     const events = await listProoflineEvents(db, row.task.id);
+    const commitment = await findCommitmentByTaskId(db, row.task.id);
+    const handoverRow = commitment ? await findHandoverAttestationByTaskId(db, row.task.id) : null;
     handedOff.push({
       task: row.task,
       route: row.route,
       proofline: buildProoflineView(events, {
         includePickupCode: options.includePickupCodes === true,
       }),
+      handover: handoverRow ? toPublicHandoverAttestation(handoverRow) : null,
     });
   }
 
