@@ -617,6 +617,13 @@ function networkLabel(network: string | null): string {
   return CELO_X402_NETWORKS[network]?.label ?? network;
 }
 
+const PROVIDER_LABEL: Record<string, string> = { x402: "agent payment protocol", cpay: "cPay" };
+
+function providerLabel(provider: string | null | undefined): string {
+  if (!provider) return "agent payment protocol";
+  return PROVIDER_LABEL[provider] ?? provider;
+}
+
 function explorerUrl(network: string | null, txHash: string | null): string | null {
   return network && txHash ? explorerTxUrl(network, txHash) : null;
 }
@@ -671,7 +678,7 @@ function PaymentReceipt({
             </span>
           </DataRow>
           <DataRow label="Network">
-            {networkLabel(settled.network)} · via {settled.provider ?? "x402"}
+            {networkLabel(settled.network)} · via {providerLabel(settled.provider)}
           </DataRow>
           <DataRow label="Transaction">
             {settled.txHash ? (
@@ -713,8 +720,8 @@ function PaymentReceipt({
 
       {primary.status === "UNAVAILABLE" ? (
         <Callout tone="unavailable">
-          Celo x402 / cPay verification is not available, so no service fee was charged and no
-          receipt exists. Intra never fabricates a payment.
+          Agent payment verification is not available right now, so no service fee was charged and
+          no receipt exists. Intra never fabricates a payment.
         </Callout>
       ) : null}
 

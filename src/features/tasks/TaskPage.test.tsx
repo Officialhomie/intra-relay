@@ -165,7 +165,7 @@ describe("TaskPage — principal buyer view (S-003)", () => {
       screen.getByText(/Intra does not send this message and never pays a supplier/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Celo x402 \/ cPay verification is not available/i),
+      screen.getByText(/Agent payment verification is not available right now/i),
     ).toBeInTheDocument();
     expect(screen.getByText(/Intra never fabricates a payment/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /copy message/i })).toBeInTheDocument();

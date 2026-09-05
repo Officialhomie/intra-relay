@@ -171,9 +171,6 @@ export default async function SupplierReviewPage({
                       : "Free (no agent query fee)"}
                   </DataRow>
                   <DataRow label="Response SLA">{route.responseSlaMinutes} minutes</DataRow>
-                  <DataRow label="Agent endpoint">
-                    <span className="font-mono text-xs">{route.endpoint}</span>
-                  </DataRow>
                   <DataRow label="Price freshness">
                     {route.priceUpdatedAt ? (
                       <span
