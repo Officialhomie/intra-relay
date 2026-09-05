@@ -734,8 +734,8 @@ function PaymentReceipt({
 
       {primary.status === "AUTHORISED" ? (
         <Callout tone="warning" title="Settlement outcome is being reconciled">
-          The query-fee payment was authorised but the on-chain settlement could not be confirmed.
-          It is not shown as paid until a verified transaction hash exists.
+          The query-fee payment was authorised but could not be confirmed yet. It is not shown as
+          paid until that confirmation comes through.
         </Callout>
       ) : null}
 
