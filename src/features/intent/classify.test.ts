@@ -93,6 +93,20 @@ describe("commercial intent is detected", () => {
     expect(r.extracted.location).toBeUndefined();
   });
 
+  it("a bare paper-size reply is not also misread as a location", () => {
+    // Live production bug (phase D), same class as "By Friday.": answering a
+    // "what paper size?" prompt with just "A5" set location to "A5" too.
+    const r = read("A5");
+    expect(r.extracted.size).toBe("A5");
+    expect(r.extracted.location).toBeUndefined();
+  });
+
+  it("a bare condition reply is not misread as a location", () => {
+    const r = read("Used");
+    expect(r.extracted.condition).toBe("used");
+    expect(r.extracted.location).toBeUndefined();
+  });
+
   it("a combined constraint reads quantity, deadline and area", () => {
     const r = read("I want 250 A5 flyers in full colour by Monday, delivered to Akoka");
     expect(r.intent).toBe("QUOTE_REQUEST");

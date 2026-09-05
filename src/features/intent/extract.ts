@@ -125,10 +125,22 @@ function readLocation(text: string, now: Date): string | undefined {
   );
   if (m) return m[1].trim();
   const trimmed = text.trim();
-  // A bare capitalised place at the end of a short message ("Yaba") — but not
-  // a deadline phrase that happens to be capitalised ("By Friday") or a
-  // greeting/affirmation ("Hey", "Thanks"), both common at this same length.
-  if (readDeadline(trimmed, now)) return undefined;
+  // A bare capitalised place at the end of a short message ("Yaba") — but a
+  // short reply is just as often the answer to a DIFFERENT question the
+  // brief just asked: a deadline ("By Friday"), a paper size ("A5"), a
+  // condition ("Used"), a colour, a pickup/delivery choice, or a plain
+  // greeting/affirmation ("Hey", "Thanks"). If another field already claims
+  // this exact text, or it's one of those non-place words, it isn't a
+  // location — all found live in production (phase D).
+  if (
+    readDeadline(trimmed, now) ||
+    readSize(trimmed) ||
+    readColour(trimmed) ||
+    readCondition(trimmed) ||
+    readFulfillment(trimmed)
+  ) {
+    return undefined;
+  }
   const bare = trimmed.match(/^([A-Z][\w'-]+(?:\s+[A-Z][\w'-]+)?)[.!?]?$/);
   if (!bare || NON_LOCATION_BARE.test(bare[1].trim())) return undefined;
   return bare[1].trim();
