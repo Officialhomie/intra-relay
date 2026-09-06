@@ -53,6 +53,16 @@ describe("buildEvidenceReport (MET-001)", () => {
     expect(report.real.payments.verifiedSettlements).toBe(0);
     expect(report.feedbackChangelog.length).toBeGreaterThan(0);
     expect(report.integrations.find((i) => i.key === "x402")?.state).toBe("unavailable");
+    expect(report.integrations.find((i) => i.key === "eas-attestation")?.state).toBe("unavailable");
+  });
+
+  it("marks EAS attestation available only with production network + a signer", async () => {
+    const report = await buildEvidenceReport(db, new Date(), {
+      ...NO_ENV,
+      NETWORK_ENV: "production",
+      ATTESTATION_SIGNER_KEY: `0x${"1".repeat(64)}`,
+    });
+    expect(report.integrations.find((i) => i.key === "eas-attestation")?.state).toBe("available");
   });
 
   it("counts genuine buyer sessions, returning buyers, and quote latency", async () => {

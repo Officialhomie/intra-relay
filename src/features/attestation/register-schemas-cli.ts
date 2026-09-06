@@ -18,6 +18,8 @@
  * It registers nothing that is already present and changes no schema string —
  * the strings are load-bearing (their UID is derived from them).
  */
+import { existsSync } from "node:fs";
+
 import { createPublicClient, createWalletClient, http, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { celo } from "viem/chains";
@@ -32,6 +34,11 @@ import {
   SCHEMA_RESOLVER,
   SCHEMA_REVOCABLE,
 } from "./schema";
+
+// Local run only: pick up ATTESTATION_SIGNER_KEY / RPC_URL from .env.local
+// (gitignored) if the shell env doesn't already have them. Never overrides an
+// existing value, never committed.
+if (existsSync(".env.local")) process.loadEnvFile(".env.local");
 
 const SCHEMA_REGISTRY_ABI = [
   {

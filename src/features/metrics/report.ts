@@ -35,6 +35,7 @@ import {
   type TaskRow,
 } from "@/lib/db/schema";
 import { readPaymentConfig } from "@/features/payments/adapter/config";
+import { readAttestationConfig } from "@/features/attestation/config";
 import { PRICE_FRESHNESS_MAX_AGE_MS } from "@/features/routes/freshness";
 import { ROUTE_STATUSES, type RouteStatus } from "@/features/routes/schema";
 import { TASK_STATUSES, type TaskStatus } from "@/features/tasks/status";
@@ -342,8 +343,17 @@ function readIntegrations(env: NodeJS.ProcessEnv = process.env): IntegrationStat
   const attributionTag = env.X402_ATTRIBUTION_TAG?.trim();
   const databaseUrl = env.DATABASE_URL?.trim();
 
+  const attestation = readAttestationConfig(env);
+  const eas: IntegrationStatus = {
+    key: "eas-attestation",
+    label: "EAS attestation (Celo mainnet)",
+    state: attestation.onChain ? "available" : "unavailable",
+    detail: attestation.reason,
+  };
+
   return [
     x402,
+    eas,
     {
       key: "erc8021-attribution",
       label: "ERC-8021 attribution tag",
