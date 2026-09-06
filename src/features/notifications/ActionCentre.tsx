@@ -7,6 +7,7 @@ import { AlertCircle, BellRing, CheckCircle2, Clock, Info } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/States";
+import { useAnalytics } from "@/features/analytics/useAnalytics";
 import { ApiError, apiRequest } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
 import { getSessionId } from "@/lib/session";
@@ -77,6 +78,7 @@ export function ActionCentre({
   heading?: string;
 }) {
   const suffix = authQuery ? `?${authQuery}` : "";
+  const analytics = useAnalytics(authQuery ? "business" : "buyer");
   const [view, setView] = useState<ActionCentreView | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
 
@@ -98,6 +100,13 @@ export function ActionCentre({
 
   const markRead = useCallback(
     (id: string) => {
+      const item =
+        view?.needsAttention.find((i) => i.id === id) ?? view?.updates.find((i) => i.id === id);
+      analytics.track("notification_opened", {
+        domain_event: item?.event ?? "unknown",
+        level: item?.level ?? "unknown",
+        notification_channel: "in_app",
+      });
       // Optimistic — reading must not block following the link.
       setView((prev) =>
         prev
@@ -117,7 +126,7 @@ export function ActionCentre({
         body: {},
       }).catch(() => undefined);
     },
-    [suffix, authQuery],
+    [suffix, authQuery, view, analytics],
   );
 
   async function clearAll() {

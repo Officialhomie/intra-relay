@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Callout } from "@/components/ui/Callout";
 import { TextField } from "@/components/ui/TextField";
+import { useAnalytics } from "@/features/analytics/useAnalytics";
 import { ApiError, apiRequest } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 
@@ -35,6 +36,7 @@ export function ChangePriceForm({
   alreadyAgreed: boolean;
 }) {
   const router = useRouter();
+  const analytics = useAnalytics("business");
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
   const [turnaround, setTurnaround] = useState("");
@@ -69,6 +71,7 @@ export function ChangePriceForm({
           reason: reason.trim(),
         },
       });
+      analytics.track("price_change_submitted", {});
       setDone(
         alreadyAgreed
           ? "Sent. The customer has to accept the change before it takes effect — the price they agreed still stands until they do."
@@ -92,7 +95,14 @@ export function ChangePriceForm({
 
   if (!open) {
     return (
-      <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>
+      <Button
+        size="sm"
+        variant="secondary"
+        onClick={() => {
+          analytics.track("price_change_started", {});
+          setOpen(true);
+        }}
+      >
         Change this price
       </Button>
     );

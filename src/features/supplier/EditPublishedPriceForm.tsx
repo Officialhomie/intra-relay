@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Callout } from "@/components/ui/Callout";
 import { SelectField } from "@/components/ui/SelectField";
 import { TextField } from "@/components/ui/TextField";
+import { useAnalytics } from "@/features/analytics/useAnalytics";
 import { ApiError, apiRequest } from "@/lib/api";
 import { PRICING_MODELS, PRICING_MODEL_COPY, type PricingModel } from "@/features/pricing/model";
 
@@ -34,6 +35,7 @@ export function EditPublishedPriceForm({
   unit: string | null;
 }) {
   const router = useRouter();
+  const analytics = useAnalytics("business");
   const [open, setOpen] = useState(false);
   const [nextModel, setNextModel] = useState<PricingModel>(model);
   const [nextAmount, setNextAmount] = useState(amount ?? "");
@@ -62,6 +64,7 @@ export function EditPublishedPriceForm({
           unit: needsAmount && nextUnit.trim() ? nextUnit.trim() : null,
         },
       });
+      analytics.track("pricing_configured", { pricing_model: nextModel });
       setDone(true);
       setOpen(false);
       router.refresh();

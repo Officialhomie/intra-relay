@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useRouter } from "next/navigation";
 import { CheckCircle2, PackageCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Callout } from "@/components/ui/Callout";
+import { useAnalytics } from "@/features/analytics/useAnalytics";
 import { ApiError, apiRequest } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 
@@ -27,12 +28,21 @@ export function MerchantFulfilmentPanel({
   proofline: ProoflineView;
 }) {
   const router = useRouter();
+  const analytics = useAnalytics("business");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const notStarted = proofline.evidenceStatus === "NOT_STARTED";
   const ready = proofline.evidenceStatus === "MERCHANT_MARKED_READY";
   const confirmed = proofline.evidenceStatus === "BUYER_CONFIRMED_PICKUP";
+
+  const completedTracked = useRef(false);
+  useEffect(() => {
+    if (confirmed && !completedTracked.current) {
+      completedTracked.current = true;
+      analytics.track("business_job_completed", {});
+    }
+  }, [confirmed, analytics]);
 
   async function markReady() {
     setPending(true);
@@ -43,6 +53,7 @@ export function MerchantFulfilmentPanel({
         manageToken,
         body: {},
       });
+      analytics.track("fulfillment_started", {});
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not record that. Please try again.");

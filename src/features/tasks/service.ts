@@ -9,6 +9,7 @@ import type {
   TaskRow,
 } from "@/lib/db/schema";
 import { HttpError } from "@/lib/http/response";
+import { forwardServerAnalyticsEvent } from "@/features/analytics/server";
 import { appendAuditEvent, listTaskAuditEvents } from "@/features/audit/repository";
 import { notify } from "@/features/notifications/service";
 import { createCommitmentForApproval } from "@/features/commitments/service";
@@ -169,6 +170,23 @@ export async function submitTask(
   const awaiting = await updateTask(db, task.id, { status: "AWAITING_QUOTE" });
   await appendAuditEvent(db, { type: "task.awaiting_quote", taskId: task.id, routeId: route.id });
   await notify(db, { event: "task.awaiting_quote", taskId: task.id });
+
+  // Product analytics: a real request reached a business (no browser actor).
+  // The audit trail above is unchanged; this only adds the Amplitude arm.
+  forwardServerAnalyticsEvent({
+    event: "request_received",
+    actorKey: route.businessId,
+    role: "business",
+    props: {
+      category: "printing",
+      pricing_model: route.pricingModel,
+      has_quantity: parsed.data.quantity != null,
+      has_deadline: Boolean(parsed.data.deadline),
+      has_location: Boolean(parsed.data.deliveryArea),
+      has_budget: false,
+    },
+    insertId: `request_received:${task.id}`,
+  });
 
   // Honest payment state — UNAVAILABLE until real x402 access (FR-PAY-004).
   await recordServicePaymentIntent(db, awaiting, route);

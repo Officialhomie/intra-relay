@@ -78,6 +78,7 @@ access is spelled out in
 | [`docs/CLAIMS.md`](docs/CLAIMS.md)                             | Proven vs. conditional claims (be precise on stage)   |
 | [`docs/FEEDBACK_CHANGELOG.md`](docs/FEEDBACK_CHANGELOG.md)     | "What changed from feedback" — AskBots review rounds  |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)                     | Production deploy: env vars, database, x402 key       |
+| [`docs/ANALYTICS.md`](docs/ANALYTICS.md)                       | Pilot observability: Amplitude tracking plan, funnels |
 | [`docs/design/`](docs/design/)                                 | Supplied style references (ADR-009 picks Ease Health) |
 
 ## Requirements

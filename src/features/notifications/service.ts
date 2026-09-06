@@ -10,6 +10,7 @@ import { specsForEvent, type DomainEventContext, type EventBusiness } from "./ca
 import { deliverPush } from "./push";
 import { countUnread, listNotifications, upsertNotification } from "./repository";
 import { recordPilotEvent } from "@/features/analytics/pilot";
+import { forwardServerAnalyticsEvent } from "@/features/analytics/server";
 
 /**
  * Turn a domain event into whatever human notifications it warrants
@@ -70,6 +71,26 @@ export async function notify(db: Database, input: NotifyInput): Promise<Notifica
         taskId: row.entityType === "task" ? row.entityId : null,
         props: { level: row.level, event: row.event },
       });
+      // Product analytics: the notification funnel has no browser actor at this
+      // point. The audit/pilot write above is unchanged — this only adds the
+      // Amplitude arm, fire-and-forget.
+      const role = row.audience === "BUSINESS" ? "business" : "buyer";
+      forwardServerAnalyticsEvent({
+        event: "notification_created",
+        actorKey: row.recipientKey,
+        role,
+        props: { domain_event: row.event, level: row.level, notification_channel: "in_app" },
+        insertId: `notification_created:${row.id}`,
+      });
+      if (needsAttention(row.level)) {
+        forwardServerAnalyticsEvent({
+          event: "attention_required",
+          actorKey: row.recipientKey,
+          role,
+          props: { domain_event: row.event, level: row.level, audience: row.audience },
+          insertId: `attention_required:${row.id}`,
+        });
+      }
       // Attention mechanism, not a workflow dependency: fire-and-forget, and
       // `deliverPush` swallows every error (§17, §18, §37).
       void deliverPush(db, row);

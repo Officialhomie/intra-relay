@@ -4,6 +4,7 @@ import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { MainContainer } from "@/components/MainContainer";
 import { OfflineBanner } from "@/components/OfflineBanner";
+import { AnalyticsProvider } from "@/features/analytics/AnalyticsProvider";
 import { ServiceWorker } from "@/features/pwa/ServiceWorker";
 import { site } from "@/lib/site";
 import "@/styles/globals.css";
@@ -71,6 +72,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="flex min-h-screen flex-col">
         <ServiceWorker />
+        <AnalyticsProvider />
         <OfflineBanner />
         <Header />
         <MainContainer>{children}</MainContainer>

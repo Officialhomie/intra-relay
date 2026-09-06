@@ -4,6 +4,7 @@ import type { Database } from "@/lib/db/client";
 import type { QuoteRouteRow } from "@/lib/db/schema";
 import type { Operator } from "@/lib/http/operator";
 import { HttpError } from "@/lib/http/response";
+import { forwardServerAnalyticsEvent } from "@/features/analytics/server";
 import { appendAuditEvent } from "@/features/audit/repository";
 import {
   findBusinessById,
@@ -177,6 +178,18 @@ export async function changeRouteStatus(
       checklist: target === "ACTIVE" ? checklist : undefined,
     },
   });
+
+  // Product analytics: the business became available. Activation is operator-
+  // driven, so there is no consistent browser actor — forward server-side.
+  if (target === "ACTIVE" && route.status !== "ACTIVE") {
+    forwardServerAnalyticsEvent({
+      event: "business_ready",
+      actorKey: business.id,
+      role: "business",
+      props: { pricing_model: updated.pricingModel },
+      insertId: `business_ready:${route.id}:${now.toISOString().slice(0, 10)}`,
+    });
+  }
 
   return updated;
 }

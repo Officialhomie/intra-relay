@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import Link from "next/link";
 import { CheckCircle2, Clock3, Copy, ExternalLink, MessageSquare } from "lucide-react";
@@ -12,6 +12,7 @@ import { ErrorState, LoadingPanel } from "@/components/ui/States";
 import { Card, CardTitle, SectionHeader } from "@/components/ui/Section";
 import { StatusPill, taskStatusLabel, taskStatusTone } from "@/components/ui/StatusPill";
 import { ApiError, apiRequest } from "@/lib/api";
+import { useAnalytics } from "@/features/analytics/useAnalytics";
 import { formatDateTime, formatMoney, isExpired, relativeTime } from "@/lib/format";
 import { getSessionId } from "@/lib/session";
 import { BuyerPickupPanel } from "@/features/proofline/BuyerPickupPanel";
@@ -194,8 +195,29 @@ export function TaskPage({ taskId }: { taskId: string }) {
   const [state, setState] = useState<"loading" | "ready" | "error" | "forbidden" | "missing">(
     "loading",
   );
+  const analytics = useAnalytics("buyer");
+  const trackedStatus = useRef<string | null>(null);
 
   useEffect(() => setSessionId(getSessionId()), []);
+
+  // Behavioural funnel milestones from the task's own status (M9.5 §9).
+  useEffect(() => {
+    if (!view) return;
+    const status = view.task.status;
+    if (trackedStatus.current === status) return;
+    trackedStatus.current = status;
+    if (view.exception) {
+      analytics.track("exception_viewed", {
+        reason_code: view.exception.origin === "buyer" ? "buyer_declined" : "supplier_issue",
+      });
+    }
+    if (status === "RECOMMENDED") analytics.track("approval_viewed", { quote_expired: false });
+    if (status === "HANDOFF_READY")
+      analytics.track("workflow_waiting", { workflow_stage: "handoff" });
+    if (view.task.handoffConfirmedAt) {
+      analytics.track("workflow_completed", { via_notification: false });
+    }
+  }, [view, analytics]);
 
   const load = useCallback(async () => {
     if (!sessionId) return;
@@ -534,6 +556,7 @@ function DecisionPanel({
   const [reason, setReason] = useState("");
   const [pending, setPending] = useState<null | "ACCEPT" | "DECLINE">(null);
   const [error, setError] = useState<string | null>(null);
+  const analytics = useAnalytics("buyer");
 
   async function decide(decision: "ACCEPT" | "DECLINE") {
     setPending(decision);
@@ -547,6 +570,11 @@ function DecisionPanel({
           reason: decision === "DECLINE" && reason.trim() ? reason.trim() : undefined,
         },
       });
+      if (decision === "ACCEPT") {
+        analytics.track("approval_accepted", { quote_expired: quoteExpired });
+      } else {
+        analytics.track("approval_declined", { reason_given: Boolean(reason.trim()) });
+      }
       onDecided();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not record your choice. Try again.");
@@ -894,6 +922,7 @@ function FeedbackForm({ taskId, existing }: { taskId: string; existing: boolean 
     existing ? "done" : "idle",
   );
   const [error, setError] = useState<string | null>(null);
+  const analytics = useAnalytics("buyer");
 
   if (phase === "done") {
     return (
@@ -916,6 +945,7 @@ function FeedbackForm({ taskId, existing }: { taskId: string; existing: boolean 
         method: "POST",
         body: { taskId, useful, comment: comment.trim() || undefined },
       });
+      analytics.track("feedback_submitted", { useful, has_comment: Boolean(comment.trim()) });
       setPhase("done");
     } catch (err) {
       setPhase("error");

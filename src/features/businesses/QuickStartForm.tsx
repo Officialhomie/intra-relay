@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import Link from "next/link";
 import { ArrowRight, Check } from "lucide-react";
@@ -11,6 +11,7 @@ import { CheckboxField } from "@/components/ui/CheckboxField";
 import { Card, CardTitle } from "@/components/ui/Section";
 import { SelectField } from "@/components/ui/SelectField";
 import { TextField } from "@/components/ui/TextField";
+import { useAnalytics } from "@/features/analytics/useAnalytics";
 import { ApiError, apiRequest } from "@/lib/api";
 import { PRICING_MODELS, PRICING_MODEL_COPY, type PricingModel } from "@/features/pricing/model";
 import { BUSINESS_CATEGORIES } from "./schema";
@@ -33,7 +34,7 @@ const CATEGORY_LABEL: Record<string, string> = {
 };
 
 interface Created {
-  business: { slug: string; name: string };
+  business: { id: string; slug: string; name: string };
   service: { name: string; pricingModel: PricingModel };
   manageUrl: string;
   nextStep: string;
@@ -45,8 +46,16 @@ export function QuickStartForm() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [created, setCreated] = useState<Created | null>(null);
+  const analytics = useAnalytics("business");
+  const startedRef = useRef(false);
 
   const needsAmount = pricingModel !== "QUOTE_REQUIRED";
+
+  function noteStarted() {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    analytics.track("business_onboarding_started", {});
+  }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -72,6 +81,11 @@ export function QuickStartForm() {
           contactChannelValue: value("contactChannelValue"),
           consentToQuoteDisplay: form.get("consent") === "on",
         },
+      });
+      analytics.identifyBusiness(data.business.id);
+      analytics.track("business_onboarding_completed", {
+        category: value("category") || undefined,
+        pricing_model: pricingModel,
       });
       setCreated(data);
     } catch (err) {
@@ -118,7 +132,7 @@ export function QuickStartForm() {
   }
 
   return (
-    <form onSubmit={submit} noValidate className="space-y-5">
+    <form onSubmit={submit} onInput={noteStarted} noValidate className="space-y-5">
       <Card as="section" className="space-y-4">
         <CardTitle>Your business</CardTitle>
         <TextField

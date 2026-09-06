@@ -7,6 +7,7 @@ import { ArrowUp, Loader2, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Callout } from "@/components/ui/Callout";
 import { Card, CardTitle } from "@/components/ui/Section";
+import { useAnalytics } from "@/features/analytics/useAnalytics";
 import { ApiError, apiRequest } from "@/lib/api";
 import { getSessionId } from "@/lib/session";
 
@@ -64,6 +65,14 @@ export function AgentConsole({
   const decisionRef = useRef<HTMLDivElement | null>(null);
   const announcedRef = useRef<string | null>(null);
 
+  const analytics = useAnalytics("buyer");
+  const emitted = useRef<Set<string>>(new Set());
+  const emitOnce = useCallback((key: string, fire: () => void) => {
+    if (emitted.current.has(key)) return;
+    emitted.current.add(key);
+    fire();
+  }, []);
+
   const stopPolling = useCallback(() => {
     if (pollRef.current) clearTimeout(pollRef.current);
     pollRef.current = null;
@@ -88,6 +97,46 @@ export function AgentConsole({
       decisionRef.current?.focus();
     }
   }, [run?.status, run?.runId]);
+
+  // Behavioural funnel: discovery -> results -> approval view (M9.5 §9, §11).
+  // Metadata only, keyed by run id so each stage fires at most once.
+  useEffect(() => {
+    if (!run) return;
+    const k = (name: string) => `${run.runId}:${name}`;
+    if (run.status === "RUNNING") {
+      emitOnce(k("discovery"), () => analytics.track("discovery_started", {}));
+    }
+    const settledWithOptions =
+      run.status === "AWAITING_APPROVAL" ||
+      run.recommendation != null ||
+      run.status === "NO_VIABLE_OFFER";
+    if (settledWithOptions) {
+      emitOnce(k("results"), () =>
+        analytics.track("results_shown", {
+          option_count: run.alternatives.length + (run.recommendation ? 1 : 0),
+          has_recommendation: run.recommendation != null,
+        }),
+      );
+    }
+    if (run.status === "AWAITING_APPROVAL" && run.recommendation) {
+      const expired =
+        run.recommendation.expiresAt != null &&
+        Date.parse(run.recommendation.expiresAt) < Date.now();
+      emitOnce(k("approval_view"), () =>
+        analytics.track("approval_viewed", { quote_expired: expired }),
+      );
+    }
+    if (run.status === "NO_VIABLE_OFFER") {
+      emitOnce(k("cancelled"), () =>
+        analytics.track("workflow_cancelled", { reason_code: "NO_VIABLE_OFFER" }),
+      );
+    }
+    if (run.status === "FAILED") {
+      emitOnce(k("exception"), () =>
+        analytics.track("exception_viewed", { reason_code: run.error ? "run_failed" : undefined }),
+      );
+    }
+  }, [run, analytics, emitOnce]);
 
   /**
    * Poll until the run settles. A dropped connection is not a failure — the
@@ -175,6 +224,16 @@ export function AgentConsole({
         body: { decision, reason, offerFingerprint: run.recommendation.offerFingerprint },
       });
       setRun(view);
+      if (view.status === "APPROVED") {
+        analytics.track("approval_accepted", {
+          pricing_model: view.recommendation?.priceBasis,
+          quote_expired:
+            view.recommendation?.expiresAt != null &&
+            Date.parse(view.recommendation.expiresAt) < Date.now(),
+        });
+      } else if (view.status === "DECLINED") {
+        analytics.track("approval_declined", { reason_given: Boolean(reason) });
+      }
     } catch (err) {
       setProblem(await describe(err instanceof ApiError ? err.code : "NETWORK"));
     } finally {

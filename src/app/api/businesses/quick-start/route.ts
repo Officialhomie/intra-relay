@@ -26,7 +26,11 @@ export const POST = route(async (request) => {
       body: {
         success: true,
         data: {
-          business: { slug: result.business.slug, name: result.business.name },
+          business: {
+            id: result.business.id,
+            slug: result.business.slug,
+            name: result.business.name,
+          },
           service: {
             name: result.route.name,
             pricingModel: result.route.pricingModel,

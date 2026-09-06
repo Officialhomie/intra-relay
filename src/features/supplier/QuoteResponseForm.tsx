@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useRouter } from "next/navigation";
 
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Callout } from "@/components/ui/Callout";
 import { SelectField } from "@/components/ui/SelectField";
 import { TextField } from "@/components/ui/TextField";
+import { useAnalytics } from "@/features/analytics/useAnalytics";
 import { ApiError, apiRequest } from "@/lib/api";
 
 interface Props {
@@ -38,7 +39,20 @@ export function QuoteResponseForm({ routeId, taskId, manageToken, currency }: Pr
   const [phase, setPhase] = useState<"idle" | "pending" | "done" | "error">("idle");
   const [formError, setFormError] = useState<string | null>(null);
 
+  const analytics = useAnalytics("business");
+  const quoteStarted = useRef(false);
+
+  useEffect(() => {
+    analytics.track("request_opened", {});
+    // Once, when this request becomes visible and actionable to the business.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function set(key: keyof typeof values, value: string) {
+    if (!quoteStarted.current) {
+      quoteStarted.current = true;
+      analytics.track("quote_started", {});
+    }
     setValues((current) => ({ ...current, [key]: value }));
   }
 
@@ -95,6 +109,14 @@ export function QuoteResponseForm({ routeId, taskId, manageToken, currency }: Pr
             fixed: priceType === "fixed",
             expiresAt: values.expiresAt ? new Date(values.expiresAt).toISOString() : undefined,
           },
+        });
+      }
+      if (mode === "decline") {
+        analytics.track("request_declined", { reason_given: true });
+      } else {
+        analytics.track("quote_sent", {
+          pricing_model: priceType === "fixed" ? "FIXED" : "RANGE",
+          turnaround_given: values.turnaround.trim().length > 0,
         });
       }
       setPhase("done");

@@ -7,6 +7,7 @@ import { ArrowRight, Clock3, Inbox } from "lucide-react";
 import { Callout } from "@/components/ui/Callout";
 import { Card, CardTitle, SectionHeader } from "@/components/ui/Section";
 import { getDb } from "@/lib/db/client";
+import { AnalyticsBusinessIdentity } from "@/features/analytics/AnalyticsBusinessIdentity";
 import { manageTokenMatchesBusinessSlug } from "@/features/businesses/access";
 import { getBusinessValueSummary } from "@/features/businesses/value";
 import { ActionCentre } from "@/features/notifications/ActionCentre";
@@ -57,6 +58,7 @@ export default async function BusinessOverviewPage({
 
   return (
     <div className="space-y-10">
+      {canManage ? <AnalyticsBusinessIdentity businessId={business.id} /> : null}
       <SectionHeader
         eyebrow="Your business"
         title={business.name}

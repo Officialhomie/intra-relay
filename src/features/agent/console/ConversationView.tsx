@@ -6,6 +6,8 @@ import { ArrowUp, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Callout } from "@/components/ui/Callout";
+import { useAnalytics } from "@/features/analytics/useAnalytics";
+import { isCommercialIntent, type ConversationIntent } from "@/features/intent/types";
 import { ApiError, apiRequest } from "@/lib/api";
 import { getSessionId } from "@/lib/session";
 
@@ -38,6 +40,7 @@ interface TurnResponse {
   message: string;
   intent: string;
   understood: Understood;
+  optimization?: string | null;
   optimizationNote: string | null;
   action: { kind: string; missing?: string[]; category?: string };
   run?: AgentRun;
@@ -81,6 +84,10 @@ export function ConversationView() {
   const [error, setError] = useState<string | null>(null);
   const [understood, setUnderstood] = useState<Understood>({});
   const endRef = useRef<HTMLDivElement | null>(null);
+  const analytics = useAnalytics("buyer");
+  const turnCount = useRef(0);
+  const clarifications = useRef(0);
+  const commercialSeen = useRef(false);
 
   async function send() {
     const text = draft.trim();
@@ -91,6 +98,11 @@ export function ConversationView() {
     const mine: Message = { id: `u-${Date.now()}`, role: "you", text };
     setMessages((prev) => [...prev, mine]);
 
+    turnCount.current += 1;
+    const turn = turnCount.current;
+    if (turn === 1) analytics.track("conversation_started", {});
+    analytics.track("message_sent", { turn_count: turn });
+
     try {
       const res = await apiRequest<TurnResponse>("/api/conversation", {
         method: "POST",
@@ -98,6 +110,7 @@ export function ConversationView() {
         body: { message: text },
       });
       setUnderstood(res.understood ?? {});
+      recordIntentEvent(res, turn);
       setMessages((prev) => [
         ...prev,
         {
@@ -117,6 +130,44 @@ export function ConversationView() {
     } finally {
       setPending(false);
       requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "smooth" }));
+    }
+  }
+
+  /** Behavioural metadata only — never the message text (M9.5 §10, §26). */
+  function recordIntentEvent(res: TurnResponse, turn: number) {
+    const u = res.understood ?? {};
+    const kind = res.action.kind;
+
+    if (isCommercialIntent(res.intent as ConversationIntent) && !commercialSeen.current) {
+      commercialSeen.current = true;
+      analytics.track("intent_detected", {
+        intent_type: res.intent,
+        category: u.category,
+        turn_count: turn,
+      });
+    }
+
+    if (kind === "NEEDS_INFO") {
+      clarifications.current += 1;
+      analytics.track("intent_clarification_requested", {
+        intent_field_missing: res.action.missing?.[0],
+        clarification_count: clarifications.current,
+        turn_count: turn,
+      });
+      return;
+    }
+
+    if (kind === "START_RUN") {
+      analytics.track("intent_ready", {
+        intent_type: res.intent,
+        category: res.action.category ?? u.category,
+        optimization: res.optimization ?? "UNSPECIFIED",
+        has_quantity: u.quantity != null,
+        has_location: Boolean(u.location),
+        has_deadline: Boolean(u.deadline),
+        has_budget: Boolean(u.budget),
+        clarification_count: clarifications.current,
+      });
     }
   }
 

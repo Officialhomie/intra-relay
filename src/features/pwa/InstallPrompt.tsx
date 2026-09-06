@@ -72,12 +72,13 @@ export function InstallPrompt() {
   const canInstall = Boolean(deferred) && !standalone && !dismissed;
   if (!canInstall && !iosHint) return null;
 
-  function dismiss() {
+  function dismiss(options: { userDeclined?: boolean } = {}) {
     try {
       window.localStorage.setItem(DISMISS_KEY, "1");
     } catch {
       /* ignore */
     }
+    if (options.userDeclined) pilotPing("pwa_install_dismissed");
     setDismissed(true);
   }
 
@@ -87,6 +88,7 @@ export function InstallPrompt() {
     await deferred.prompt();
     const choice = await deferred.userChoice;
     if (choice.outcome === "accepted") pilotPing("pwa_install_accepted");
+    else pilotPing("pwa_install_dismissed");
     setDeferred(null);
     dismiss();
   }
@@ -106,7 +108,7 @@ export function InstallPrompt() {
             </Button>
             <button
               type="button"
-              onClick={dismiss}
+              onClick={() => dismiss({ userDeclined: true })}
               className="min-h-9 text-xs font-medium text-muted underline underline-offset-2 hover:text-foreground"
             >
               Not now
@@ -121,7 +123,7 @@ export function InstallPrompt() {
       <button
         type="button"
         aria-label="Dismiss"
-        onClick={dismiss}
+        onClick={() => dismiss({ userDeclined: true })}
         className="shrink-0 text-muted hover:text-foreground"
       >
         <X aria-hidden className="size-4" />

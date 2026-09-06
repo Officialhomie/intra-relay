@@ -3,6 +3,8 @@ import webpush from "web-push";
 import type { Database } from "@/lib/db/client";
 import type { NotificationRow } from "@/lib/db/schema";
 
+import { forwardServerAnalyticsEvent } from "@/features/analytics/server";
+
 import type { AttentionLevel } from "./attention";
 import { getPreferences } from "./preferences";
 import { markNotificationPushed } from "./repository";
@@ -110,7 +112,18 @@ export async function deliverPush(db: Database, notification: NotificationRow): 
       }),
     );
 
-    if (delivered > 0) await markNotificationPushed(db, notification.id);
+    if (delivered > 0) {
+      await markNotificationPushed(db, notification.id);
+      // Product analytics: a push was dispatched. Browser APIs cannot confirm
+      // OS delivery, so this is "sent", never "delivered" (M9.5 §20).
+      forwardServerAnalyticsEvent({
+        event: "push_sent",
+        actorKey: notification.recipientKey,
+        role: notification.audience === "BUSINESS" ? "business" : "buyer",
+        props: { domain_event: notification.event },
+        insertId: `push_sent:${notification.id}`,
+      });
+    }
     return delivered;
   } catch {
     // A failure here must never touch the caller (§17, §18).

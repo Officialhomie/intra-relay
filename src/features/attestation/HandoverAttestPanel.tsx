@@ -8,6 +8,7 @@ import { ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Callout } from "@/components/ui/Callout";
 import { TextField } from "@/components/ui/TextField";
+import { useAnalytics } from "@/features/analytics/useAnalytics";
 import { ApiError, apiRequest } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { easExplorerUrl } from "@/features/attestation/chain";
@@ -53,6 +54,7 @@ export function HandoverAttestPanel({
   handover: HandoverPublicView | null;
 }) {
   const router = useRouter();
+  const analytics = useAnalytics("business");
   const [code, setCode] = useState("");
   const [stage, setStage] = useState<Stage | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +63,7 @@ export function HandoverAttestPanel({
 
   async function signAndSubmit() {
     setError(null);
+    analytics.track("handover_started", {});
     if (!window.ethereum) {
       setError(
         "This needs a wallet in this browser (like MetaMask or Valora) to confirm the handover. " +
@@ -95,10 +98,16 @@ export function HandoverAttestPanel({
       });
 
       setStage("submitting");
-      await apiRequest(`/api/tasks/${taskId}/handover/submit`, {
-        method: "POST",
-        manageToken,
-        body: { signature },
+      const result = await apiRequest<{ attestationMode?: "mock" | "onchain" | null }>(
+        `/api/tasks/${taskId}/handover/submit`,
+        {
+          method: "POST",
+          manageToken,
+          body: { signature },
+        },
+      );
+      analytics.track("handover_completed", {
+        mode: result.attestationMode === "onchain" ? "onchain" : "mock",
       });
       router.refresh();
     } catch (err) {

@@ -739,3 +739,85 @@ tag2, endpoint, feedbackURI, feedbackHash)`; the submitter MUST NOT be the
   never recording payload contents or personal data (§32).
 - **Requirements:** M7 phase C §2–§18, §25, §27, §30–§37; CLAUDE.md §4.1, §4.3,
   §6.1 (`vercel.json` added, justified), NFR-SEC-001/002.
+
+---
+
+## ADR-021 — Product analytics via the Amplitude Browser SDK: a measurement layer, never a dependency
+
+- **Date:** 2026-09-06
+- **Status:** Accepted (milestone 9.5)
+- **Context:** Before real pilot users arrive we need to answer _how humans
+  behave around the product_ — where they get confused, whether they understand
+  it, whether they install and return, whether notifications bring them back,
+  whether buyers reach outcomes and businesses respond. The existing
+  `src/features/analytics/pilot.ts` (audit-table events + `/api/pilot/funnel`)
+  is **operational truth** ("what the system did") and answers none of the
+  behavioural questions (funnels, drop-off, activation, retention, cohorts).
+- **Decision:**
+  - **Amplitude sits ALONGSIDE the audit trail, never replaces it, and is never
+    a dependency of a commerce action.** If Amplitude fails, requests, quotes,
+    approvals, notifications, fulfilment and handover all still work. Every
+    adapter export is wrapped so a thrown SDK / offline network / missing key /
+    malformed event is swallowed; two integration tests prove a buyer request
+    and a business quote each still succeed when the analytics forward throws.
+  - **One SDK: `@amplitude/analytics-browser` (v2), client-side only.** Both the
+    buyer flow and the business workspace are browser-driven, so almost every
+    event has a browser moment and goes straight through the Browser SDK. No
+    `@amplitude/analytics-node`, no Ampli codegen — a hand-written typed
+    taxonomy (`events.ts`) instead. This is an analytics phase explicitly
+    started by Victor, so it clears CLAUDE.md §6.2.
+  - **Server forwarding, the narrow exception.** Four events have no browser
+    actor — `request_received` (a request reaching a business), `business_ready`
+    (operator-driven activation), `attention_required` / `notification_created`,
+    `push_sent`. A thin server-side `fetch` to Amplitude's HTTP V2 endpoint
+    (`forward.ts`), fire-and-forget via `after()`, gated on a SERVER-ONLY
+    `AMPLITUDE_API_KEY`. Unset ⇒ silent no-op; the audit trail records them
+    regardless.
+  - **One adapter, no scattered calls.** All Amplitude access lives in
+    `src/features/analytics/`; an ESLint `no-restricted-imports` rule bans
+    `@amplitude/*` anywhere else (§6.1 — `.eslintrc.json` change, minimal and
+    additive).
+  - **Autocapture narrowed.** `attribution` (UTM / referrer — acquisition
+    analysis, no PII) and `sessions` on; `pageViews`, `formInteractions`
+    (could read typed values), `fileDownloads`, `elementInteractions` **off**.
+    Explicit product events only.
+  - **Identity.** Buyer = the opaque per-device session id (`intra.sessionId` —
+    no account, no wallet, already the right stable internal id). Business = the
+    internal business uuid, also an Amplitude group. Operators are never
+    identified into Amplitude. `reset()` on a true identity change so the next
+    account never inherits the previous one. Never an identifier: email, phone,
+    wallet data, business name, address.
+  - **Redaction is enforced, not trusted.** `sanitizeProps` (client and server)
+    allows only primitives, drops any content/identifier/secret key, truncates
+    long strings, warns in dev, never throws. Intent events carry
+    `intent_type` / `category` / `has_*` booleans — never the message string.
+  - **One Amplitude project + `environment` property** (`development | staging |
+production`) + an `is_test` flag (operator-set `localStorage` key /
+    `?intra_test=1`; server side, any `[DEMO SEED]` business). Local dev is
+    **disabled unless** `NEXT_PUBLIC_AMPLITUDE_API_KEY` is set locally.
+  - **No separate consent gate for the pilot.** Analytics initialises with the
+    app, as web push and the service worker already do. Proportionate for a
+    controlled pilot: opaque device/business ids only, no PII, no raw
+    conversation text, autocapture narrowed. Revisit before any non-pilot / EU
+    rollout — deferred-init for a consent gate is available in the SDK.
+  - **The operator scorecard** (`scorecard.ts`, on `/api/pilot/funnel`) stays
+    operational-truth: every figure a genuine `COUNT` from `audit_events`, `0`
+    never an estimate, works with no analytics key. Amplitude-side dashboards,
+    funnels and cohorts are documented in `docs/ANALYTICS.md` as a build list
+    for Victor.
+- **Consequences:** new dep `@amplitude/analytics-browser`. New module
+  `src/features/analytics/{events,properties,config,identity,client,
+AnalyticsProvider,AnalyticsBusinessIdentity,useAnalytics,forward,server,
+scorecard}`. New `NEXT_PUBLIC_AMPLITUDE_API_KEY` (client) and `AMPLITUDE_API_KEY`
+  (server-only) — both optional, the layer degrades to a no-op without them.
+  `src/app/layout.tsx` mounts `<AnalyticsProvider />`; `.eslintrc.json` gains
+  the import ban; `/api/pilot/funnel` now returns `{ funnel, scorecard }`;
+  `/api/businesses/quick-start` adds `business.id` to its response.
+  `pilot.ts` and the whole attestation / payments / economic path are untouched.
+  **Amplitude-UI verification (events queryable, dashboards built) is Victor's —
+  see `docs/ANALYTICS.md`.**
+- **Requirements:** M9.5 §1–§55; CLAUDE.md §4.1 (no fabricated data — analytics
+  is behavioural metadata, never presented as merchant/payment evidence), §4.2
+  (no prohibited sensitive data — enforced by `sanitizeProps`), §5 (engineering
+  standards), §6.1 (`.eslintrc.json` + `layout.tsx` changed, justified), §6.2
+  (new package, phase started).

@@ -23,6 +23,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@amplitude/analytics-browser": "^2.45.8",
     "@anthropic-ai/sdk": "^0.123.0",
     "@electric-sql/pglite": "^0.5.8",
     "@hookform/resolvers": "^5.9.1",

@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/ui/States";
 import { Card, CardTitle, SectionHeader } from "@/components/ui/Section";
 import { getDb } from "@/lib/db/client";
 import { formatMoney, relativeTime } from "@/lib/format";
+import { AnalyticsBusinessIdentity } from "@/features/analytics/AnalyticsBusinessIdentity";
 import { manageTokenMatchesBusinessSlug } from "@/features/businesses/access";
 import { MerchantFulfilmentPanel } from "@/features/proofline/MerchantFulfilmentPanel";
 import { HandoverAttestPanel } from "@/features/attestation/HandoverAttestPanel";
@@ -89,6 +90,7 @@ export default async function SupplierRequestsPage({
 
   return (
     <div className="space-y-8">
+      <AnalyticsBusinessIdentity businessId={business.id} />
       <ResumeSignal authQuery={t ? `businessSlug=${slug}&t=${t}` : undefined} />
       <SectionHeader
         eyebrow="Incoming requests"
