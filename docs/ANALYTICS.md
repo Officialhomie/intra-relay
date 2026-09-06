@@ -367,3 +367,50 @@ stuck · did they complete the first workflow · did they return · did the
 business receive a useful request · did the business respond · did the customer
 approve · did a notification bring the person back · did they install the PWA ·
 did they complete another workflow.
+
+---
+
+## 19. M10 status — production Amplitude project (2026-09-06)
+
+Verified against the deployed app + the Amplitude MCP.
+
+|                                  |                                                                                                                                                                   |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Org / project                    | `late-wildflower-209746` / **`Intra`** (`appId 860617`)                                                                                                           |
+| Dashboard URL                    | `https://app.amplitude.com/analytics/late-wildflower-209746/dashboard/j0dkb6do` — "M10 · Intra Controlled Pilot"                                                  |
+| Browser key                      | live, inlined into the client bundle, `environment: production`                                                                                                   |
+| Server key (`AMPLITUDE_API_KEY`) | set in Vercel, armed by the 2026-09-06 redeploy; first-verified at Checkpoint 3                                                                                   |
+| Governed tracking plan           | **47 events** (5 categories), **30 event properties**, **3 user properties** (`role`, `environment`, `is_test`) — pushed via MCP, branch `main`, not protected    |
+| Data to date                     | `app_opened` × 4, `session_start` × 2 — **all `is_test = true`** (M9.5 verification). Zero real (non-test) production events.                                     |
+| Identity                         | verified: `user_id` = opaque buyer session id, `role`, `is_test`, `environment` all correct; **no** message text / contact / token / secret in any event property |
+| Amplitude autocapture            | IP address + city/region/country ON (kept — campus-pilot geo). Attribution + sessions ON. Element / form / page-view capture OFF.                                 |
+
+**The 6 core funnels and 2 cohorts are NOT yet built** — Amplitude rejects a
+funnel built on an event with zero data (`"Invalid intent_ready"`). They are
+created at **Checkpoint 3** (first real buyer request), when the events first
+fire. Exact definitions:
+
+### Funnels (filter each to `environment = production` AND `is_test ≠ true`)
+
+| #   | Name                       | Steps                                                                                                                         | Window                |
+| --- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| 1   | Buyer activation           | `app_opened → intent_ready → results_shown`                                                                                   | 7 days                |
+| 2   | Buyer conversion           | `intent_ready → results_shown → approval_viewed → approval_accepted → workflow_completed`                                     | 7 days                |
+| 3   | Business conversion        | `business_onboarding_completed → business_ready → request_received → quote_sent → approval_accepted → business_job_completed` | 30 days               |
+| 4   | Notification effectiveness | `attention_required → notification_opened → workflow_resumed → workflow_completed`                                            | 3 days                |
+| 5   | First → second workflow    | `workflow_completed` (retention, n ≥ 2), start `_new`, return `workflow_completed`                                            | 1 / 7 / 30 d brackets |
+| 6   | Clarification friction     | histogram of `clarification_count` on `intent_ready`, group by `category`                                                     | —                     |
+
+### Cohorts
+
+- **Pilot buyers** — user property `role = buyer`, `is_test ≠ true`, performed
+  `intent_ready` where `environment = production`.
+- **Pilot businesses** — user property `role = business`, `is_test ≠ true`,
+  performed `business_ready` where `environment = production`.
+
+### Standing filter
+
+Every pilot analysis excludes test traffic. The cleanest way: save a segment
+**"Pilot (prod, not test)"** = `environment = production` (event) AND user
+property `is_test` `is not` `true`, and apply it to every chart. Operator smoke
+tests must set `?intra_test=1` first (sets `is_test = true` for that browser).

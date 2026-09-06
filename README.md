@@ -61,25 +61,26 @@ access is spelled out in
 
 ## Documentation
 
-| Document                                                       | Purpose                                               |
-| -------------------------------------------------------------- | ----------------------------------------------------- |
-| [`CLAUDE.md`](CLAUDE.md)                                       | Operating rules for AI agents working in this repo    |
-| [`docs/PRD.md`](docs/PRD.md)                                   | Product source of truth                               |
-| [`docs/TECHNICAL_SPEC.md`](docs/TECHNICAL_SPEC.md)             | Architecture and API contract                         |
-| [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md)   | Phased delivery plan                                  |
-| [`docs/BUSINESS_ONBOARDING.md`](docs/BUSINESS_ONBOARDING.md)   | Supplier onboarding guide                             |
-| [`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md) | Setup, gates, conventions, external blockers          |
-| [`docs/DECISIONS.md`](docs/DECISIONS.md)                       | Architecture decision log                             |
-| [`docs/PRODUCT_VISION.md`](docs/PRODUCT_VISION.md)             | Relay north star, Proofline, and MVP scope boundary   |
-| [`docs/API.md`](docs/API.md)                                   | Internal MVP backend endpoints, headers, invariants   |
-| [`docs/CAPABILITY_API.md`](docs/CAPABILITY_API.md)             | Public agent-readable `/v1` capability + quote API    |
-| [`docs/PAYMENTS.md`](docs/PAYMENTS.md)                         | Celo x402 payment adapter — config, flow, deployment  |
-| [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)                   | Step-by-step hackathon demo walkthrough               |
-| [`docs/CLAIMS.md`](docs/CLAIMS.md)                             | Proven vs. conditional claims (be precise on stage)   |
-| [`docs/FEEDBACK_CHANGELOG.md`](docs/FEEDBACK_CHANGELOG.md)     | "What changed from feedback" — AskBots review rounds  |
-| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)                     | Production deploy: env vars, database, x402 key       |
-| [`docs/ANALYTICS.md`](docs/ANALYTICS.md)                       | Pilot observability: Amplitude tracking plan, funnels |
-| [`docs/design/`](docs/design/)                                 | Supplied style references (ADR-009 picks Ease Health) |
+| Document                                                       | Purpose                                                            |
+| -------------------------------------------------------------- | ------------------------------------------------------------------ |
+| [`CLAUDE.md`](CLAUDE.md)                                       | Operating rules for AI agents working in this repo                 |
+| [`docs/PRD.md`](docs/PRD.md)                                   | Product source of truth                                            |
+| [`docs/TECHNICAL_SPEC.md`](docs/TECHNICAL_SPEC.md)             | Architecture and API contract                                      |
+| [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md)   | Phased delivery plan                                               |
+| [`docs/BUSINESS_ONBOARDING.md`](docs/BUSINESS_ONBOARDING.md)   | Supplier onboarding guide                                          |
+| [`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md) | Setup, gates, conventions, external blockers                       |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md)                       | Architecture decision log                                          |
+| [`docs/PRODUCT_VISION.md`](docs/PRODUCT_VISION.md)             | Relay north star, Proofline, and MVP scope boundary                |
+| [`docs/API.md`](docs/API.md)                                   | Internal MVP backend endpoints, headers, invariants                |
+| [`docs/CAPABILITY_API.md`](docs/CAPABILITY_API.md)             | Public agent-readable `/v1` capability + quote API                 |
+| [`docs/PAYMENTS.md`](docs/PAYMENTS.md)                         | Celo x402 payment adapter — config, flow, deployment               |
+| [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)                   | Step-by-step hackathon demo walkthrough                            |
+| [`docs/CLAIMS.md`](docs/CLAIMS.md)                             | Proven vs. conditional claims (be precise on stage)                |
+| [`docs/FEEDBACK_CHANGELOG.md`](docs/FEEDBACK_CHANGELOG.md)     | "What changed from feedback" — AskBots review rounds               |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)                     | Production deploy: env vars, database, x402 key                    |
+| [`docs/ANALYTICS.md`](docs/ANALYTICS.md)                       | Pilot observability: Amplitude tracking plan, funnels              |
+| [`docs/PILOT.md`](docs/PILOT.md)                               | M10 controlled-pilot runbook: baseline, checkpoints, evidence pack |
+| [`docs/design/`](docs/design/)                                 | Supplied style references (ADR-009 picks Ease Health)              |
 
 ## Requirements
 
