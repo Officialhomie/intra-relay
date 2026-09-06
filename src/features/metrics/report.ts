@@ -35,6 +35,7 @@ import {
   type TaskRow,
 } from "@/lib/db/schema";
 import { readPaymentConfig } from "@/features/payments/adapter/config";
+import { readAttestationConfig } from "@/features/attestation/config";
 import { PRICE_FRESHNESS_MAX_AGE_MS } from "@/features/routes/freshness";
 import { ROUTE_STATUSES, type RouteStatus } from "@/features/routes/schema";
 import { TASK_STATUSES, type TaskStatus } from "@/features/tasks/status";
@@ -96,6 +97,8 @@ export interface MetricsSnapshot {
     verifiedSettlements: number;
     failedAttempts: number;
     unavailable: number;
+    /** verify passed, settlement unconfirmed — claimed neither way (FR-PAY-007). */
+    indeterminate: number;
     note: string;
   };
 }
@@ -250,6 +253,9 @@ function buildSnapshot(input: ScopeInput): MetricsSnapshot {
   ).length;
   const failedAttempts = input.payments.filter((p) => p.status === "FAILED").length;
   const unavailable = input.payments.filter((p) => p.status === "UNAVAILABLE").length;
+  const indeterminate = input.payments.filter(
+    (p) => p.status === "AUTHORISED" && p.errorCode === "SETTLE_INDETERMINATE",
+  ).length;
 
   return {
     scope,
@@ -298,6 +304,7 @@ function buildSnapshot(input: ScopeInput): MetricsSnapshot {
       verifiedSettlements,
       failedAttempts,
       unavailable,
+      indeterminate,
       note:
         verifiedSettlements === 0
           ? "No verified Celo settlement recorded. A settlement is counted only after the official facilitator returns a valid transaction hash."
@@ -336,8 +343,17 @@ function readIntegrations(env: NodeJS.ProcessEnv = process.env): IntegrationStat
   const attributionTag = env.X402_ATTRIBUTION_TAG?.trim();
   const databaseUrl = env.DATABASE_URL?.trim();
 
+  const attestation = readAttestationConfig(env);
+  const eas: IntegrationStatus = {
+    key: "eas-attestation",
+    label: "EAS attestation (Celo mainnet)",
+    state: attestation.onChain ? "available" : "unavailable",
+    detail: attestation.reason,
+  };
+
   return [
     x402,
+    eas,
     {
       key: "erc8021-attribution",
       label: "ERC-8021 attribution tag",

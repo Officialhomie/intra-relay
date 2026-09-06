@@ -6,6 +6,12 @@ import { parseJsonBody, requireIdempotencyKey } from "@/lib/http/request";
 import { HttpError } from "@/lib/http/response";
 import { manageTokenMatchesRoute } from "@/features/businesses/access";
 import {
+  providerCannotFulfil,
+  providerExceptionSchema,
+  withdrawAsProvider,
+} from "@/features/tasks/exception-service";
+import { reviseQuote, reviseQuoteRequestSchema } from "@/features/quotes/revision";
+import {
   declineRequest,
   declineRequestSchema,
   submitQuote,
@@ -15,6 +21,16 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * A business answers a request.
+ *
+ *   { …terms }                    → the first price for this order
+ *   { revise: true, …terms }      → a different price (quotes/revision.ts)
+ *   { decline: true, reason }     → turn the job down
+ *
+ * A revision never edits the existing offer. Before the buyer accepts it
+ * replaces it; after they accept it can only be PROPOSED, and the buyer decides.
+ */
 export const POST = route(async (request, context) => {
   const { id } = await context.params;
   const key = requireIdempotencyKey(request);
@@ -22,8 +38,16 @@ export const POST = route(async (request, context) => {
   const raw = (await request
     .clone()
     .json()
-    .catch(() => null)) as { decline?: unknown } | null;
+    .catch(() => null)) as {
+    decline?: unknown;
+    revise?: unknown;
+    withdraw?: unknown;
+    cannotFulfil?: unknown;
+  } | null;
   const isDecline = !!raw && raw.decline === true;
+  const isRevision = !!raw && raw.revise === true;
+  const isWithdraw = !!raw && raw.withdraw === true;
+  const isCannotFulfil = !!raw && raw.cannotFulfil === true;
 
   const operator = getOperator(request);
   const db = await getDb();
@@ -40,6 +64,30 @@ export const POST = route(async (request, context) => {
     const body = await parseJsonBody(request, declineRequestSchema);
     return runIdempotent(db, `routes.decline:${id}`, key, body, async () => {
       const result = await declineRequest(db, id, body);
+      return { status: 200, body: { success: true, data: result } };
+    });
+  }
+
+  if (isWithdraw) {
+    const body = await parseJsonBody(request, providerExceptionSchema);
+    return runIdempotent(db, `routes.withdraw:${id}`, key, body, async () => {
+      const result = await withdrawAsProvider(db, id, body);
+      return { status: 200, body: { success: true, data: result } };
+    });
+  }
+
+  if (isCannotFulfil) {
+    const body = await parseJsonBody(request, providerExceptionSchema);
+    return runIdempotent(db, `routes.cannot_fulfil:${id}`, key, body, async () => {
+      const result = await providerCannotFulfil(db, id, body);
+      return { status: 200, body: { success: true, data: result } };
+    });
+  }
+
+  if (isRevision) {
+    const body = await parseJsonBody(request, reviseQuoteRequestSchema);
+    return runIdempotent(db, `routes.revise:${id}`, key, body, async () => {
+      const result = await reviseQuote(db, id, body);
       return { status: 200, body: { success: true, data: result } };
     });
   }

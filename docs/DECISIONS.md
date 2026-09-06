@@ -169,7 +169,7 @@ Status values: `Accepted`, `Superseded by ADR-NNN`, `Deprecated`.
 ## ADR-009 — "Calm clinic" visual system (Ease Health reference)
 
 - **Date:** 2026-08-30
-- **Status:** Accepted
+- **Status:** Palette superseded by [ADR-022](#adr-022--visual-system-moves-to-a-warm-editorial-palette-supersedes-adr-009s-direction) (2026-09-07); its light-first / flat / accessible-status principles still hold
 - **Context:** Five style references were supplied (`docs/design/`). Three are
   dark "gallery/observatory" aesthetics built for marketing pages; Intra is a
   utility used by students and small-business owners on inexpensive phones in
@@ -212,12 +212,39 @@ Status values: `Accepted`, `Superseded by ADR-NNN`, `Deprecated`.
     replays exactly on retry, even for the `503` path (`runIdempotent`'s
     `cacheErrors`).
   - The order contact channel appears in the capability document only for
-    `ACTIVE` routes.
+    `ACTIVE` routes. (Tightened by ADR-014: only for routes whose
+    `availability.state` is `AVAILABLE`.)
 - **Consequences:** The same route data will back a future MCP adapter and the
   real x402 flow without breaking this contract. Contract tests live in
   `src/app/v1/v1.contract.test.ts`.
 - **Requirements:** `FR-ROUTE-001`, `FR-ROUTE-004`, `AC-ROUTE-002`,
   `FR-PAY-004`, `BR-001`, `BR-003`; `TECHNICAL_SPEC` §4.
+
+---
+
+## ADR-012 — Intra Relay is the product; Proofline is a bounded future module
+
+- **Date:** 2026-08-30
+- **Status:** Accepted
+- **Context:** The project must be distinguishable from consumer agents,
+  website-to-tool platforms, generic agent-payment controls, and merchant
+  chatbots. The real gap for local, non-API businesses is not merely accepting
+  an agent payment; it is supplying fresh, authorised business state and later
+  proving real-world fulfilment.
+- **Decision:** Position Intra as **Intra Relay**, a managed merchant-side
+  capability and control layer. Define **Proofline** as a future Relay module
+  that records honest fulfilment events (for example, merchant marks ready and
+  buyer confirms pickup). The current hackathon MVP remains one flyer-printing
+  quote → human-approved WhatsApp handoff flow. A Proofline event is additive
+  only after the existing flow works; it is not escrow, a reputation score, or
+  an autonomous payment system.
+- **Consequences:** Do not build a general consumer agent, merchant directory,
+  generic MCP generator, generic wallet-policy system, escrow, or broad
+  reputation marketplace. Features must improve merchant capability, freshness,
+  authority, buyer approval, or fulfilment evidence. See
+  [`PRODUCT_VISION.md`](PRODUCT_VISION.md).
+- **Requirements:** `G-001`..`G-005`, `BR-001`..`BR-006`, `NFR-UX-001`,
+  `NFR-SEC-001`; MVP scope in `PRD.md` §5.
 
 ---
 
@@ -337,3 +364,497 @@ Status values: `Accepted`, `Superseded by ADR-NNN`, `Deprecated`.
   database — an empty real scope on a fresh clone is the correct state.
 - **Requirements:** `MET-001`, `G-001..G-005`, PRD §3 success metrics, PRD §4
   (operator "view metrics"); `CLAUDE.md` §4.1.
+
+---
+
+## ADR-014 — Capability Card: explicit availability, freshness, and minimal handoff data
+
+- **Date:** 2026-08-30
+- **Status:** Accepted
+- **Context:** The public capability document (`GET /v1/:businessSlug/capabilities`)
+  is the agent-readable contract for a route (ADR-010, ADR-002). It exposed the
+  route lifecycle `status` and a `stale` boolean, but an agent reading
+  `status: "ACTIVE"` on a route with stale price data could treat it as usable —
+  the quote endpoint rejected it, but the card did not say so. It also attached
+  the merchant's WhatsApp number to every `ACTIVE` route regardless of whether
+  the route could actually take a request.
+- **Decision:**
+  - Each route card carries an explicit **`availability`** verdict
+    (`AVAILABLE` / `UNAVAILABLE` + `reason` of `OK | NOT_ACTIVE | NOT_VERIFIED |
+STALE` + an agent-readable `detail`), derived from the same
+    `routeIsQuoteReady` gate the quote endpoint uses. An `ACTIVE` route with
+    stale critical data reports `status: "ACTIVE"` **and**
+    `availability.state: "UNAVAILABLE"` — never silently current (AC-ROUTE-002,
+    BR-006).
+  - A **`freshness`** object states `priceConfirmedAt`, `maxAgeDays` (14),
+    `staleAfter`, `stale`, and the expiry behaviour in words (BR-003).
+  - A **`quoteSla`** object states the response expectation; a **`handoff`**
+    object always states the human-approval + WhatsApp mechanism without a
+    contact value (BR-001, FR-REC-004).
+  - **`orderContact`** (the concrete channel value) is attached **only** to a
+    route whose `availability.state` is `AVAILABLE` — a paused, draft, pending,
+    unverified, or stale route does not expose the merchant's contact value
+    (NFR-SEC-002, "least data necessary"). This tightens ADR-010's
+    "only for `ACTIVE` routes".
+  - The document carries a `version` (`CAPABILITY_CONTRACT_VERSION`).
+  - Backward compatible: `status`, `stale`, `priceUpdatedAt`, `lastUpdatedAt`,
+    `responseSlaMinutes`, `finalOrderPolicy`, and `payment` are unchanged; the
+    new fields are additive.
+- **Consequences:** No schema migration. `src/features/routes/freshness.ts` gains
+  `staleAfter`, `ROUTE_READY_DETAIL`, `PRICE_FRESHNESS_MAX_AGE_DAYS`. Contract
+  tests in `src/app/v1/v1.contract.test.ts` and unit tests in
+  `src/features/routes/freshness.test.ts` cover active, paused, pending, stale,
+  malformed, and unavailable cases. `docs/CAPABILITY_API.md` updated.
+- **Requirements:** `FR-ROUTE-001`, `FR-ROUTE-003`, `FR-ROUTE-004`,
+  `AC-ROUTE-002`, `BR-003`, `BR-006`, `BR-001`, `FR-REC-004`, `NFR-SEC-002`;
+  `PRODUCT_VISION.md` §3.1.
+
+---
+
+## ADR-015 — Buyer decision is its own step; quote / choice / send are distinct
+
+- **Date:** 2026-08-30
+- **Status:** Accepted
+- **Context:** `submitQuote` advanced a task `AWAITING_QUOTE → RECOMMENDED →
+HANDOFF_READY` in one call and revealed the printer's phone number the moment
+  a quote landed. The PRD keeps `RECOMMENDED` and `HANDOFF_READY` as separate
+  states (§7) and the flow as "recommendation → buyer copies handoff → buyer
+  agrees directly" (§8). There was no point where the buyer actually chose, and
+  "a quote exists", "the buyer chose", and "the buyer sent the order" were not
+  separable.
+- **Decision:**
+  - A supplier quote now stops the task at **`RECOMMENDED`** (stamps
+    `tasks.quoted_at`). The WhatsApp message is generated but not surfaced, and
+    the supplier **contact value** is withheld — only `name` / `city` show.
+  - The buyer calls **`POST /api/tasks/:id/decision`**:
+    - `ACCEPT` → `HANDOFF_READY`, `buyer_decision = ACCEPTED`, audits
+      `task.buyer_accepted` + `task.handoff_ready`; contact + message revealed.
+    - `DECLINE` (+ optional `reason`) → `CANCELLED`, `buyer_decision = DECLINED`,
+      audit `task.buyer_declined`; nothing ordered; feedback still opens.
+  - `POST /api/tasks/:id/handoff-confirm` is unchanged — the buyer's own report
+    that they sent the message (Intra cannot observe WhatsApp). It now also sets
+    `tasks.handoff_confirmed_at`.
+  - New nullable `tasks` columns (migration `0003`): `quoted_at`,
+    `buyer_decision` (enum), `buyer_decided_at`, `buyer_decline_reason`,
+    `handoff_confirmed_at`, `closed_at` (set on first terminal state).
+  - **Quote validity** is enforced at read time: `quoteEffectiveStatus` reports
+    `EXPIRED` for a `RECEIVED` quote past `expiresAt`. Accepting an expired quote
+    is allowed (the buyer stays in control) but marks the quote `EXPIRED`
+    (audit `quote.expired`) and adds a "reconfirm the price" line to the message.
+  - **Normalisation** (`normalizeQuote`) and the **explained recommendation**
+    (`buildRecommendationDetail`: `reasoning[]`, `uncertainties[]`,
+    `verificationNote`) are pure read-time functions — nothing stored, no
+    multi-vertical abstraction. The `verificationNote` states plainly that the
+    figures were operator/printer-entered and are **not** independently verified;
+    the quote card and `QuoteResponseForm` carry the same label.
+- **Consequences:** Intra still never sends the message, places the order, or
+  custodies funds. `submitQuote` return shape unchanged (`task` is now
+  `RECOMMENDED`). Integration tests (`flow`, `supplier/workflow`, `api`,
+  `report`) gained the accept step; `decision.integration.test.ts`,
+  `quotes/expiry.test.ts`, `quotes/normalize.test.ts`,
+  `quotes/recommendation.test.ts` are new. `docs/API.md` and
+  `docs/DEMO_SCRIPT.md` updated.
+- **Requirements:** PRD §7 (`RECOMMENDED`, `HANDOFF_READY`, `CANCELLED`), §8;
+  `FR-REC-001`, `FR-REC-002`, `FR-REC-004`, `BR-001`, `BR-003`; `CLAUDE.md`
+  §4.1, §4.3.
+
+---
+
+## ADR-016 — Proofline pilot: two fulfilment-evidence events, nothing more
+
+- **Date:** 2026-08-30
+- **Status:** Accepted
+- **Context:** PRODUCT_VISION §3.2 / §6 and ADR-012 sanction a **bounded**
+  Proofline pilot once the flyer-printing quote → handoff flow works with real
+  users (it now does — ADR-015). A payment receipt proves money moved; it does
+  not prove the flyer was collected. Victor explicitly asked for exactly two
+  optional post-handoff events.
+- **Decision:**
+  - New append-only table `proofline_events` (migration `0004`). Each row stores
+    the six required fields: `task_id`, `actor_role`, `created_at`, `event_type`,
+    `confirmation_method`, `evidence_status` (+ an optional `pickup_code` on the
+    ready row).
+  - **Exactly two event types**, both optional, both gated on
+    `tasks.handoff_confirmed_at`:
+    1. `READY_FOR_PICKUP` — the **merchant** (route manage token). Issues a
+       6-char pickup code, returned once to the merchant, never to the buyer.
+    2. `PICKUP_CONFIRMED` — the **buyer**, either from their own task session
+       (`buyer_session`) or by entering the pickup code (`one_time_code`).
+  - Endpoints `POST /api/tasks/:id/proofline/ready` and
+    `.../confirm-pickup`. `getTaskView` gains a `proofline` field (no code);
+    the supplier requests page gains a "Handed-off orders" section with the code
+    for the authenticated merchant only.
+  - Every API response and both UIs carry `PROOFLINE_DISCLAIMER`: **operational
+    evidence, not a cryptographic proof, not a payment settlement, not a
+    guarantee.** No status is labelled "fulfilled" as a bare fact — each event
+    is attributed to the actor who recorded it.
+  - **Explicitly not built:** escrow, dispute handling, any public reliability /
+    reputation / on-time score, notifications, expiry of the code, a second
+    category, or a merchant-facing directory. Not wired into `/api/evidence` or
+    the operator metrics report.
+  - Replay-safe: a second `ready` or `confirm-pickup` → `409`; a wrong or
+    replayed code never records anything.
+- **Consequences:** One migration, one feature module (`src/features/proofline`),
+  two routes, one new access helper (`manageTokenMatchesTask`). Tests:
+  `proofline/service.integration.test.ts`, `proofline/code.test.ts`,
+  `app/api/tasks/[id]/proofline/proofline.contract.test.ts`, plus a Proofline
+  leg in `supplier/workflow.integration.test.ts` and a `TaskPage` case.
+  `docs/PRD.md` (F-PROOF), `API.md`, `TECHNICAL_SPEC.md`, `DEMO_SCRIPT.md`,
+  `PRODUCT_VISION.md` updated.
+- **Requirements:** `FR-PROOF-001`..`007`, `AC-PROOF-001`..`006`, `BR-009`;
+  PRODUCT_VISION §3.2, §6; ADR-012.
+
+---
+
+## ADR-017 — x402 payment hardening: failure taxonomy, indeterminate settlement, config tolerance
+
+- **Date:** 2026-08-31
+- **Status:** Accepted (extends ADR-004, ADR-011)
+- **Context:** An audit of the x402 integration against `@x402/core@2.24.0` (no
+  live key present) found: a malformed `X402_*` env threw from
+  `readPaymentConfig()` and 500'd the whole quote workflow; every infra failure
+  (facilitator unreachable, verify/settle transport error) was reported to the
+  agent as `402 PAYMENT_FAILED`; a `settle` timeout — which the SDK documents as
+  _indeterminate_ — was recorded `FAILED`, inviting a re-authorisation and a
+  double-pay; the natural x402 retry (same `Idempotency-Key`, now with
+  `X-PAYMENT`) returned `409 IDEMPOTENCY_KEY_CONFLICT`; a concurrent duplicate
+  `X-PAYMENT` could hit the `authorization_key` unique constraint and 500; and
+  `X402_ATTRIBUTION_TAG` was unvalidated.
+- **Decision:**
+  - **Failure taxonomy.** `SettleResult` gains `INDETERMINATE`; `UnavailableResult`
+    gains `code` / `authorizationKey`. The adapter maps: undecodable header /
+    over-cap / `verify.isValid = false` / on-chain revert → `FAILED` (`402`,
+    retryable by the agent); `verify` transport error → `UNAVAILABLE` (`503`,
+    not the agent's fault); `settle` timeout or a success-without-hash →
+    `INDETERMINATE` (`503 PAYMENT_SETTLEMENT_INDETERMINATE`). `SETTLEMENT_FAILED`
+    (facilitator-reported on-chain failure) stays `FAILED`.
+  - **Indeterminate receipts.** Recorded immutably as `AUTHORISED` /
+    `errorCode = SETTLE_INDETERMINATE`, no tx hash, audit `payment.indeterminate`.
+    The agent is told **not** to re-authorise and to check the explorer.
+    Re-presenting the authorisation returns the same `503` — never re-settled.
+  - **Config tolerance.** `readPaymentConfig()` still throws (deploy check), but
+    `getPaymentAdapter()` catches it → `NoopPaymentAdapter` with
+    `code: "CONFIG_ERROR"` (logged once); `facilitatorConfigured()` returns
+    `false`. Free routes, the capability doc, and the buyer web flow keep
+    working; paid routes get an explicit `503`. `X402_ATTRIBUTION_TAG` is
+    validated (`/^celo_[A-Za-z0-9][A-Za-z0-9_-]{2,62}$/`); a mismatch is dropped
+    with a `configWarning`, never recorded (BR-007).
+  - **Idempotency scope.** The quote endpoint folds `sha256(X-PAYMENT)` into the
+    idempotency **scope** (`…:probe` / `…:pay:<hash>`), not the request payload,
+    so the same key replays cleanly across the probe and the paid retry.
+  - **Concurrency.** `insertOrGetByAuthorizationKey` (`onConflictDoNothing` +
+    re-read) makes the recorders converge on one immutable row; a request whose
+    settle lost the nonce race serves the winner's `SETTLED` receipt.
+  - **Receipt language.** The task page adds `NOT_REQUIRED` ("no agent query fee
+    — came through the web") and `AUTHORISED` ("being reconciled — not shown as
+    paid") copy; the `/evidence` payments block adds an `indeterminate` count.
+- **Consequences:** No schema migration (`AUTHORISED` / `UNAVAILABLE` already in
+  the `payment_status` enum). New public status code
+  `PAYMENT_SETTLEMENT_INDETERMINATE`. Tests: `adapter/config.test.ts`,
+  `adapter/index.test.ts` (new), expanded `adapter/x402.test.ts`,
+  `payments/lifecycle.test.ts`, `v1.payment.contract.test.ts`. `PAYMENTS.md`,
+  `CLAIMS.md`, `CAPABILITY_API.md`, `DEPLOYMENT.md`, `.env.example`,
+  `DEVELOPMENT_WORKFLOW.md`, `PRD.md` (F-PAY) updated.
+- **Requirements:** `FR-PAY-002`..`007`, `AC-PAY-001`..`006`, `BR-005`, `BR-007`,
+  `NFR-SEC-001/002`, `NFR-REL-001`; `docs/PAYMENTS.md`.
+
+## ADR-018 — Physical fulfilment attestation on EAS; evaluator, never custodian
+
+- **Date:** 2026-09-01
+- **Status:** Accepted (extends ADR-016; narrows CLAUDE.md §4.1 and §6.2)
+- **Context:** The Celo "Agents at Work" submission (2026-09-14 09:00 GMT) is
+  Celo **mainnet only** and requires a real **ERC-8004 Agent ID** plus agent
+  wallets; users/buyers/volume count only from wallets that are not ours. Three
+  external facts were verified before this decision:
+  1. **EAS is deployed on Celo mainnet** (`EAS 0x72E1…Af92`,
+     `SchemaRegistry 0x5ece…AF34`, from the canonical `eas-contracts`
+     deployment artifacts). It already provides a schema registry, on-chain and
+     off-chain attestations, `refUID` chaining, expiry and revocation.
+  2. **ERC-8004** ships `giveFeedback(agentId, value, valueDecimals, tag1,
+tag2, endpoint, feedbackURI, feedbackHash)`; the submitter MUST NOT be the
+     agent owner. The spec states plainly that unfiltered results "are subject
+     to Sybil/spam attacks" and directs consumers to filter by trusted
+     `clientAddresses`. An empirical study of the deployed ecosystem
+     (arXiv 2606.26028) found 3–15% of registrations expose a valid endpoint,
+     59–91% of reviewers are Sybil, and feedback is "rarely grounded in
+     verifiable interactions".
+  3. **ERC-8183** (agentic commerce jobs + escrow) is **Draft**, has no Celo
+     deployment, and explicitly delegates real-world enforcement to "the
+     evaluator and external tools" — it ships that socket empty.
+     The existing CLAUDE.md §4.1 prohibition on ERC-8004 Agent IDs was written when
+     no registry access existed. It now blocks compliant work.
+- **Decision:**
+  - **ERC-8004 prohibition narrowed, not lifted.** Fabricating, mocking or
+    displaying an unverified Agent ID stays forbidden. Registering a real
+    identity against the Celo mainnet Identity Registry, and reading back the
+    minted `agentId`, is now required. A human-operated business is registered
+    with its Relay capability endpoint in `services[]` — honest, because that
+    genuinely is its agent-facing interface.
+  - **Use EAS as the attestation rail. Do not deploy our own contract.** No
+    custom attestation, reputation or escrow Solidity. We register two schemas
+    and issue attestations against the canonical deployment.
+  - **Evaluator, never custodian.** `BR-001` stands unchanged: Intra does not
+    hold funds. ERC-8183 escrow is **not** adopted; we emit an attestation an
+    8183 evaluator could later consume. Escrow is a commodity; the credible
+    determination is the product.
+  - **Two-party anti-fabrication by commit–reveal.** At commitment time the
+    system publishes `handoverCommit = keccak256(code ‖ salt)`. The **buyer**
+    alone receives `code`; the server withholds `salt` until a correct `code` is
+    presented. The handover attestation is signed by the **merchant** and
+    carries `code` + `salt`, so the merchant's key proves their participation
+    and possession of `code` proves the buyer handed it over in person.
+    2-of-2, with the server as a non-signing referee that cannot attest alone.
+  - **Honesty bound (extends PROOFLINE_DISCLAIMER).** The attestation proves
+    that the named parties completed the handover protocol at a time. It does
+    **not** prove quantity, quality, timeliness or satisfaction. Those are a
+    separate rating signal and must never be described as proven.
+  - **`viem` admitted** as a narrow exception to §6.2 — required for
+    `keccak256`, ABI encoding, EAS schema-UID derivation, and Celo mainnet
+    calls. No other chain library is added.
+- **Consequences:** New `src/features/attestation/` module. `viem` added to
+  `dependencies`. New public status codes to follow with the write path. The
+  Proofline pilot (ADR-016) keeps its two events and its merchant→buyer pickup
+  code unchanged; the buyer→merchant handover secret introduced here is a
+  distinct, attestation-grade mechanism and does not alter Proofline semantics.
+  PRD gains `FR-ATT-*` / `AC-ATT-*`; `CLAUDE.md` §4.1 and §6.2 amended in the
+  same commit.
+- **Requirements:** `FR-ATT-001`..`005`, `AC-ATT-001`..`004`, `BR-001` (upheld),
+  `BR-005`, `NFR-SEC-001`.
+
+---
+
+## ADR-019 — Buyer-agent model layer: LLM above deterministic policy, never inside it
+
+- **Date:** 2026-09-02
+- **Status:** Accepted (starts the "AI SDK" phase gated by CLAUDE.md §6.2; extends the
+  agent work behind ADR-001 / ADR-003)
+- **Context:** Milestones 1–2 built a deterministic buyer-agent orchestration
+  library (`src/features/agent/`) and a commitment→attestation lifecycle. A full
+  read-only audit confirmed it was well-engineered but (a) **not reachable** from
+  the running app — no route, no UI, never executed against a real server — and
+  (b) **not an AI agent** — no model, no model-driven reasoning. The Celo "Agents
+  at Work" submission needs a credible agent. CLAUDE.md §6.2 phase-gates AI SDKs;
+  Victor started this phase explicitly (milestone 3 brief).
+- **Decision:**
+  - **The model sits ABOVE the deterministic orchestration, never inside it.**
+    ```
+    USER → LLM (understand intent · plan which providers to quote · choose an
+                offer + rationale · replan when nothing is usable)
+         → DETERMINISTIC POLICY (budget cap · quote expiry · eligibility ·
+                the human-approval gate · every mutating tool)
+         → EXTERNAL TOOLS
+    ```
+  - **The model never holds a tool.** It proposes; `runBuyerAgent` disposes. It
+    proposes JSON validated against a Zod schema; the loop executes the tools and
+    vetoes anything policy already excluded. `recordBuyerDecision` (ACCEPT) is
+    **not** in the model-facing tool set (`MODEL_TOOLS`) — a human approval,
+    validated by `offerFingerprint`, remains the only path to it (BR-001).
+  - **Deterministic is the floor and the fallback.** Every model call is bounded
+    (`DEFAULT_MODEL_LIMITS`: ≤4 calls/run, ≤700 output tokens, 12s timeout) and,
+    on any failure — timeout, rate limit, bad JSON, schema mismatch, unknown
+    provider, call-budget exhausted — the run silently continues on the
+    deterministic decision. With **no** `ANTHROPIC_API_KEY` the assisted loop is
+    byte-for-byte `runBuyerAgent`.
+  - **Dates and money stay deterministic.** The model returns a deadline
+    _phrase_, not a date; the deterministic parser turns it into a date. Where
+    the deterministic parser already found a value, the model cannot override it.
+  - **Provider:** `@anthropic-ai/sdk` (Claude Haiku 4.5,
+    `claude-haiku-4-5-20251001`). A `MockModelProvider` gives tests and
+    credit-free local dev the full pipeline. No agent framework — no Google ADK,
+    no LangGraph, no LangChain: the repo already has clean implementations of
+    tools, state, retries, the async human-wait and the approval gate; a
+    framework would be a rewrite that buys nothing.
+  - **Reachable:** new `POST /api/agent/run`, `GET /api/agent/run/:id`,
+    `POST /api/agent/run/:id/approve`, and a minimal `/agent` page. Run
+    orchestration metadata (trace, ranked offers) lives in a **non-persistent**
+    in-memory store (CLAUDE.md §4.4); the task, quote, decision and commitment
+    are still written by the existing DB-backed services.
+- **Consequences:** `@anthropic-ai/sdk` added to `dependencies`. New env vars
+  `ANTHROPIC_API_KEY`, `AGENT_MODEL_PROVIDER`, `AGENT_MODEL` (all server-only,
+  all optional). New agent run state `CLARIFICATION_NEEDED`. `.env.example` and
+  CLAUDE.md §6.2 updated. No change to BR-001, the payment rules, or the
+  attestation layer.
+- **Requirements:** `BR-001` (upheld), `ADR-003` (upheld), `NFR-SEC-002`.
+
+## ADR-020 — PWA + web push: an attention layer, never a workflow dependency
+
+- **Date:** 2026-09-04
+- **Status:** Accepted (milestone 7 phase C)
+- **Context:** Phases A–B made the product resumable _inside a tab_: a person
+  returns to `/agent` or `/activity` and sees their work and notifications. But
+  the defining requirement of M7 is that Intra can reach a human who is **not
+  looking at it**, and take them straight back to the live workflow. That needs
+  a PWA (installable, service worker) and real web push.
+- **Decision:**
+  - **Installable PWA.** `app/manifest.ts` (`/manifest.webmanifest`),
+    `public/icons/*` (generated from one SVG by `scripts/generate-icons.mjs` —
+    committed, so the build has no image tooling), `viewport`/`appleWebApp`
+    metadata, and a hand-written `public/sw.js`. `start_url` is `/agent`. The
+    app stays a **normal website**; nothing forces or blocks installation.
+  - **Service-worker cache policy — server state is always authoritative.**
+    `/api/*` is **network-only, never cached** (offline → a clean 503 JSON so
+    the UI shows "you're offline", never a false success). `/_next/static` and
+    `/icons` are cache-first (content-hashed). Navigations are network-first
+    with a cached `/offline` fallback. Nothing about prices, quotes, approval,
+    payment, fulfilment, cancellation, handover or permissions is ever served
+    from cache.
+  - **Update policy.** A new worker installs and _waits_; it only activates on
+    a `SKIP_WAITING` message the page sends via a dismissible "Update now"
+    banner. No forced refresh mid-transaction.
+  - **Web push via `web-push` + self-generated VAPID.** New deps: `web-push`,
+    `@types/web-push`. VAPID keys are generated locally
+    (`npx web-push generate-vapid-keys`), a **separate pair per environment**,
+    the private key set only in the deployment's env — never committed. New env
+    vars `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`,
+    `NEXT_PUBLIC_VAPID_PUBLIC_KEY`. With any of the three server vars unset,
+    push is `UNAVAILABLE` and the app falls back to in-app notifications only —
+    exactly like x402 and attestation, nothing breaks (CLAUDE.md §4.1 spirit).
+  - **A subscription is a delivery endpoint, not an authorization.** Every
+    `push_subscriptions` row is bound to the recipient the **server** resolves
+    from the session / manage token (`resolveRecipient`); a client-sent id is
+    never trusted. Delete is recipient-scoped. Payloads carry only
+    `{ title, body, url, tag }` — no id, amount, address, code or secret (§11,
+    §18); protected detail is fetched after re-authorisation on the deep-linked
+    page.
+  - **Push is fire-and-forget from `notify()`.** `deliverPush` swallows every
+    error; a failed or slow push service can never fail — or roll back — the
+    domain action. Invalid subscriptions (404/410) are deleted; repeated soft
+    failures prune after three (§17, §35). The in-app notification row always
+    stands.
+  - **Level gate (§15).** `ACTION_REQUIRED` / `TIME_SENSITIVE` push whenever
+    push is on; `INFORMATIONAL` / `COMPLETED` only if the person opted in
+    (`notification_preferences.push_informational`). Preferences are two
+    switches, not a settings system (§16).
+  - **Contextual prompts (§4, §5).** Neither the notification-permission ask
+    nor the install nudge fires on first load. They appear only once a person
+    has real asynchronous work — something to come back to — and are dismissed
+    permanently once declined.
+  - **Deployment.** `vercel.json` runs `npm run db:migrate` before `next build`
+    so the `pg` schema is current (migrations still never run at request time).
+- **Consequences:** migrations `0009` (`notification_preferences`). New routes
+  `/api/push/{config,subscribe,unsubscribe}`, `/api/notifications/preferences`,
+  `/api/pilot/event`. `NEXT_PUBLIC_VAPID_PUBLIC_KEY` is the only new
+  `NEXT_PUBLIC_*`. Pilot events extended with the attention funnel
+  (`notification_created/opened`, `workflow_resumed`, push/install events) —
+  never recording payload contents or personal data (§32).
+- **Requirements:** M7 phase C §2–§18, §25, §27, §30–§37; CLAUDE.md §4.1, §4.3,
+  §6.1 (`vercel.json` added, justified), NFR-SEC-001/002.
+
+---
+
+## ADR-021 — Product analytics via the Amplitude Browser SDK: a measurement layer, never a dependency
+
+- **Date:** 2026-09-06
+- **Status:** Accepted (milestone 9.5)
+- **Context:** Before real pilot users arrive we need to answer _how humans
+  behave around the product_ — where they get confused, whether they understand
+  it, whether they install and return, whether notifications bring them back,
+  whether buyers reach outcomes and businesses respond. The existing
+  `src/features/analytics/pilot.ts` (audit-table events + `/api/pilot/funnel`)
+  is **operational truth** ("what the system did") and answers none of the
+  behavioural questions (funnels, drop-off, activation, retention, cohorts).
+- **Decision:**
+  - **Amplitude sits ALONGSIDE the audit trail, never replaces it, and is never
+    a dependency of a commerce action.** If Amplitude fails, requests, quotes,
+    approvals, notifications, fulfilment and handover all still work. Every
+    adapter export is wrapped so a thrown SDK / offline network / missing key /
+    malformed event is swallowed; two integration tests prove a buyer request
+    and a business quote each still succeed when the analytics forward throws.
+  - **One SDK: `@amplitude/analytics-browser` (v2), client-side only.** Both the
+    buyer flow and the business workspace are browser-driven, so almost every
+    event has a browser moment and goes straight through the Browser SDK. No
+    `@amplitude/analytics-node`, no Ampli codegen — a hand-written typed
+    taxonomy (`events.ts`) instead. This is an analytics phase explicitly
+    started by Victor, so it clears CLAUDE.md §6.2.
+  - **Server forwarding, the narrow exception.** Four events have no browser
+    actor — `request_received` (a request reaching a business), `business_ready`
+    (operator-driven activation), `attention_required` / `notification_created`,
+    `push_sent`. A thin server-side `fetch` to Amplitude's HTTP V2 endpoint
+    (`forward.ts`), fire-and-forget via `after()`, gated on a SERVER-ONLY
+    `AMPLITUDE_API_KEY`. Unset ⇒ silent no-op; the audit trail records them
+    regardless.
+  - **One adapter, no scattered calls.** All Amplitude access lives in
+    `src/features/analytics/`; an ESLint `no-restricted-imports` rule bans
+    `@amplitude/*` anywhere else (§6.1 — `.eslintrc.json` change, minimal and
+    additive).
+  - **Autocapture narrowed.** `attribution` (UTM / referrer — acquisition
+    analysis, no PII) and `sessions` on; `pageViews`, `formInteractions`
+    (could read typed values), `fileDownloads`, `elementInteractions` **off**.
+    Explicit product events only.
+  - **Identity.** Buyer = the opaque per-device session id (`intra.sessionId` —
+    no account, no wallet, already the right stable internal id). Business = the
+    internal business uuid, also an Amplitude group. Operators are never
+    identified into Amplitude. `reset()` on a true identity change so the next
+    account never inherits the previous one. Never an identifier: email, phone,
+    wallet data, business name, address.
+  - **Redaction is enforced, not trusted.** `sanitizeProps` (client and server)
+    allows only primitives, drops any content/identifier/secret key, truncates
+    long strings, warns in dev, never throws. Intent events carry
+    `intent_type` / `category` / `has_*` booleans — never the message string.
+  - **One Amplitude project + `environment` property** (`development | staging |
+production`) + an `is_test` flag (operator-set `localStorage` key /
+    `?intra_test=1`; server side, any `[DEMO SEED]` business). Local dev is
+    **disabled unless** `NEXT_PUBLIC_AMPLITUDE_API_KEY` is set locally.
+  - **No separate consent gate for the pilot.** Analytics initialises with the
+    app, as web push and the service worker already do. Proportionate for a
+    controlled pilot: opaque device/business ids only, no PII, no raw
+    conversation text, autocapture narrowed. Revisit before any non-pilot / EU
+    rollout — deferred-init for a consent gate is available in the SDK.
+  - **The operator scorecard** (`scorecard.ts`, on `/api/pilot/funnel`) stays
+    operational-truth: every figure a genuine `COUNT` from `audit_events`, `0`
+    never an estimate, works with no analytics key. Amplitude-side dashboards,
+    funnels and cohorts are documented in `docs/ANALYTICS.md` as a build list
+    for Victor.
+- **Consequences:** new dep `@amplitude/analytics-browser`. New module
+  `src/features/analytics/{events,properties,config,identity,client,
+AnalyticsProvider,AnalyticsBusinessIdentity,useAnalytics,forward,server,
+scorecard}`. New `NEXT_PUBLIC_AMPLITUDE_API_KEY` (client) and `AMPLITUDE_API_KEY`
+  (server-only) — both optional, the layer degrades to a no-op without them.
+  `src/app/layout.tsx` mounts `<AnalyticsProvider />`; `.eslintrc.json` gains
+  the import ban; `/api/pilot/funnel` now returns `{ funnel, scorecard }`;
+  `/api/businesses/quick-start` adds `business.id` to its response.
+  `pilot.ts` and the whole attestation / payments / economic path are untouched.
+  **Amplitude-UI verification (events queryable, dashboards built) is Victor's —
+  see `docs/ANALYTICS.md`.**
+- **Requirements:** M9.5 §1–§55; CLAUDE.md §4.1 (no fabricated data — analytics
+  is behavioural metadata, never presented as merchant/payment evidence), §4.2
+  (no prohibited sensitive data — enforced by `sanitizeProps`), §5 (engineering
+  standards), §6.1 (`.eslintrc.json` + `layout.tsx` changed, justified), §6.2
+  (new package, phase started).
+
+---
+
+## ADR-022 — Visual system moves to a warm editorial palette (supersedes ADR-009's direction)
+
+- **Date:** 2026-09-07
+- **Status:** Accepted (supersedes the palette in [ADR-009](#adr-009--calm-clinic-visual-system-ease-health-reference))
+- **Context:** The "calm clinic" forest-green system (ADR-009) read as clinical
+  and product-generic for what Intra actually is — an approachable way for
+  students and small-business owners to get real work done. Ahead of the M10
+  pilot the visual direction was reworked toward a warm editorial workspace
+  (Claude-style reference): calm ivory canvas, ink-dark actions, a serif display
+  face used with restraint, generous whitespace, warm hairline borders.
+- **Decision:** Re-point every token in `src/styles/tokens.css` to the new
+  palette — canvas `#faf9f5`, white surfaces, warm near-black text `#141413`,
+  **ink `#1f1e1d` as the single action colour** (replacing forest green
+  `#0f3e17`), adjusted status washes, larger radii (10 / 16 / 24px), a wider
+  `--container-max` (72rem), a larger display step. `src/styles/globals.css`
+  gains three component utilities — `.eyebrow` (uppercase kicker), `.page-enter`
+  (staggered rise-in, **guarded by `prefers-reduced-motion`**), `.interactive-card`
+  (hover lift) — plus a faint radial-gradient page background and `::selection`
+  tint. The public surfaces (`/`, `/agent`, `/request`, `/supplier/onboard`,
+  `Header`, `Footer`, `MainContainer`) are rebuilt on the new system; a sticky
+  header with a reduced public nav (`Home`, `For businesses`, `Docs` + a
+  "Join as a business" CTA) keeps operator-only routes (`/activity`,
+  `/operator`, `/evidence`) out of the marketing chrome.
+- **Consequences:** every token-driven component picks up the new palette
+  automatically; internal pages not yet re-laid-out (`TaskPage`, supplier
+  workspace, operator, activity, evidence, docs) inherit the colours cleanly but
+  keep their old spacing/heading rhythm until re-touched — a follow-up, not a
+  regression. `Header.test.tsx` updated for the reduced nav. What ADR-009 keeps:
+  light-first (no dark mode), flat surfaces (no drop shadows), status colours
+  always paired with an icon + label, system font stacks (no web-font fetch),
+  accessibility mandates (`NFR-A11Y-001`, `NFR-UX-001`).
+- **Requirements:** `NFR-UX-001`, `NFR-A11Y-001`, PRD §7; CLAUDE.md §6.1
+  (`src/styles/` tokens are load-bearing — this is a deliberate, documented
+  full-system change).

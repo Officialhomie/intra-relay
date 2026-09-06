@@ -60,7 +60,18 @@ export function assertSettlement(evidence: SettlementEvidence): void {
   }
 }
 
-/** True when an official x402 / cPay facilitator is configured (FR-PAY-004). */
+/**
+ * True when an official x402 / cPay facilitator is configured (FR-PAY-004).
+ *
+ * A malformed `X402_*` env is treated as "not configured" (never throws) so the
+ * quote workflow is not blocked by a config mistake — the paid path then
+ * returns an explicit `503`. `readPaymentConfig()` itself still throws, for the
+ * deploy-time check and tests.
+ */
 export function facilitatorConfigured(): boolean {
-  return readPaymentConfig().provider !== "none";
+  try {
+    return readPaymentConfig().provider !== "none";
+  } catch {
+    return false;
+  }
 }

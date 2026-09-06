@@ -1,4 +1,13 @@
+import { timingSafeEqual } from "node:crypto";
+
 import { HttpError } from "./response";
+
+function constantTimeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
 
 /**
  * Operator authentication.
@@ -26,7 +35,7 @@ export function getOperator(request: Request): Operator | null {
     if (separator === -1) continue;
     const label = entry.slice(0, separator);
     const secret = entry.slice(separator + 1);
-    if (secret.length > 0 && secret === presented) return { label };
+    if (secret.length > 0 && constantTimeEqual(secret, presented)) return { label };
   }
   return null;
 }

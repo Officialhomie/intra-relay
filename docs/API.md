@@ -68,18 +68,96 @@ recorded (no x402 access yet).
 
 Headers: `x-session-id` (must match). Returns
 `{ task, route, supplier, quotes, payments, recommendation, feedback, timeline,
-handoffConfirmedAt }`. `route` carries freshness (`priceUpdatedAt`,
-`verifiedAt`, SLA). `supplier` (name + contact channel + city) is `null` until a
-recommendation exists. `handoffConfirmedAt` is the ISO time the buyer confirmed
-they sent the message, or `null`. `403 FORBIDDEN` on a session mismatch.
+handoffConfirmedAt, proofline }`. `403 FORBIDDEN` on a session mismatch.
+
+- `task` carries the lifecycle timestamps: `submittedAt`, `quotedAt`,
+  `buyerDecidedAt`, `handoffConfirmedAt`, `closedAt`, plus `buyerDecision`
+  (`"ACCEPTED" | "DECLINED" | null`) and `buyerDeclineReason`.
+- `route` carries freshness (`priceUpdatedAt`, `verifiedAt`, SLA).
+- `supplier` is `null` until a quote exists. From `RECOMMENDED` it carries
+  `{ name, city, country }`; `contactChannelType` / `contactChannelValue` stay
+  `null` until the buyer accepts (`HANDOFF_READY`).
+- `quotes[]` each carry `effectiveStatus` — the stored `status` unless a
+  `RECEIVED` quote is past `expiresAt`, in which case `"EXPIRED"` (read-time).
+- `recommendation` (present from `RECOMMENDED`, `null` on a supplier decline)
+  carries `rationale`, the never-sent `orderMessage`, and read-time
+  `reasoning[]`, `uncertainties[]`, `verificationNote`, `quoteExpired`, and
+  `normalized` (`totalMin/Max` incl. delivery, per-flyer `unitPriceMin/Max`,
+  parsed `turnaround`, `assumptions[]`).
+- `handoffConfirmedAt` is the ISO time the buyer confirmed they sent the
+  message, or `null`.
+- `proofline` is `null` until the handoff is confirmed, then carries the
+  Proofline pilot evidence (`disclaimer`, `evidenceStatus`, `readyForPickupAt`,
+  `pickupConfirmedAt`, `pickupConfirmedBy`, `events[]`). Never the pickup code.
+
+### `POST /api/tasks/:id/decision` → 200
+
+Headers: `x-session-id` (must match), `Idempotency-Key`. The buyer's explicit
+choice on the quote in front of them. Requires task status `RECOMMENDED`
+(`409 TASK_NOT_AWAITING_DECISION` otherwise). Body:
+
+- **`{ "decision": "ACCEPT" }`** — task `RECOMMENDED → HANDOFF_READY`; audits
+  `task.buyer_accepted` then `task.handoff_ready`; the supplier contact and the
+  WhatsApp message become visible. If the quote's `expiresAt` has passed the
+  quote is marked `EXPIRED` (audit `quote.expired`) and the message gains a
+  "reconfirm the price" line — acceptance is still allowed.
+- **`{ "decision": "DECLINE", "reason"?: string }`** — task
+  `RECOMMENDED → CANCELLED`; audit `task.buyer_declined` (the reason is stored on
+  the task, not in the audit payload). Nothing is ordered.
+
+Intra never sends the message or places the order. A repeat with the same key
+replays; a fresh key after the task has left `RECOMMENDED` returns
+`409 TASK_NOT_AWAITING_DECISION`. `400` on an invalid `decision`.
 
 ### `POST /api/tasks/:id/handoff-confirm` → 200
 
 Headers: `x-session-id` (must match), `Idempotency-Key`. The buyer confirms they
 have sent the pre-filled message to the printer. Requires task status
-`HANDOFF_READY` (`409 HANDOFF_NOT_READY` otherwise). Appends a content-free
-`task.handoff_confirmed` audit event and unlocks the feedback form. Idempotent —
-a repeat returns the first `handoffConfirmedAt`. No task status change.
+`HANDOFF_READY` (`409 HANDOFF_NOT_READY` otherwise). Sets `task.handoffConfirmedAt`,
+appends a content-free `task.handoff_confirmed` audit event, and unlocks the
+feedback form. Idempotent — a repeat returns the first `handoffConfirmedAt`. No
+task status change.
+
+### Proofline pilot — fulfilment evidence
+
+Two optional events **after** a confirmed handoff (`FR-PROOF-*`, ADR-016).
+Both are **operational evidence** — every response carries a `data.view.disclaimer`
+saying so. Not a payment, not settlement, not a proof, no reliability score.
+`GET /api/tasks/:id` includes `proofline` (see above) once the handoff is
+confirmed; it never contains the pickup code.
+
+#### `POST /api/tasks/:id/proofline/ready` → 201
+
+Merchant records the job is ready for pickup. Headers: `x-manage-token` (the
+route's business manage token) + `Idempotency-Key`.
+
+- `401 PROOFLINE_MERCHANT_AUTH_REQUIRED` — missing / wrong manage token.
+- `409 HANDOFF_NOT_CONFIRMED` — the buyer has not confirmed the handoff yet.
+- `409 ALREADY_MARKED_READY` — a `READY_FOR_PICKUP` event already exists.
+- `404 TASK_NOT_FOUND`.
+- On success: `data = { view, pickupCode }`. `pickupCode` is a 6-char code the
+  merchant reads to the buyer; it is returned here (and replayed for the same
+  Idempotency-Key) but never on any buyer-facing surface. Audit
+  `proofline.ready_for_pickup`.
+
+#### `POST /api/tasks/:id/proofline/confirm-pickup` → 201
+
+Buyer confirms collection. Headers: `Idempotency-Key`, and `x-session-id` for the
+signed-in path. Body: `{ "code"?: string }`.
+
+- Accepted if the `x-session-id` matches the task's session (`method:
+"buyer_session"`) **or** `code` matches the pickup code (`method:
+"one_time_code"`, case-insensitive).
+- `409 NOT_READY_FOR_PICKUP` — the merchant has not marked it ready.
+- `409 PICKUP_ALREADY_CONFIRMED` — replay.
+- `401 PICKUP_CONFIRM_REJECTED` — neither a matching session nor a valid code.
+- `404 TASK_NOT_FOUND`.
+- On success: `data = { view, method }`. Audit `proofline.pickup_confirmed`.
+
+`view` shape: `{ disclaimer, evidenceStatus: "NOT_STARTED" |
+"MERCHANT_MARKED_READY" | "BUYER_CONFIRMED_PICKUP", readyForPickupAt,
+pickupConfirmedAt, pickupConfirmedBy, events: [{ type, actorRole,
+confirmationMethod, evidenceStatus, at }] }`.
 
 ### `POST /api/routes/:id/quotes` → 201 (quote) / 200 (decline)
 
@@ -90,10 +168,13 @@ otherwise — no quote, no payment).
 - **Quote:** `{ taskId, amountMin, amountMax?, deliveryCharge?, turnaround,
 availabilityNote?, assumptions?, confidence?, fixed?, expiresAt? }`. Builds a
   `Recommendation` with a **pre-filled WhatsApp order message that is never
-  sent**; moves the task `AWAITING_QUOTE → RECOMMENDED → HANDOFF_READY`.
+  sent** and moves the task `AWAITING_QUOTE → RECOMMENDED` (stamping
+  `quotedAt`). It stops there — the buyer must accept via
+  `POST /api/tasks/:id/decision` before it reaches `HANDOFF_READY`.
   `409 QUOTE_EXISTS` on a second response for the same task.
 - **Decline:** `{ decline: true, taskId, reason }`. Records a `DECLINED` quote
-  and moves the task to `FAILED` (`failureReason: "SUPPLIER_DECLINED"`).
+  and moves the task to `FAILED` (`failureReason: "SUPPLIER_DECLINED"`,
+  `quotedAt` + `closedAt` stamped).
 
 ### `POST /api/feedback` → 201
 

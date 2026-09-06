@@ -1,11 +1,20 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { MainContainer } from "@/components/MainContainer";
 import { OfflineBanner } from "@/components/OfflineBanner";
+import { AnalyticsProvider } from "@/features/analytics/AnalyticsProvider";
+import { ServiceWorker } from "@/features/pwa/ServiceWorker";
 import { site } from "@/lib/site";
 import "@/styles/globals.css";
+
+export const viewport: Viewport = {
+  themeColor: "#0f3e17",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 export const metadata: Metadata = {
   title: {
@@ -27,6 +36,17 @@ export const metadata: Metadata = {
     "procurement assistant",
   ],
   authors: [{ name: "Intra" }],
+  appleWebApp: {
+    capable: true,
+    title: site.name,
+    statusBarStyle: "default",
+  },
+  // Legacy alias some iOS versions still read for home-screen standalone mode.
+  other: { "apple-mobile-web-app-capable": "yes" },
+  icons: {
+    icon: [{ url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
+  },
   openGraph: {
     type: "website",
     siteName: site.name,
@@ -51,6 +71,8 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="flex min-h-screen flex-col">
+        <ServiceWorker />
+        <AnalyticsProvider />
         <OfflineBanner />
         <Header />
         <MainContainer>{children}</MainContainer>

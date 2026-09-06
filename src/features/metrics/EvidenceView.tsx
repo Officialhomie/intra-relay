@@ -78,8 +78,10 @@ function SnapshotBody({ snapshot }: { snapshot: MetricsSnapshot }) {
         </DataRow>
         <DataRow label="Verified Celo settlements" hint={snapshot.payments.note}>
           {snapshot.payments.verifiedSettlements}
-          {snapshot.payments.failedAttempts || snapshot.payments.unavailable
-            ? ` (${snapshot.payments.failedAttempts} failed, ${snapshot.payments.unavailable} unavailable)`
+          {snapshot.payments.failedAttempts ||
+          snapshot.payments.unavailable ||
+          snapshot.payments.indeterminate
+            ? ` (${snapshot.payments.failedAttempts} failed, ${snapshot.payments.unavailable} unavailable, ${snapshot.payments.indeterminate} unconfirmed)`
             : ""}
         </DataRow>
       </DataList>

@@ -18,9 +18,13 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/lib/db/migrate-cli.ts",
     "db:seed": "tsx src/lib/db/seed.ts",
+    "eas:new-signer": "tsx src/features/attestation/new-signer-cli.ts",
+    "eas:register": "tsx src/features/attestation/register-schemas-cli.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@amplitude/analytics-browser": "^2.45.8",
+    "@anthropic-ai/sdk": "^0.123.0",
     "@electric-sql/pglite": "^0.5.8",
     "@hookform/resolvers": "^5.9.1",
     "@x402/core": "^2.24.0",
@@ -33,6 +37,8 @@
     "react-dom": "19.0.0",
     "react-hook-form": "^7.86.0",
     "tailwind-merge": "^3.6.0",
+    "viem": "^2.56.1",
+    "web-push": "^3.6.7",
     "zod": "^4.5.2"
   },
   "devDependencies": {
@@ -43,6 +49,7 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
+    "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^6.1.1",
     "autoprefixer": "^10.4.20",
     "drizzle-kit": "^0.31.10",

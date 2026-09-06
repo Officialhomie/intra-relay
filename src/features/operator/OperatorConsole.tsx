@@ -14,6 +14,7 @@ import { ApiError, apiRequest } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
 import { ACTIVATION_CHECKS, ACTIVATION_CHECK_LABELS } from "@/features/routes/activation";
 import { MetricsPanel } from "./MetricsPanel";
+import { EvidencePanel } from "./EvidencePanel";
 
 const KEY_STORAGE = "intra.operatorKey";
 
@@ -46,7 +47,7 @@ export function OperatorConsole() {
   const [items, setItems] = useState<QueueItem[] | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"queue" | "metrics">("queue");
+  const [tab, setTab] = useState<"queue" | "metrics" | "evidence">("queue");
 
   useEffect(() => {
     try {
@@ -147,7 +148,7 @@ export function OperatorConsole() {
         aria-label="Operator views"
         className="flex gap-1 rounded-md border border-border bg-surface p-1"
       >
-        {(["queue", "metrics"] as const).map((value) => (
+        {(["queue", "metrics", "evidence"] as const).map((value) => (
           <button
             key={value}
             role="tab"
@@ -159,12 +160,13 @@ export function OperatorConsole() {
                 : "text-muted hover:text-foreground"
             }`}
           >
-            {value === "queue" ? "Review queue" : "Metrics"}
+            {value === "queue" ? "Review queue" : value === "metrics" ? "Metrics" : "Evidence"}
           </button>
         ))}
       </div>
 
       {tab === "metrics" ? <MetricsPanel operatorKey={operatorKey} /> : null}
+      {tab === "evidence" ? <EvidencePanel operatorKey={operatorKey} /> : null}
 
       {tab === "queue" ? (
         <>

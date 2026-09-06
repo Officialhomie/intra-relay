@@ -1,11 +1,10 @@
 /**
- * Intra design tokens — "calm clinic" light system.
+ * Intra design tokens — warm editorial workspace.
  *
- * Adapted from the Ease Health style reference (docs/design/DESIGN (5).md):
- * a warm off-white canvas, one deep forest green carrying every action and
- * accent, barely-tinted surface layers for elevation (no drop shadows), and
- * hairline borders. Status colours are muted "medical label" tones, always
- * paired with an icon + text (never colour alone) so they stay accessible.
+ * Inspired by the Claude style reference: calm ivory surfaces, ink-dark
+ * actions, generous whitespace and warm hairline borders. This keeps an
+ * operational product approachable without making important trust states feel
+ * like decoration.
  *
  * Components consume these variables directly or through the Tailwind mapping
  * in `tailwind.config.ts`.
@@ -13,28 +12,28 @@
 
 :root {
   /* Canvas + text */
-  --color-bg: #fffefc; /* linen white — warm, never pure */
-  --color-surface: #f6f8f3; /* barely-tinted card / raised panel */
-  --color-surface-accent: #e1f4df; /* linen green — highlight band */
-  --color-sage: #b1dbb8; /* accent spotlight surface */
-  --color-mist: #b6ced5; /* cool counterpoint — informational panels */
-  --color-border: #e5e7eb; /* the single structural hairline */
-  --color-border-strong: #d4d7dc;
+  --color-bg: #faf9f5;
+  --color-surface: #ffffff;
+  --color-surface-accent: #f0eee6;
+  --color-sage: #dfe9df;
+  --color-mist: #ccdbe8;
+  --color-border: #dedcd1;
+  --color-border-strong: #b7b7b5;
 
-  --color-text: #17201a; /* near-black, faintly warm */
-  --color-text-muted: #55605a; /* secondary / metadata */
-  --color-text-subtle: #7c857f; /* tertiary / captions */
+  --color-text: #141413;
+  --color-text-muted: #3d3d3a;
+  --color-text-subtle: #73726c;
 
   /* Action + trust — the only saturated colour */
-  --color-primary: #0f3e17; /* forest ink */
-  --color-primary-hover: #0b3012;
-  --color-primary-contrast: #fffefc;
-  --color-primary-wash: #e1f4df;
-  --color-focus: #0f3e17;
+  --color-primary: #1f1e1d;
+  --color-primary-hover: #141413;
+  --color-primary-contrast: #ffffff;
+  --color-primary-wash: #e9f0f5;
+  --color-focus: #1f1e1d;
 
   /* Status — muted, paired with icon + label everywhere */
-  --color-success: #0f3e17;
-  --color-success-wash: #dcefe1;
+  --color-success: #28563a;
+  --color-success-wash: #e3f0e6;
   --color-warning: #7a5300;
   --color-warning-wash: #f6ecd6;
   --color-danger: #8a1f1f;
@@ -45,7 +44,7 @@
   /* Typography */
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
   --text-xs: 0.75rem;
@@ -54,9 +53,9 @@
   --text-lg: 1.125rem;
   --text-xl: 1.375rem;
   --text-2xl: 1.75rem;
-  --text-3xl: 2.25rem;
+  --text-3xl: 2.5rem;
 
-  --leading-tight: 1.15;
+  --leading-tight: 1.12;
   --leading-snug: 1.3;
   --leading-normal: 1.5;
   --leading-relaxed: 1.65;
@@ -82,14 +81,14 @@
   --space-12: 5rem;
 
   /* Radius — geometric, no in-between values */
-  --radius-sm: 7px; /* inputs, nav items, small chips */
-  --radius-md: 14px; /* cards, buttons, panels */
-  --radius-lg: 18px; /* page-level containers */
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
   --radius-full: 999px; /* status pills, badges */
 
   /* No drop shadows — elevation is border + surface tint */
   --shadow-sm: none;
   --shadow-md: none;
 
-  --container-max: 64rem;
+  --container-max: 72rem;
 }

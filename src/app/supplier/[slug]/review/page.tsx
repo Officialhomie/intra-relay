@@ -7,7 +7,7 @@ import { BadgeCheck, Clock3, ShieldQuestion } from "lucide-react";
 import { Callout } from "@/components/ui/Callout";
 import { DataList, DataRow } from "@/components/ui/DataList";
 import { Card, CardTitle, SectionHeader } from "@/components/ui/Section";
-import { StatusPill, routeStatusTone } from "@/components/ui/StatusPill";
+import { StatusPill, routeStatusLabel, routeStatusTone } from "@/components/ui/StatusPill";
 import { getDb } from "@/lib/db/client";
 import { shortenEvmAddress } from "@/lib/address";
 import { formatDateTime, relativeTime } from "@/lib/format";
@@ -37,10 +37,14 @@ export default async function SupplierReviewPage({
   const { t } = await searchParams;
 
   const db = await getDb();
+  const canManage = t ? await manageTokenMatchesBusinessSlug(db, slug, t) : false;
+  // Contact details and payout address are private to the business owner — a
+  // wrong or missing manage token must fail closed, not render a "read-only"
+  // view of someone else's business details.
+  if (!canManage) notFound();
   const workspace = await getSupplierWorkspace(db, slug);
   if (!workspace) notFound();
 
-  const canManage = t ? await manageTokenMatchesBusinessSlug(db, slug, t) : false;
   const { business, routes } = workspace;
   const addressVerified = business.verifiedByOperatorAt !== null;
 
@@ -146,7 +150,7 @@ export default async function SupplierReviewPage({
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     <StatusPill tone={routeStatusTone(route.status)}>
-                      {route.status.replace(/_/g, " ")}
+                      {routeStatusLabel(route.status)}
                     </StatusPill>
                     {stale ? <StatusPill tone="warning">Stale</StatusPill> : null}
                   </div>
@@ -167,9 +171,6 @@ export default async function SupplierReviewPage({
                       : "Free (no agent query fee)"}
                   </DataRow>
                   <DataRow label="Response SLA">{route.responseSlaMinutes} minutes</DataRow>
-                  <DataRow label="Agent endpoint">
-                    <span className="font-mono text-xs">{route.endpoint}</span>
-                  </DataRow>
                   <DataRow label="Price freshness">
                     {route.priceUpdatedAt ? (
                       <span
@@ -222,7 +223,7 @@ export default async function SupplierReviewPage({
                     <PauseRouteButton routeId={route.id} manageToken={t} />
                   ) : (
                     <p className="text-xs text-muted">
-                      This route is {route.status.replace(/_/g, " ").toLowerCase()}. An operator
+                      This route is {routeStatusLabel(route.status).toLowerCase()}. An operator
                       controls activation; you can pause it once it is live.
                     </p>
                   )

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useRouter } from "next/navigation";
 
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Callout } from "@/components/ui/Callout";
 import { SelectField } from "@/components/ui/SelectField";
 import { TextField } from "@/components/ui/TextField";
+import { useAnalytics } from "@/features/analytics/useAnalytics";
 import { ApiError, apiRequest } from "@/lib/api";
 
 interface Props {
@@ -38,7 +39,20 @@ export function QuoteResponseForm({ routeId, taskId, manageToken, currency }: Pr
   const [phase, setPhase] = useState<"idle" | "pending" | "done" | "error">("idle");
   const [formError, setFormError] = useState<string | null>(null);
 
+  const analytics = useAnalytics("business");
+  const quoteStarted = useRef(false);
+
+  useEffect(() => {
+    analytics.track("request_opened", {});
+    // Once, when this request becomes visible and actionable to the business.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function set(key: keyof typeof values, value: string) {
+    if (!quoteStarted.current) {
+      quoteStarted.current = true;
+      analytics.track("quote_started", {});
+    }
     setValues((current) => ({ ...current, [key]: value }));
   }
 
@@ -97,6 +111,14 @@ export function QuoteResponseForm({ routeId, taskId, manageToken, currency }: Pr
           },
         });
       }
+      if (mode === "decline") {
+        analytics.track("request_declined", { reason_given: true });
+      } else {
+        analytics.track("quote_sent", {
+          pricing_model: priceType === "fixed" ? "FIXED" : "RANGE",
+          turnaround_given: values.turnaround.trim().length > 0,
+        });
+      }
       setPhase("done");
       router.refresh();
     } catch (error) {
@@ -110,7 +132,7 @@ export function QuoteResponseForm({ routeId, taskId, manageToken, currency }: Pr
       <Callout tone="success" title={mode === "decline" ? "Request declined" : "Quote sent"}>
         {mode === "decline"
           ? "The buyer has been told this request cannot be fulfilled."
-          : "The buyer can now review your quote and message you to confirm the order."}
+          : "The buyer will now review your quote and decide whether to proceed. If they do, they message you directly."}
       </Callout>
     );
   }
@@ -167,14 +189,6 @@ export function QuoteResponseForm({ routeId, taskId, manageToken, currency }: Pr
             ) : null}
           </div>
           <TextField
-            label={`Delivery charge (${currency}, optional)`}
-            inputMode="decimal"
-            hint="Leave blank if delivery is included or not applicable."
-            value={values.deliveryCharge}
-            onChange={(event) => set("deliveryCharge", event.target.value)}
-            error={errors.deliveryCharge}
-          />
-          <TextField
             label="Turnaround"
             required
             placeholder="e.g. same day, 2 working days"
@@ -183,36 +197,50 @@ export function QuoteResponseForm({ routeId, taskId, manageToken, currency }: Pr
             error={errors.turnaround}
           />
           <TextField
-            label="Availability note"
-            placeholder="e.g. can start after 2pm today"
-            value={values.availabilityNote}
-            onChange={(event) => set("availabilityNote", event.target.value)}
+            label="Quote valid until"
+            type="datetime-local"
+            hint="Optional — after this the customer must ask again."
+            value={values.expiresAt}
+            onChange={(event) => set("expiresAt", event.target.value)}
           />
-          <TextField
-            label="Assumptions"
-            placeholder="e.g. artwork supplied print-ready"
-            value={values.assumptions}
-            onChange={(event) => set("assumptions", event.target.value)}
-          />
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <SelectField
-              label="Confidence"
-              value={values.confidence}
-              onChange={(event) => set("confidence", event.target.value)}
-              options={[
-                { value: "low", label: "Low" },
-                { value: "medium", label: "Medium" },
-                { value: "high", label: "High" },
-              ]}
-            />
-            <TextField
-              label="Quote expires"
-              type="datetime-local"
-              hint="Optional — after this the buyer must ask again."
-              value={values.expiresAt}
-              onChange={(event) => set("expiresAt", event.target.value)}
-            />
-          </div>
+
+          <details className="rounded-md border border-border bg-bg px-3 py-2 text-sm">
+            <summary className="cursor-pointer font-medium text-muted">
+              Add more detail (optional)
+            </summary>
+            <div className="mt-3 space-y-4">
+              <TextField
+                label={`Delivery charge (${currency})`}
+                inputMode="decimal"
+                hint="Leave blank if delivery is included or not applicable."
+                value={values.deliveryCharge}
+                onChange={(event) => set("deliveryCharge", event.target.value)}
+                error={errors.deliveryCharge}
+              />
+              <TextField
+                label="Availability note"
+                placeholder="e.g. can start after 2pm today"
+                value={values.availabilityNote}
+                onChange={(event) => set("availabilityNote", event.target.value)}
+              />
+              <TextField
+                label="Assumptions"
+                placeholder="e.g. artwork supplied print-ready"
+                value={values.assumptions}
+                onChange={(event) => set("assumptions", event.target.value)}
+              />
+              <SelectField
+                label="Confidence"
+                value={values.confidence}
+                onChange={(event) => set("confidence", event.target.value)}
+                options={[
+                  { value: "low", label: "Low" },
+                  { value: "medium", label: "Medium" },
+                  { value: "high", label: "High" },
+                ]}
+              />
+            </div>
+          </details>
         </>
       ) : (
         <TextField
@@ -224,6 +252,14 @@ export function QuoteResponseForm({ routeId, taskId, manageToken, currency }: Pr
           error={errors.declineReason}
         />
       )}
+
+      {mode === "quote" ? (
+        <Callout tone="info" title="How the buyer sees this">
+          The buyer is shown these figures as the printer&apos;s quote, entered through Intra. Intra
+          does not independently verify them. Set an expiry if the price is only good for a limited
+          time.
+        </Callout>
+      ) : null}
 
       {formError ? (
         <Callout tone="warning" title="Could not send">

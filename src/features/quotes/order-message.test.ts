@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { BusinessRow, QuoteRow, TaskRow } from "@/lib/db/schema";
 
-import { buildOrderMessage, buildRationale } from "./order-message";
+import { buildOrderMessage } from "./order-message";
+import { buildRecommendationSummary } from "./recommendation";
 
 const business = { name: "Campus Prints NG" } as BusinessRow;
 const task = {
@@ -35,12 +36,19 @@ describe("buildOrderMessage (FR-REC-002)", () => {
     expect(buildOrderMessage(business, task, quote)).toContain("estimate");
     expect(buildOrderMessage(business, task, { ...quote, fixed: true })).toContain("fixed price");
   });
+
+  it("adds a reconfirm-the-price caveat when the accepted quote had expired", () => {
+    const expiredMsg = buildOrderMessage(business, task, quote, { expired: true });
+    expect(expiredMsg).toMatch(/passed its stated expiry/i);
+    expect(buildOrderMessage(business, task, quote, { expired: false })).not.toMatch(/expiry/i);
+  });
 });
 
-describe("buildRationale (FR-REC-001)", () => {
-  it("summarises the quote and reminds the buyer to confirm before paying", () => {
-    const rationale = buildRationale(quote);
-    expect(rationale).toContain("NGN 15000.00");
-    expect(rationale).toMatch(/confirm the final price/i);
+describe("buildRecommendationSummary (FR-REC-001)", () => {
+  it("summarises the quote and states it is not independently verified", () => {
+    const summary = buildRecommendationSummary(quote);
+    expect(summary).toContain("NGN 15000.00–18000.00");
+    expect(summary).toMatch(/not independently verified/i);
+    expect(summary).toMatch(/estimate/i);
   });
 });

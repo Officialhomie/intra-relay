@@ -16,35 +16,38 @@ Legend:
 
 ## Proven (safe to demo and claim)
 
-| Capability                                                                                                   | Evidence                                                                                          |
-| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| Guided supplier onboarding: 3-step form, plain language, public-address-only, explicit quote-display consent | `/supplier/onboard`, `OnboardingForm.test.tsx`, `businesses/schema.ts` (no prohibited fields)     |
-| Business + quote-route creation with slug/consent/lifecycle invariants                                       | `POST /api/businesses`, `POST /api/businesses/:slug/routes`, `service.integration.test.ts`        |
-| Operator verification: 6-point pre-activation checklist enforced **server-side**; browser cannot bypass it   | `/operator`, `changeRouteStatus` `CHECKLIST_INCOMPLETE`, `workflow.integration.test.ts`           |
-| Route lifecycle DRAFT → PENDING_VERIFICATION → ACTIVE → PAUSED → ARCHIVED with guarded transitions           | `routes/lifecycle.ts`, `routes/service.integration.test.ts`                                       |
-| A PAUSED / unverified / stale route refuses quote requests and never triggers payment                        | `loadUsableRoute`, `quote-request.ts` `ROUTE_UNAVAILABLE`, `v1.contract.test.ts`                  |
-| Buyer request flow: structured brief, field-level validation, printer selection, live task page              | `/request`, `RequestForm.tsx`, `flow.integration.test.ts`                                         |
-| Genuine supplier quote or safe decline: fixed price or range, currency, turnaround, assumptions, expiry      | `/supplier/:slug/requests`, `quotes/service.ts`, `submitQuoteRequestSchema`                       |
-| Recommendation + pre-filled WhatsApp message that Intra **never sends**; human sends and pays directly       | `TaskPage.tsx` `HandoffCard` (opens `wa.me` in the buyer's own client), `quotes/order-message.ts` |
-| Append-only audit trail for every state change, including failed and unavailable payment events              | `audit_events`, `appendAuditEvent`, timeline on `/tasks/:id`                                      |
-| Public, agent-readable capability + quote API at `/v1` (no MCP)                                              | `docs/CAPABILITY_API.md`, `v1.contract.test.ts`                                                   |
-| Idempotency on every write; a repeated `Idempotency-Key` replays the first outcome                           | `lib/http/idempotency.ts`, `api.integration.test.ts`                                              |
-| No prohibited data (seed phrase, private key, BVN/NIN, card, bank login) is requested, logged, or stored     | `businesses/schema.ts`, `CLAUDE.md` §4.2, schema has no such columns                              |
-| x402 payment **adapter**: 402 challenge, $0.05 server-side cap, immutable receipts, idempotent `X-PAYMENT`   | `features/payments/adapter/`, `x402.test.ts`, `v1.payment.contract.test.ts` (fake facilitator)    |
-| Honest unavailable state: a paid route with no facilitator key returns `503 PAYMENT_SERVICE_UNAVAILABLE`     | `quote-request.ts`, `v1.payment.contract.test.ts` "unconfigured adapter"                          |
-| Privacy-minimised experiment tracking: on-read aggregates, no session ids exposed, real vs demo kept apart   | `features/metrics/`, `report.test.ts`, `evidence.contract.test.ts`; rendered at `/evidence`       |
-| Buyer confirms the handoff was sent → unlocks post-handoff feedback (genuine action, not inferred)           | `POST /api/tasks/:id/handoff-confirm`, `TaskPage.test.tsx`, `report.test.ts`                      |
+| Capability                                                                                                                                                                                                                   | Evidence                                                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Guided supplier onboarding: 3-step form, plain language, public-address-only, explicit quote-display consent                                                                                                                 | `/supplier/onboard`, `OnboardingForm.test.tsx`, `businesses/schema.ts` (no prohibited fields)                   |
+| Business + quote-route creation with slug/consent/lifecycle invariants                                                                                                                                                       | `POST /api/businesses`, `POST /api/businesses/:slug/routes`, `service.integration.test.ts`                      |
+| Operator verification: 6-point pre-activation checklist enforced **server-side**; browser cannot bypass it                                                                                                                   | `/operator`, `changeRouteStatus` `CHECKLIST_INCOMPLETE`, `workflow.integration.test.ts`                         |
+| Route lifecycle DRAFT → PENDING_VERIFICATION → ACTIVE → PAUSED → ARCHIVED with guarded transitions                                                                                                                           | `routes/lifecycle.ts`, `routes/service.integration.test.ts`                                                     |
+| A PAUSED / unverified / stale route refuses quote requests and never triggers payment                                                                                                                                        | `loadUsableRoute`, `quote-request.ts` `ROUTE_UNAVAILABLE`, `v1.contract.test.ts`                                |
+| Buyer request flow: structured brief, field-level validation, printer selection, live task page                                                                                                                              | `/request`, `RequestForm.tsx`, `flow.integration.test.ts`                                                       |
+| Genuine supplier quote or safe decline: fixed price or range, currency, turnaround, assumptions, expiry                                                                                                                      | `/supplier/:slug/requests`, `quotes/service.ts`, `submitQuoteRequestSchema`                                     |
+| Recommendation + pre-filled WhatsApp message that Intra **never sends**; human sends and pays directly                                                                                                                       | `TaskPage.tsx` `HandoffCard` (opens `wa.me` in the buyer's own client), `quotes/order-message.ts`               |
+| Append-only audit trail for every state change, including failed and unavailable payment events                                                                                                                              | `audit_events`, `appendAuditEvent`, timeline on `/tasks/:id`                                                    |
+| Public, agent-readable capability + quote API at `/v1` (no MCP)                                                                                                                                                              | `docs/CAPABILITY_API.md`, `v1.contract.test.ts`                                                                 |
+| Idempotency on every write; a repeated `Idempotency-Key` replays the first outcome                                                                                                                                           | `lib/http/idempotency.ts`, `api.integration.test.ts`                                                            |
+| No prohibited data (seed phrase, private key, BVN/NIN, card, bank login) is requested, logged, or stored                                                                                                                     | `businesses/schema.ts`, `CLAUDE.md` §4.2, schema has no such columns                                            |
+| x402 payment **adapter**: 402 challenge, $0.05 server-side cap, immutable receipts, idempotent `X-PAYMENT`                                                                                                                   | `features/payments/adapter/`, `x402.test.ts`, `v1.payment.contract.test.ts` (fake facilitator)                  |
+| Honest unavailable state: a paid route with no facilitator key returns `503 PAYMENT_SERVICE_UNAVAILABLE`                                                                                                                     | `quote-request.ts`, `v1.payment.contract.test.ts` "unconfigured adapter"                                        |
+| Payment failure taxonomy (ADR-017): infra/verification absent ⇒ `503` (not the agent's fault); bad authorisation ⇒ `402`; a `settle` timeout ⇒ `503 PAYMENT_SETTLEMENT_INDETERMINATE`, claimed neither way, never re-settled | `adapter/x402.ts`, `quote-request.ts`, `v1.payment.contract.test.ts` (facilitator unreachable / settle timeout) |
+| A malformed `X402_*` env degrades to `PAYMENT_SERVICE_UNAVAILABLE` (logged once) and never blocks the quote workflow; a malformed `X402_ATTRIBUTION_TAG` is ignored, never recorded                                          | `adapter/config.ts`, `adapter/index.ts`, `adapter/config.test.ts`, `adapter/index.test.ts`                      |
+| `X402_API_KEY` never appears in a response, audit event, receipt row, or `describe()`                                                                                                                                        | `adapter/index.test.ts`, `v1.payment.contract.test.ts` "never leaks X402_API_KEY"                               |
+| Privacy-minimised experiment tracking: on-read aggregates, no session ids exposed, real vs demo kept apart                                                                                                                   | `features/metrics/`, `report.test.ts`, `evidence.contract.test.ts`; rendered at `/evidence`                     |
+| Buyer confirms the handoff was sent → unlocks post-handoff feedback (genuine action, not inferred)                                                                                                                           | `POST /api/tasks/:id/handoff-confirm`, `TaskPage.test.tsx`, `report.test.ts`                                    |
 
 ## Conditional (needs external Celo access — state the dependency out loud)
 
-| Claim                                                                        | Depends on                                                    | Honest fallback shown in the demo                                  |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------ |
-| A live x402 402 → verify → settle against the **official Celo facilitator**  | `X402_API_KEY` from the Celo x402 dashboard (`x402.celo.org`) | `503 PAYMENT_SERVICE_UNAVAILABLE`; no receipt, no hash             |
-| A **SETTLED** query-fee receipt with a real transaction hash + Celoscan link | A verified mainnet transaction from the facilitator           | Receipt only ever renders `SETTLED` after facilitator verification |
-| ERC-8021 attribution tag credited on the hackathon leaderboard               | Tag issued at hackathon registration → `X402_ATTRIBUTION_TAG` | Tag is absent everywhere until set; never a hard-coded literal     |
-| ERC-8004 Agent ID / any claimed on-chain agent identity                      | Celo Builders registration                                    | No registration-dependent claims are made in the UI                |
-| cPay (closed-beta agent marketplace) settlement                              | cPay SDK + access (no public docs yet)                        | `getPaymentAdapter()` falls back to the unavailable adapter        |
-| Hosted / preview deployment                                                  | Managed Postgres `DATABASE_URL` + platform env vars           | Runs fully locally on embedded PGlite; see `docs/DEPLOYMENT.md`    |
+| Claim                                                                        | Depends on                                                    | Honest fallback shown in the demo                                                                                                            |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| A live x402 402 → verify → settle against the **official Celo facilitator**  | `X402_API_KEY` from the Celo x402 dashboard (`x402.celo.org`) | `503 PAYMENT_SERVICE_UNAVAILABLE`; no receipt, no hash. Audited against the `@x402/core` SDK, not a live facilitator (no key present).       |
+| A **SETTLED** query-fee receipt with a real transaction hash + Celoscan link | A verified mainnet transaction from the facilitator           | Receipt only ever renders `SETTLED` after facilitator verification; a `settle` timeout renders `AUTHORISED` ("being reconciled"), never paid |
+| ERC-8021 attribution tag credited on the hackathon leaderboard               | Tag issued at hackathon registration → `X402_ATTRIBUTION_TAG` | Tag is absent everywhere until set; never a hard-coded literal                                                                               |
+| ERC-8004 Agent ID / any claimed on-chain agent identity                      | Celo Builders registration                                    | No registration-dependent claims are made in the UI                                                                                          |
+| cPay (closed-beta agent marketplace) settlement                              | cPay SDK + access (no public docs yet)                        | `getPaymentAdapter()` falls back to the unavailable adapter                                                                                  |
+| Hosted / preview deployment                                                  | Managed Postgres `DATABASE_URL` + platform env vars           | Runs fully locally on embedded PGlite; see `docs/DEPLOYMENT.md`                                                                              |
 
 ## Not built (do not imply)
 
@@ -60,10 +63,15 @@ Legend:
 
 ## One-line answers for judges
 
-- **"Is the payment real?"** — The adapter, cap, receipt immutability, and 402
-  flow are real and tested. Live settlement needs the official facilitator key;
-  without it we return an explicit unavailable state and never fake a receipt.
+- **"Is the payment real?"** — The adapter, `$0.05` cap, receipt immutability,
+  the 402 flow, and the failure taxonomy (bad-auth `402` vs infra `503` vs
+  indeterminate `503`) are real and tested against the `@x402/core` SDK. Live
+  settlement needs the official facilitator key; without it we return an explicit
+  unavailable state and never fake a receipt.
 - **"Did the agent actually pay on Celo in this demo?"** — Only if `X402_API_KEY`
   is set and you saw a Celoscan link. Otherwise: no, and the app said so.
+- **"What if settlement times out?"** — The receipt is `AUTHORISED`, not paid.
+  The agent is told not to re-authorise (double-pay risk) and to check the
+  explorer. We never guess.
 - **"Can Intra place the order?"** — No, by design. The buyer sends the WhatsApp
   message and pays the printer directly.

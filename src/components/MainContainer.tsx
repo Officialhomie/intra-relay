@@ -10,7 +10,7 @@ interface MainContainerProps {
  */
 export function MainContainer({ children }: MainContainerProps) {
   return (
-    <main className="mx-auto w-full max-w-[var(--container-max)] flex-1 px-4 py-10">
+    <main className="mx-auto w-full max-w-[var(--container-max)] flex-1 px-4 py-10 sm:px-6 sm:py-14">
       {children}
     </main>
   );

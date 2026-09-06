@@ -30,6 +30,9 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# generated key material — never commit (milestone 9)
+.attestation-signer-key
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
@@ -41,3 +44,4 @@ Thumbs.db
 
 # local tooling (Claude Code preview launcher, etc.)
 .claude/
+.vercel

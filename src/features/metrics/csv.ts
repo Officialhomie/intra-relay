@@ -130,6 +130,12 @@ function snapshotRows(snapshot: MetricsSnapshot): EvidenceRow[] {
       metric: "unavailable",
       value: snapshot.payments.unavailable,
     },
+    {
+      scope: s,
+      section: "payments",
+      metric: "indeterminate",
+      value: snapshot.payments.indeterminate,
+    },
   ];
   for (const [status, count] of Object.entries(snapshot.tasks.byStatus)) {
     rows.push({ scope: s, section: "task_status", metric: status, value: count });

@@ -12,25 +12,55 @@ No endpoint returns, and no code path fabricates, a 402 settlement, an
 
 ---
 
+## Capability Card contract
+
+Each entry in `data.routes` is a **Capability Card** — the machine-readable
+statement of one verified route. A card always states, for another agent:
+
+| Field                         | Meaning                                                                                          |
+| ----------------------------- | ------------------------------------------------------------------------------------------------ |
+| `name`, `description`         | what the verified printer can do                                                                 |
+| `inputSchema`                 | the required (and optional) request fields                                                       |
+| `status`                      | route lifecycle status (`DRAFT` … `ARCHIVED`) — **not** a usability verdict                      |
+| `availability`                | whether the route accepts a quote request **right now** (`AVAILABLE` / `UNAVAILABLE` + `reason`) |
+| `quoteSla`                    | response expectation — asynchronous, supplier replies within `responseWithinMinutes`             |
+| `freshness`                   | when price/availability was last confirmed, when it goes stale, and the stale behaviour          |
+| `stale`, `priceUpdatedAt`     | retained flat fields (same data as `freshness`)                                                  |
+| `finalOrderPolicy`, `handoff` | final order needs buyer approval and a human-sent WhatsApp handoff                               |
+| `orderContact`                | concrete order channel — **only** on a route whose `availability.state` is `AVAILABLE`           |
+| `payment`                     | free vs. paid, the `$0.05` query-fee cap, and x402 facilitator state                             |
+
+**An `ACTIVE` route with stale critical data is never silently presented as
+current.** Its `status` stays `ACTIVE` but `availability.state` becomes
+`UNAVAILABLE` with `reason: "STALE"`, `orderContact` is dropped, and the quote
+endpoint returns `409 ROUTE_UNAVAILABLE`. `PAUSED`, `DRAFT`, and
+`PENDING_VERIFICATION` routes report `reason: "NOT_ACTIVE"`; a route or business
+that is not operator-verified reports `reason: "NOT_VERIFIED"`.
+
 ## `GET /v1/:businessSlug/capabilities` → 200
 
 The capability document for a business and **all** of its quote routes (any
 status). `Cache-Control: no-store` — route status can change at any time.
 `404 BUSINESS_NOT_FOUND` for an unknown slug.
 
+All values below are **clearly-marked demo data** — not a real merchant, address,
+or endpoint.
+
 ```jsonc
 {
   "success": true,
   "data": {
+    "version": "0.2", // capability-document contract version
     "business": {
-      "slug": "campus-prints-ng",
-      "name": "Campus Prints NG",
+      "slug": "demo-campus-prints",
+      "name": "Demo Campus Prints (sample)",
       "category": "printing",
       "location": { "city": "Lagos", "country": "Nigeria" },
       "operatorVerified": true,
     },
     "finalOrderPolicy": {
       "humanApprovalRequired": true,
+      "whatsappHandoffRequired": true,
       "statement": "Intra never places the final order or moves buyer funds. …",
     },
     "routes": [
@@ -39,11 +69,28 @@ status). `Cache-Control: no-store` — route status can change at any time.
         "name": "Flyer printing quote",
         "description": "A structured request for current flyer pricing, availability, and turnaround.",
         "status": "ACTIVE", // route lifecycle status
+        "availability": {
+          "state": "AVAILABLE", // "UNAVAILABLE" when not accepting quote requests
+          "acceptingQuoteRequests": true,
+          "reason": "OK", // OK | NOT_ACTIVE | NOT_VERIFIED | STALE
+          "detail": "The route is active, operator-verified, and its price data is fresh. …",
+        },
+        "quoteSla": {
+          "responseWithinMinutes": 30,
+          "expectation": "No synchronous quote. A valid request is recorded and a supplier responds out of band, normally within responseWithinMinutes.",
+        },
         "lastUpdatedAt": "2026-08-30T10:00:00.000Z",
         "priceUpdatedAt": "2026-08-30T09:55:00.000Z",
         "stale": false, // price data older than 14 days
-        "endpoint": "/v1/campus-prints-ng/flyer-printing/quote",
-        "quoteEndpoint": "/v1/campus-prints-ng/flyer-printing/quote",
+        "freshness": {
+          "priceConfirmedAt": "2026-08-30T09:55:00.000Z",
+          "maxAgeDays": 14,
+          "staleAfter": "2026-09-13T09:55:00.000Z",
+          "stale": false,
+          "behaviour": "Price/availability data must be reconfirmed by the supplier within maxAgeDays. Once staleAfter passes (or it was never confirmed) the route becomes UNAVAILABLE and the quote endpoint returns 409 ROUTE_UNAVAILABLE until it is refreshed.",
+        },
+        "endpoint": "/v1/demo-campus-prints/flyer-printing/quote",
+        "quoteEndpoint": "/v1/demo-campus-prints/flyer-printing/quote",
         "inputSchema": {
           "type": "object",
           "fields": [
@@ -108,19 +155,31 @@ status). `Cache-Control: no-store` — route status can change at any time.
         },
         "payment": {
           "queryFeeUsd": 0.02,
+          "maxFeeUsd": 0.05,
           "paid": true,
-          "facilitator": "x402",
+          "provider": "x402",
           "available": false,
           "state": "PAYMENT_SERVICE_UNAVAILABLE",
+          "code": "NOT_CONFIGURED", // or "CONFIG_ERROR" if an X402_* value is invalid
+          "outcomes": "200 SETTLED · 402 PAYMENT_REQUIRED (no X-PAYMENT) · 402 PAYMENT_FAILED (bad authorisation) · 503 PAYMENT_SERVICE_UNAVAILABLE · 503 PAYMENT_SETTLEMENT_INDETERMINATE",
           "note": "Paid route, but no x402 / cPay facilitator is configured. …",
         },
         "payoutAddress": "0x0000000000000000000000000000000000000001",
         "responseSlaMinutes": 30,
-        "finalOrderPolicy": { "humanApprovalRequired": true, "statement": "…" },
+        "finalOrderPolicy": {
+          "humanApprovalRequired": true,
+          "whatsappHandoffRequired": true,
+          "statement": "…",
+        },
+        "handoff": {
+          "humanApprovalRequired": true,
+          "channelType": "whatsapp",
+          "mechanism": "Intra returns a pre-filled WhatsApp message with the quote. A human buyer reviews it, sends it to the supplier, and settles payment directly. No agent sends the message or pays the supplier.",
+        },
         "orderContact": {
-          // present ONLY while status === "ACTIVE"
+          // present ONLY while availability.state === "AVAILABLE"
           "channel": "whatsapp",
-          "value": "+2348000000000",
+          "value": "+2348000000000", // demo number
           "note": "Order channel — a human sends the final order here. Intra never sends it.",
         },
       },
@@ -130,7 +189,33 @@ status). `Cache-Control: no-store` — route status can change at any time.
 }
 ```
 
-`orderContact` is **omitted** for any route that is not `ACTIVE`.
+`orderContact` is **omitted** for any route that is not `AVAILABLE` (paused,
+draft, pending verification, unverified, or stale). `handoff` is always present
+and states the mechanism without a concrete contact value.
+
+### Example — an `ACTIVE` route gone stale (demo data)
+
+```jsonc
+{
+  "slug": "flyer-printing",
+  "status": "ACTIVE",
+  "availability": {
+    "state": "UNAVAILABLE",
+    "acceptingQuoteRequests": false,
+    "reason": "STALE",
+    "detail": "The route is ACTIVE but its price/availability data has not been reconfirmed within the freshness window, so it is explicitly unavailable until the supplier refreshes it. …",
+  },
+  "stale": true,
+  "freshness": {
+    "priceConfirmedAt": "2026-07-01T09:00:00.000Z",
+    "maxAgeDays": 14,
+    "staleAfter": "2026-07-15T09:00:00.000Z",
+    "stale": true,
+    "behaviour": "…",
+  },
+  // no `orderContact`
+}
+```
 
 ---
 
@@ -161,20 +246,24 @@ a settled response returns `X-PAYMENT-RESPONSE`.
 
 ### Outcomes
 
-| Status  | `error.code` / `data`                                               | When                                                                                                                                  | Side effects                                                                                                                                                                  |
-| ------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **404** | `BUSINESS_NOT_FOUND` / `ROUTE_NOT_FOUND`                            | unknown slug                                                                                                                          | none                                                                                                                                                                          |
-| **409** | `ROUTE_UNAVAILABLE`                                                 | route is not `ACTIVE`, not operator-verified, or its price data is stale (> 14 days)                                                  | **none — no task, no settlement**                                                                                                                                             |
-| **422** | `VALIDATION_FAILED`                                                 | a required input is missing or invalid                                                                                                | none — no task                                                                                                                                                                |
-| **402** | `PAYMENT_REQUIRED`                                                  | paid route, x402 configured, **no `X-PAYMENT`** — `details.accepts[0]` holds the x402 requirements, `details.maxFeeUsd` the $0.05 cap | audit `payment.challenge_issued`; **no task**                                                                                                                                 |
-| **402** | `PAYMENT_FAILED`                                                    | `X-PAYMENT` present but verify/settle failed or exceeded the cap (`details.code`)                                                     | immutable `service_payments` row `FAILED`; audit `payment.failed`; **no task**                                                                                                |
-| **200** | `data.outcome = "QUOTE_PENDING"`, `data.payment.status = "SETTLED"` | `X-PAYMENT` verified + settled on-chain                                                                                               | immutable `SETTLED` receipt (`txHash`, `network`, `explorerUrl`); audits `payment.settled` + `capability.quote_requested`; task `AWAITING_QUOTE`; `X-PAYMENT-RESPONSE` header |
-| **503** | `PAYMENT_SERVICE_UNAVAILABLE`                                       | valid request on a **paid** route while no x402 / cPay facilitator is configured                                                      | **`Task` (`AWAITING_QUOTE`) + audit created**; `service_payments` row `UNAVAILABLE`                                                                                           |
-| **202** | `data.outcome = "AWAITING_QUOTE"`                                   | valid request on a **free** route (`queryFeeUsd === 0`)                                                                               | task + audit created                                                                                                                                                          |
-| **501** | `PAYMENT_FLOW_NOT_IMPLEMENTED`                                      | a facilitator is configured but the 402 flow is unbuilt for it                                                                        | task created                                                                                                                                                                  |
+| Status  | `error.code` / `data`                                               | When                                                                                                                                                     | Side effects                                                                                                                                                                                                              |
+| ------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **404** | `BUSINESS_NOT_FOUND` / `ROUTE_NOT_FOUND`                            | unknown slug                                                                                                                                             | none                                                                                                                                                                                                                      |
+| **409** | `ROUTE_UNAVAILABLE`                                                 | route is not `ACTIVE`, not operator-verified, or its price data is stale (> 14 days)                                                                     | **none — no task, no settlement**                                                                                                                                                                                         |
+| **422** | `VALIDATION_FAILED`                                                 | a required input is missing or invalid                                                                                                                   | none — no task                                                                                                                                                                                                            |
+| **402** | `PAYMENT_REQUIRED`                                                  | paid route, x402 configured, **no `X-PAYMENT`** — `details.accepts[0]` holds the x402 requirements, `details.maxFeeUsd` the $0.05 cap                    | audit `payment.challenge_issued`; **no task**                                                                                                                                                                             |
+| **402** | `PAYMENT_FAILED`                                                    | `X-PAYMENT` present, authorisation **genuinely bad** — undecodable, over the $0.05 cap, `verify.isValid = false`, or an on-chain revert (`details.code`) | immutable `service_payments` row `FAILED`; audit `payment.failed`; **no task**. The agent may fix and retry with a fresh authorisation.                                                                                   |
+| **200** | `data.outcome = "QUOTE_PENDING"`, `data.payment.status = "SETTLED"` | `X-PAYMENT` verified + settled on-chain                                                                                                                  | immutable `SETTLED` receipt (`txHash`, `network`, `explorerUrl`); audits `payment.settled` + `capability.quote_requested`; task `AWAITING_QUOTE`; `X-PAYMENT-RESPONSE` header                                             |
+| **503** | `PAYMENT_SERVICE_UNAVAILABLE`                                       | no x402 key / an invalid `X402_*` config; **or** the facilitator was unreachable on `verify` (`details.retryable = true`, `details.code`)                | no-key path: `Task` (`AWAITING_QUOTE`) + `service_payments` `UNAVAILABLE`. verify-unreachable path: `service_payments` `UNAVAILABLE` (no `authorization_key`), **no task**.                                               |
+| **503** | `PAYMENT_SETTLEMENT_INDETERMINATE`                                  | `verify` passed but `settle` timed out / returned no usable tx hash (`details.retryable = false`, `details.guidance`)                                    | immutable `service_payments` row `AUTHORISED` (`errorCode = SETTLE_INDETERMINATE`, **no tx hash**); audit `payment.indeterminate`; **no task**. Re-presenting the same `X-PAYMENT` returns this again — never re-settled. |
+| **202** | `data.outcome = "AWAITING_QUOTE"`                                   | valid request on a **free** route (`queryFeeUsd === 0`)                                                                                                  | task + audit created                                                                                                                                                                                                      |
 
-Never fabricated: a 402 settlement, an `X-PAYMENT` verification, a receipt, or a
-transaction hash.
+Never fabricated: a settlement, an `X-PAYMENT` verification, a receipt, or a
+transaction hash. A `settle` timeout is claimed **neither** way.
+
+**Idempotency:** the `Idempotency-Key` scope folds in a hash of the `X-PAYMENT`
+header, so an agent can reuse the same key for the `402` probe and the paid
+retry (the standard x402 pattern).
 
 `PAYMENT_REQUIRED` body: `details = { x402Version, resource, accepts: [ { scheme:
 "exact", network: "eip155:42220", asset, amount, payTo, maxTimeoutSeconds, extra
@@ -207,7 +296,7 @@ assetSymbol, amountAtomic, explorerUrl }`.
 
 `VALIDATION_FAILED` body: `details.fieldErrors` is `{ "<field>": ["<message>"] }`.
 
-`PAYMENT_SERVICE_UNAVAILABLE` body:
+`PAYMENT_SERVICE_UNAVAILABLE` body (no facilitator key — a `Task` is created):
 
 ```jsonc
 {
@@ -230,11 +319,38 @@ assetSymbol, amountAtomic, explorerUrl }`.
 }
 ```
 
+When an `X-PAYMENT` was presented but the facilitator was unreachable on
+`verify`, the body is `{ code: "PAYMENT_SERVICE_UNAVAILABLE", details: { code:
+"VERIFY_REQUEST_FAILED", retryable: true, payment: { status: "UNAVAILABLE",
+settlement: null, txHash: null } } }` and **no task** is created — retry once the
+facilitator recovers.
+
+`PAYMENT_SETTLEMENT_INDETERMINATE` body:
+
+```jsonc
+{
+  "success": false,
+  "error": {
+    "code": "PAYMENT_SETTLEMENT_INDETERMINATE",
+    "message": "Verification passed but the settlement outcome is unknown. Do not re-authorise — that could pay twice.",
+    "details": {
+      "code": "SETTLE_INDETERMINATE",
+      "retryable": false,
+      "guidance": "Do NOT retry with a new X-PAYMENT authorisation. Check the block explorer for a transfer from your payer address; if it landed, the query fee is already paid. Ask the route operator to reconcile.",
+      "payment": { "status": "AUTHORISED", "settlement": "unknown", "txHash": null },
+    },
+  },
+}
+```
+
 ### Notes
 
 - **Staleness**: a route's price data must have been confirmed within
   `PRICE_FRESHNESS_MAX_AGE_MS` (14 days). `priceUpdatedAt` is set at operator
-  activation and can be refreshed later.
+  activation and can be refreshed later. The capability card exposes the exact
+  `freshness.staleAfter` instant; past it the card's `availability.state` flips
+  to `UNAVAILABLE` (`reason: "STALE"`) while `status` stays `ACTIVE`, and this
+  endpoint returns `409 ROUTE_UNAVAILABLE`.
 - **No synchronous quote**: a supplier responds out of band within the SLA. The
   agent-side result endpoint (`GET /v1/tasks/:id`) and the real x402 402 →
   authorise → settle flow arrive with the payment phase (ADR-004).

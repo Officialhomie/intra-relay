@@ -1,3 +1,22 @@
 {
-  "extends": ["next/core-web-vitals", "next/typescript", "prettier"]
+  "extends": ["next/core-web-vitals", "next/typescript", "prettier"],
+  "rules": {
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["@amplitude/*"],
+            "message": "Do not import the Amplitude SDK directly. All analytics goes through src/features/analytics/ (ADR-021, M9.5 §29)."
+          }
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["src/features/analytics/**"],
+      "rules": { "no-restricted-imports": "off" }
+    }
+  ]
 }

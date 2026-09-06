@@ -14,6 +14,7 @@ import {
   X402_TEST_CONFIG,
   buildXPaymentHeader,
 } from "@/features/payments/adapter/__fixtures__/fake-facilitator";
+import { updateRoute } from "@/features/routes/repository";
 import { createActiveRoute } from "@/test-support/factories";
 
 import { POST as quote } from "./[businessSlug]/[routeSlug]/quote/route";
@@ -22,12 +23,19 @@ let db: Database;
 let close: () => Promise<void>;
 let n = 0;
 
+const X402_ENV = ["X402_API_KEY", "X402_NETWORK", "X402_ASSET", "X402_ATTRIBUTION_TAG"] as const;
+const originalEnv = Object.fromEntries(X402_ENV.map((k) => [k, process.env[k]]));
+
 beforeEach(async () => {
   ({ db, close } = await createTestDatabase());
 });
 afterEach(async () => {
   await close();
   __setPaymentAdapter(null);
+  for (const k of X402_ENV) {
+    if (originalEnv[k] === undefined) delete process.env[k];
+    else process.env[k] = originalEnv[k];
+  }
 });
 
 const params = <T extends Record<string, string>>(v: T) => ({ params: Promise.resolve(v) });
@@ -267,5 +275,180 @@ describe("POST /v1/:business/:route/quote — payments", () => {
     );
     expect(res.status).toBe(402);
     expect(res.body.error.details.code).toBe("REQUIREMENTS_MISMATCH");
+  });
+
+  it("facilitator unreachable on verify → 503 (not the agent's fault), no task, retry allowed", async () => {
+    __setPaymentAdapter(
+      new X402PaymentAdapter(X402_TEST_CONFIG, new FakeFacilitator({ verifyThrows: true })),
+    );
+    const { business, route } = await createActiveRoute(db);
+    const res = await read(
+      await quote(
+        req(
+          `/v1/${business.slug}/flyer-printing/quote`,
+          { input: INPUT },
+          { "x-payment": buildXPaymentHeader({ payTo: route.payoutAddress }) },
+        ),
+        params({ businessSlug: business.slug, routeSlug: "flyer-printing" }),
+      ),
+    );
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe("PAYMENT_SERVICE_UNAVAILABLE");
+    expect(res.body.error.details.retryable).toBe(true);
+    expect(await db.select().from(tasks)).toHaveLength(0);
+    const [payment] = await db.select().from(servicePayments);
+    expect(payment.status).toBe("UNAVAILABLE");
+    expect(payment.txHash).toBeNull();
+  });
+
+  it("settle timeout → 503 INDETERMINATE + immutable AUTHORISED receipt; a replay never re-settles", async () => {
+    const facilitator = new FakeFacilitator({ settleThrows: true });
+    __setPaymentAdapter(new X402PaymentAdapter(X402_TEST_CONFIG, facilitator));
+    const { business, route } = await createActiveRoute(db);
+    const header = buildXPaymentHeader({
+      payTo: route.payoutAddress,
+      nonce: `0x${"a".repeat(64)}`,
+    });
+
+    const first = await read(
+      await quote(
+        req(`/v1/${business.slug}/flyer-printing/quote`, { input: INPUT }, { "x-payment": header }),
+        params({ businessSlug: business.slug, routeSlug: "flyer-printing" }),
+      ),
+    );
+    expect(first.status).toBe(503);
+    expect(first.body.error.code).toBe("PAYMENT_SETTLEMENT_INDETERMINATE");
+    expect(first.body.error.details.retryable).toBe(false);
+    expect(JSON.stringify(first.body)).not.toMatch(/0x[0-9a-f]{64}/i); // no fabricated hash
+    expect(await db.select().from(tasks)).toHaveLength(0);
+
+    const [payment] = await db.select().from(servicePayments);
+    expect(payment.status).toBe("AUTHORISED");
+    expect(payment.errorCode).toBe("SETTLE_INDETERMINATE");
+    expect(payment.txHash).toBeNull();
+    expect(facilitator.verifyCalls).toBe(1);
+    expect(facilitator.settleCalls).toBe(1);
+
+    // Re-present the same X-PAYMENT under a fresh Idempotency-Key.
+    const second = await read(
+      await quote(
+        req(`/v1/${business.slug}/flyer-printing/quote`, { input: INPUT }, { "x-payment": header }),
+        params({ businessSlug: business.slug, routeSlug: "flyer-printing" }),
+      ),
+    );
+    expect(second.status).toBe(503);
+    expect(second.body.error.code).toBe("PAYMENT_SETTLEMENT_INDETERMINATE");
+    expect(facilitator.verifyCalls).toBe(1); // not re-verified
+    expect(facilitator.settleCalls).toBe(1); // not re-settled
+    expect(await db.select().from(servicePayments)).toHaveLength(1);
+  });
+
+  it("the SAME Idempotency-Key for the 402 probe then the paid retry works (x402 retry pattern)", async () => {
+    __setPaymentAdapter(new X402PaymentAdapter(X402_TEST_CONFIG, new FakeFacilitator()));
+    const { business, route } = await createActiveRoute(db);
+    const KEY = "agent-request-key-01";
+
+    const probe = await read(
+      await quote(
+        req(`/v1/${business.slug}/flyer-printing/quote`, { input: INPUT }, {}, KEY),
+        params({ businessSlug: business.slug, routeSlug: "flyer-printing" }),
+      ),
+    );
+    expect(probe.status).toBe(402);
+    expect(probe.body.error.code).toBe("PAYMENT_REQUIRED");
+
+    const paid = await read(
+      await quote(
+        req(
+          `/v1/${business.slug}/flyer-printing/quote`,
+          { input: INPUT },
+          { "x-payment": buildXPaymentHeader({ payTo: route.payoutAddress }) },
+          KEY, // same key
+        ),
+        params({ businessSlug: business.slug, routeSlug: "flyer-printing" }),
+      ),
+    );
+    expect(paid.status).toBe(200);
+    expect(paid.body.data.payment.status).toBe("SETTLED");
+  });
+
+  it("re-presenting a rejected authorisation → 402 already-rejected, facilitator not called again", async () => {
+    const facilitator = new FakeFacilitator({ verify: VERIFY_INVALID });
+    __setPaymentAdapter(new X402PaymentAdapter(X402_TEST_CONFIG, facilitator));
+    const { business, route } = await createActiveRoute(db);
+    const header = buildXPaymentHeader({
+      payTo: route.payoutAddress,
+      nonce: `0x${"b".repeat(64)}`,
+    });
+
+    const first = await read(
+      await quote(
+        req(`/v1/${business.slug}/flyer-printing/quote`, { input: INPUT }, { "x-payment": header }),
+        params({ businessSlug: business.slug, routeSlug: "flyer-printing" }),
+      ),
+    );
+    expect(first.status).toBe(402);
+    expect(first.body.error.details.code).toBe("VERIFICATION_FAILED");
+
+    const second = await read(
+      await quote(
+        req(`/v1/${business.slug}/flyer-printing/quote`, { input: INPUT }, { "x-payment": header }),
+        params({ businessSlug: business.slug, routeSlug: "flyer-printing" }),
+      ),
+    );
+    expect(second.status).toBe(402);
+    expect(facilitator.verifyCalls).toBe(1); // second request short-circuits
+    expect(await db.select().from(servicePayments)).toHaveLength(1);
+  });
+
+  it("a misconfigured X402_NETWORK never 500s — free routes still 202, paid routes 503", async () => {
+    process.env.X402_API_KEY = "metering-key";
+    process.env.X402_NETWORK = "eip155:1"; // not a supported Celo network
+    __setPaymentAdapter(null); // force the real getPaymentAdapter() path
+
+    const { business, route } = await createActiveRoute(db);
+
+    const paid = await read(
+      await quote(
+        req(`/v1/${business.slug}/flyer-printing/quote`, { input: INPUT }),
+        params({ businessSlug: business.slug, routeSlug: "flyer-printing" }),
+      ),
+    );
+    expect(paid.status).toBe(503);
+    expect(paid.body.error.code).toBe("PAYMENT_SERVICE_UNAVAILABLE");
+
+    await updateRoute(db, route.id, { queryFeeUsd: "0.0000" });
+    const free = await read(
+      await quote(
+        req(`/v1/${business.slug}/flyer-printing/quote`, { input: INPUT }),
+        params({ businessSlug: business.slug, routeSlug: "flyer-printing" }),
+      ),
+    );
+    expect(free.status).toBe(202);
+    expect(free.body.data.outcome).toBe("AWAITING_QUOTE");
+  });
+
+  it("never leaks X402_API_KEY into a response body, audit event, or receipt row", async () => {
+    const SECRET = "x402-metering-secret-value";
+    process.env.X402_API_KEY = SECRET;
+    __setPaymentAdapter(
+      new X402PaymentAdapter({ ...X402_TEST_CONFIG, apiKey: SECRET }, new FakeFacilitator()),
+    );
+    const { business, route } = await createActiveRoute(db);
+
+    const res = await read(
+      await quote(
+        req(
+          `/v1/${business.slug}/flyer-printing/quote`,
+          { input: INPUT },
+          { "x-payment": buildXPaymentHeader({ payTo: route.payoutAddress }) },
+        ),
+        params({ businessSlug: business.slug, routeSlug: "flyer-printing" }),
+      ),
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.stringify(res.body)).not.toContain(SECRET);
+    expect(JSON.stringify(await db.select().from(auditEvents))).not.toContain(SECRET);
+    expect(JSON.stringify(await db.select().from(servicePayments))).not.toContain(SECRET);
   });
 });

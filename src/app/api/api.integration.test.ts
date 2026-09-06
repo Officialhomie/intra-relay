@@ -10,6 +10,7 @@ import { POST as createFeedback } from "./feedback/route";
 import { POST as createQuote } from "./routes/[id]/quotes/route";
 import { PATCH as patchRouteStatus } from "./routes/[id]/status/route";
 import { GET as getTask } from "./tasks/[id]/route";
+import { POST as decideTask } from "./tasks/[id]/decision/route";
 import { POST as createTask } from "./tasks/route";
 import { POST as submitTask } from "./tasks/[id]/submit/route";
 
@@ -47,6 +48,29 @@ describe("API route handlers", () => {
     const { status, body } = await readJson(res);
     expect(status).toBe(400);
     expect((body.error as { code: string }).code).toBe("IDEMPOTENCY_KEY_REQUIRED");
+  });
+
+  it("rejects creating a service route on a business with no operator key or manage token (phase D)", async () => {
+    const business = (
+      await readJson(
+        await createBusiness(
+          post("/api/businesses", businessInput(), { "idempotency-key": "idem-key-authz-biz-01" }),
+          params({}),
+        ),
+      )
+    ).body.data as { slug: string };
+
+    const res = await createRoute(
+      post(
+        `/api/businesses/${business.slug}/routes`,
+        {},
+        { "idempotency-key": "idem-key-authz-01" },
+      ),
+      params({ slug: business.slug }),
+    );
+    const { status, body } = await readJson(res);
+    expect(status).toBe(401);
+    expect((body.error as { code: string }).code).toBe("SUPPLIER_AUTH_REQUIRED");
   });
 
   it("replays the stored response for a repeated Idempotency-Key and rejects a reuse with a new body", async () => {
@@ -92,7 +116,7 @@ describe("API route handlers", () => {
     const route = (
       await readJson(
         await createRoute(
-          post(`/api/businesses/${business.slug}/routes`, {}, idem("route")),
+          post(`/api/businesses/${business.slug}/routes`, {}, { ...idem("route"), ...op }),
           params({ slug: business.slug }),
         ),
       )
@@ -193,11 +217,67 @@ describe("API route handlers", () => {
     const data = view.body.data as {
       task: { status: string };
       payments: { status: string }[];
+      supplier: { contactChannelValue: string | null } | null;
       recommendation: { orderMessage: string } | null;
     };
-    expect(data.task.status).toBe("HANDOFF_READY");
+    expect(data.task.status).toBe("RECOMMENDED");
     expect(data.payments[0].status).toBe("UNAVAILABLE");
-    expect(data.recommendation?.orderMessage).toMatch(/Please confirm/i);
+    expect(data.supplier?.contactChannelValue).toBeNull();
+
+    // a decision needs the owning session
+    const wrongSession = await readJson(
+      await decideTask(
+        post(
+          `/api/tasks/${task.id}/decision`,
+          { decision: "ACCEPT" },
+          { ...idem("decide-bad"), "x-session-id": "someone-else-1" },
+        ),
+        params({ id: task.id }),
+      ),
+    );
+    expect(wrongSession.status).toBe(403);
+
+    // and a valid decision value
+    const badBody = await readJson(
+      await decideTask(
+        post(
+          `/api/tasks/${task.id}/decision`,
+          { decision: "MAYBE" },
+          { ...idem("decide-invalid"), ...session },
+        ),
+        params({ id: task.id }),
+      ),
+    );
+    expect(badBody.status).toBe(400);
+
+    const decided = await readJson(
+      await decideTask(
+        post(
+          `/api/tasks/${task.id}/decision`,
+          { decision: "ACCEPT" },
+          { ...idem("decide"), ...session },
+        ),
+        params({ id: task.id }),
+      ),
+    );
+    expect(decided.status).toBe(200);
+    expect((decided.body.data as { task: { status: string } }).task.status).toBe("HANDOFF_READY");
+
+    const handoffView = await readJson(
+      await getTask(
+        new Request(`http://localhost/api/tasks/${task.id}`, { headers: session }),
+        params({ id: task.id }),
+      ),
+    );
+    const handoffData = handoffView.body.data as {
+      task: { status: string; buyerDecision: string | null };
+      supplier: { contactChannelValue: string | null } | null;
+      recommendation: { orderMessage: string } | null;
+    };
+    expect(handoffData.task.status).toBe("HANDOFF_READY");
+    expect(handoffData.task.buyerDecision).toBe("ACCEPTED");
+    expect(handoffData.supplier?.contactChannelValue).toBeTruthy();
+    expect(handoffData.recommendation?.orderMessage).toMatch(/Please confirm/i);
   });
 
   it("rejects an operator-less quote submission", async () => {

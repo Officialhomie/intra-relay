@@ -7,9 +7,17 @@ import {
   tasks,
   type BusinessRow,
   type QuoteRouteRow,
+  type QuoteRow,
   type TaskRow,
 } from "@/lib/db/schema";
 import { findBusinessBySlug } from "@/features/businesses/repository";
+import { acceptedOffer, currentOffer, pendingChange } from "@/features/quotes/revision";
+import { listTaskQuotes } from "@/features/tasks/repository";
+import { listProoflineEvents } from "@/features/proofline/repository";
+import { buildProoflineView, type ProoflineView } from "@/features/proofline/view";
+import { findCommitmentByTaskId } from "@/features/commitments/repository";
+import { findHandoverAttestationByTaskId } from "@/features/attestation/handover-repository";
+import { toPublicHandoverAttestation } from "@/features/attestation/handover-service";
 
 /** Public (safe) view of a business — never includes the manage token. */
 export type PublicBusiness = Omit<BusinessRow, "manageToken">;
@@ -25,11 +33,38 @@ export interface SupplierWorkspace {
   routes: QuoteRouteRow[];
   /** AWAITING_QUOTE tasks bound to one of this business's routes. */
   incoming: { task: TaskRow; route: QuoteRouteRow }[];
+  /**
+   * Requests this business has already priced. Kept separate from `incoming`
+   * because the action here is different: the business can change the price it
+   * sent, and needs to know whether the customer has agreed it yet.
+   */
+  quoted: {
+    task: TaskRow;
+    route: QuoteRouteRow;
+    quote: QuoteRow;
+    /** True once the customer accepted this price — a change becomes a request. */
+    agreed: boolean;
+    /** True while a change is waiting on the customer's decision. */
+    changePending: boolean;
+  }[];
+  /**
+   * Orders the buyer has personally handed off — eligible for the Proofline
+   * fulfilment-evidence pilot. `proofline` carries the pickup code (merchant
+   * view). `handover` is the separate, cryptographic two-party attestation
+   * (ADR-018 milestone 9) — `null` only if no commitment exists yet.
+   */
+  handedOff: {
+    task: TaskRow;
+    route: QuoteRouteRow;
+    proofline: ProoflineView;
+    handover: ReturnType<typeof toPublicHandoverAttestation> | null;
+  }[];
 }
 
 export async function getSupplierWorkspace(
   db: Database,
   slug: string,
+  options: { includePickupCodes?: boolean } = {},
 ): Promise<SupplierWorkspace | null> {
   const business = await findBusinessBySlug(db, slug);
   if (!business) return null;
@@ -53,7 +88,63 @@ export async function getSupplierWorkspace(
             .orderBy(desc(tasks.submittedAt))
         ).map((row) => ({ task: row.task, route: row.route }));
 
-  return { business: toPublicBusiness(business), routes, incoming };
+  const quotedRows =
+    routeIds.length === 0
+      ? []
+      : await db
+          .select({ task: tasks, route: quoteRoutes })
+          .from(tasks)
+          .innerJoin(quoteRoutes, eq(tasks.routeId, quoteRoutes.id))
+          .where(
+            and(
+              inArray(tasks.routeId, routeIds),
+              inArray(tasks.status, ["RECOMMENDED", "HANDOFF_READY"]),
+            ),
+          )
+          .orderBy(desc(tasks.quotedAt));
+
+  const quoted: SupplierWorkspace["quoted"] = [];
+  for (const row of quotedRows) {
+    const quotes = await listTaskQuotes(db, row.task.id);
+    const agreedQuote = acceptedOffer(quotes);
+    const quote = agreedQuote ?? currentOffer(quotes);
+    if (!quote) continue;
+    quoted.push({
+      task: row.task,
+      route: row.route,
+      quote,
+      agreed: agreedQuote !== null,
+      changePending: pendingChange(quotes) !== null,
+    });
+  }
+
+  const handedOffRows =
+    routeIds.length === 0
+      ? []
+      : await db
+          .select({ task: tasks, route: quoteRoutes })
+          .from(tasks)
+          .innerJoin(quoteRoutes, eq(tasks.routeId, quoteRoutes.id))
+          .where(and(inArray(tasks.routeId, routeIds), eq(tasks.status, "HANDOFF_READY")))
+          .orderBy(desc(tasks.buyerDecidedAt));
+
+  const handedOff = [];
+  for (const row of handedOffRows) {
+    if (!row.task.handoffConfirmedAt) continue;
+    const events = await listProoflineEvents(db, row.task.id);
+    const commitment = await findCommitmentByTaskId(db, row.task.id);
+    const handoverRow = commitment ? await findHandoverAttestationByTaskId(db, row.task.id) : null;
+    handedOff.push({
+      task: row.task,
+      route: row.route,
+      proofline: buildProoflineView(events, {
+        includePickupCode: options.includePickupCodes === true,
+      }),
+      handover: handoverRow ? toPublicHandoverAttestation(handoverRow) : null,
+    });
+  }
+
+  return { business: toPublicBusiness(business), routes, incoming, quoted, handedOff };
 }
 
 export interface OperatorQueueItem {

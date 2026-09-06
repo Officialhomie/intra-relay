@@ -23,16 +23,16 @@ every PR to `main`. Deploy from `main` after CI is green.
 only**. Real values go in the hosting platform's environment settings. Anything
 not prefixed `NEXT_PUBLIC_` is server-only.
 
-| Variable               | Required?                   | Purpose / notes                                                                                                                                             |
-| ---------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`         | **Yes** (hosted)            | PostgreSQL connection string (Neon / RDS / Supabase / …). Unset ⇒ embedded PGlite at `./.pglite` (local only).                                              |
-| `NEXT_PUBLIC_APP_URL`  | Recommended                 | Canonical origin, e.g. `https://intra.example`. Used for `metadataBase`, Open Graph URLs, and agent `resource` URLs.                                        |
-| `OPERATOR_API_KEYS`    | **Yes** to verify routes    | Comma-separated `label:secret` pairs. With none set, no request can act as an operator. Rotate by editing the list.                                         |
-| `X402_API_KEY`         | Only to enable paid queries | Official Celo x402 facilitator key from `x402.celo.org`. Unset ⇒ paid routes return `503 PAYMENT_SERVICE_UNAVAILABLE`. Never `NEXT_PUBLIC_*`, never logged. |
-| `X402_NETWORK`         | No (default `eip155:42220`) | `eip155:42220` (Celo mainnet) or `eip155:11142220` (Sepolia). Unknown value throws at startup.                                                              |
-| `X402_ASSET`           | No (default `USDC`)         | `USDC` or `USDT` (USDT mainnet-only).                                                                                                                       |
-| `X402_FACILITATOR_URL` | No                          | Override the per-network facilitator URL (testing only).                                                                                                    |
-| `X402_ATTRIBUTION_TAG` | No                          | ERC-8021 `celo_...` tag from hackathon registration. Absent ⇒ no tag recorded anywhere.                                                                     |
+| Variable               | Required?                   | Purpose / notes                                                                                                                                                                                                            |
+| ---------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`         | **Yes** (hosted)            | PostgreSQL connection string (Neon / RDS / Supabase / …). Unset ⇒ embedded PGlite at `./.pglite` (local only).                                                                                                             |
+| `NEXT_PUBLIC_APP_URL`  | Recommended                 | Canonical origin, e.g. `https://intra.example`. Used for `metadataBase`, Open Graph URLs, and agent `resource` URLs.                                                                                                       |
+| `OPERATOR_API_KEYS`    | **Yes** to verify routes    | Comma-separated `label:secret` pairs. With none set, no request can act as an operator. Rotate by editing the list.                                                                                                        |
+| `X402_API_KEY`         | Only to enable paid queries | Official Celo x402 facilitator key from `x402.celo.org`. Unset ⇒ paid routes return `503 PAYMENT_SERVICE_UNAVAILABLE`. Never `NEXT_PUBLIC_*`, never logged.                                                                |
+| `X402_NETWORK`         | No (default `eip155:42220`) | `eip155:42220` (Celo mainnet) or `eip155:11142220` (Sepolia). An unknown value is **logged once and degrades to `PAYMENT_SERVICE_UNAVAILABLE`** (the quote workflow is never blocked). Confirm via the deploy check below. |
+| `X402_ASSET`           | No (default `USDC`)         | `USDC` or `USDT` (USDT mainnet-only). Same degrade-on-invalid behaviour.                                                                                                                                                   |
+| `X402_FACILITATOR_URL` | No                          | Override the per-network facilitator URL (testing only).                                                                                                                                                                   |
+| `X402_ATTRIBUTION_TAG` | No                          | ERC-8021 `celo_...` tag (`/^celo_[A-Za-z0-9][A-Za-z0-9_-]{2,62}$/`). A malformed value is ignored with a logged warning — never recorded. Absent ⇒ no tag anywhere.                                                        |
 
 The **$0.05 per-task spend cap** is a code constant (`PAYMENT_MAX_FEE_USD`), not
 an env var, and cannot be raised from configuration.
@@ -69,7 +69,9 @@ Full detail in [`PAYMENTS.md`](PAYMENTS.md). Short version:
 3. When hackathon registration returns the ERC-8021 tag, set
    `X402_ATTRIBUTION_TAG`.
 4. Redeploy. Verify: `GET /v1/<business>/capabilities` shows
-   `payment.state: "AVAILABLE"`; a `POST …/quote` with no `X-PAYMENT` returns
+   `payment.state: "AVAILABLE"` for a paid ACTIVE route (a `payment.code` of
+   `CONFIG_ERROR` there means an `X402_*` value is invalid — check the server
+   logs for the one-line reason); a `POST …/quote` with no `X-PAYMENT` returns
    `402` with `accepts`.
 5. Fund settlement credits with USDC on the dashboard beyond the free tier
    ($0.001 per settlement).
@@ -82,6 +84,7 @@ Full detail in [`PAYMENTS.md`](PAYMENTS.md). Short version:
 - [ ] `OPERATOR_API_KEYS` set; test operator sign-in on `/operator`.
 - [ ] No secret is present in `.env.example`, the client bundle, or logs.
 - [ ] Payments: either `X402_API_KEY` is set **and** a test `/v1` quote returns
-      `402`, or it is unset **and** a paid route returns `503` — never a
-      fabricated receipt.
+      `402` (and the capability doc has no `payment.code`), or it is unset **and**
+      a paid route returns `503` — never a fabricated receipt. A free route and
+      the buyer web flow must work regardless.
 - [ ] Open Graph preview renders (`/opengraph-image`).

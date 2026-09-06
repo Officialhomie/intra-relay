@@ -1,9 +1,11 @@
-# Intra
+# Intra Relay
 
-Mobile-first procurement assistant for Nigerian campus students and small
-businesses. The MVP does one narrow job: turn a flyer-printing need into a
-structured brief, get a quote from a participating independent printer, and hand
-the buyer a human-approved WhatsApp order message.
+Merchant-side capability and control layer for businesses that operate without
+APIs. The MVP does one narrow job: turn a flyer-printing need into a structured
+brief, get a genuine quote from a participating independent printer, and hand
+the buyer a human-approved WhatsApp order message. See
+[`docs/PRODUCT_VISION.md`](docs/PRODUCT_VISION.md) for the Relay north star and
+the future Proofline fulfilment-evidence module.
 
 Intra never custodies funds, never asks for private keys or seed phrases, and
 never executes a buyer's final supplier payment.
@@ -19,10 +21,13 @@ backend:
 
 supplier onboarding → operator verification & activation → buyer request →
 printer selection → structured brief → genuine supplier quote or safe decline →
-recommendation → buyer's human-controlled WhatsApp handoff → feedback.
+recommendation → buyer accepts or declines → buyer's human-controlled WhatsApp
+handoff → optional Proofline fulfilment evidence (merchant marks ready → buyer
+confirms pickup) → feedback.
 
-- Eight persisted entities (`businesses`, `quote_routes`, `tasks`, `quotes`,
-  `recommendations`, `feedback`, `service_payments`, `audit_events`) with
+- Nine persisted entities (`businesses`, `quote_routes`, `tasks`, `quotes`,
+  `recommendations`, `feedback`, `service_payments`, `audit_events`,
+  `proofline_events`) with
   enforced lifecycle invariants and an append-only audit trail
   ([`docs/API.md`](docs/API.md)).
 - A public, agent-readable capability + quote API at `/v1`
@@ -56,23 +61,26 @@ access is spelled out in
 
 ## Documentation
 
-| Document                                                       | Purpose                                               |
-| -------------------------------------------------------------- | ----------------------------------------------------- |
-| [`CLAUDE.md`](CLAUDE.md)                                       | Operating rules for AI agents working in this repo    |
-| [`docs/PRD.md`](docs/PRD.md)                                   | Product source of truth                               |
-| [`docs/TECHNICAL_SPEC.md`](docs/TECHNICAL_SPEC.md)             | Architecture and API contract                         |
-| [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md)   | Phased delivery plan                                  |
-| [`docs/BUSINESS_ONBOARDING.md`](docs/BUSINESS_ONBOARDING.md)   | Supplier onboarding guide                             |
-| [`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md) | Setup, gates, conventions, external blockers          |
-| [`docs/DECISIONS.md`](docs/DECISIONS.md)                       | Architecture decision log                             |
-| [`docs/API.md`](docs/API.md)                                   | Internal MVP backend endpoints, headers, invariants   |
-| [`docs/CAPABILITY_API.md`](docs/CAPABILITY_API.md)             | Public agent-readable `/v1` capability + quote API    |
-| [`docs/PAYMENTS.md`](docs/PAYMENTS.md)                         | Celo x402 payment adapter — config, flow, deployment  |
-| [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)                   | Step-by-step hackathon demo walkthrough               |
-| [`docs/CLAIMS.md`](docs/CLAIMS.md)                             | Proven vs. conditional claims (be precise on stage)   |
-| [`docs/FEEDBACK_CHANGELOG.md`](docs/FEEDBACK_CHANGELOG.md)     | "What changed from feedback" — AskBots review rounds  |
-| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)                     | Production deploy: env vars, database, x402 key       |
-| [`docs/design/`](docs/design/)                                 | Supplied style references (ADR-009 picks Ease Health) |
+| Document                                                       | Purpose                                                            |
+| -------------------------------------------------------------- | ------------------------------------------------------------------ |
+| [`CLAUDE.md`](CLAUDE.md)                                       | Operating rules for AI agents working in this repo                 |
+| [`docs/PRD.md`](docs/PRD.md)                                   | Product source of truth                                            |
+| [`docs/TECHNICAL_SPEC.md`](docs/TECHNICAL_SPEC.md)             | Architecture and API contract                                      |
+| [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md)   | Phased delivery plan                                               |
+| [`docs/BUSINESS_ONBOARDING.md`](docs/BUSINESS_ONBOARDING.md)   | Supplier onboarding guide                                          |
+| [`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md) | Setup, gates, conventions, external blockers                       |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md)                       | Architecture decision log                                          |
+| [`docs/PRODUCT_VISION.md`](docs/PRODUCT_VISION.md)             | Relay north star, Proofline, and MVP scope boundary                |
+| [`docs/API.md`](docs/API.md)                                   | Internal MVP backend endpoints, headers, invariants                |
+| [`docs/CAPABILITY_API.md`](docs/CAPABILITY_API.md)             | Public agent-readable `/v1` capability + quote API                 |
+| [`docs/PAYMENTS.md`](docs/PAYMENTS.md)                         | Celo x402 payment adapter — config, flow, deployment               |
+| [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)                   | Step-by-step hackathon demo walkthrough                            |
+| [`docs/CLAIMS.md`](docs/CLAIMS.md)                             | Proven vs. conditional claims (be precise on stage)                |
+| [`docs/FEEDBACK_CHANGELOG.md`](docs/FEEDBACK_CHANGELOG.md)     | "What changed from feedback" — AskBots review rounds               |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)                     | Production deploy: env vars, database, x402 key                    |
+| [`docs/ANALYTICS.md`](docs/ANALYTICS.md)                       | Pilot observability: Amplitude tracking plan, funnels              |
+| [`docs/PILOT.md`](docs/PILOT.md)                               | M10 controlled-pilot runbook: baseline, checkpoints, evidence pack |
+| [`docs/design/`](docs/design/)                                 | Supplied style references (ADR-009 picks Ease Health)              |
 
 ## Requirements
 
@@ -109,8 +117,8 @@ The app runs at [http://localhost:3000](http://localhost:3000).
 
 Full walkthrough: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) — supplier
 onboarding → operator verification → buyer request → genuine quote → WhatsApp
-handoff → post-handoff feedback, plus the optional verified Celo query-fee
-receipt.
+handoff → post-handoff feedback, plus the optional Proofline fulfilment-evidence
+pilot and the optional verified Celo query-fee receipt.
 
 ```bash
 rm -rf .pglite && npm run db:migrate      # clean database
@@ -230,20 +238,20 @@ npm run lint && npm run format:check && npm run test && npm run build
 
 ## Routes
 
-| Path                          | Purpose                                                                               |
-| ----------------------------- | ------------------------------------------------------------------------------------- |
-| `/`                           | Landing page                                                                          |
-| `/request`                    | Buyer: describe a flyer job → pick a printer → live task                              |
-| `/tasks/:id`                  | Buyer: status, quote, freshness, audit timeline, WhatsApp handoff, feedback           |
-| `/supplier/onboard`           | Supplier onboarding form + reviewable draft route                                     |
-| `/supplier/:slug/review`      | Supplier: business details, route status/freshness, pause action (`?t=<manageToken>`) |
-| `/supplier/:slug/requests`    | Supplier: incoming structured requests → send a quote or decline                      |
-| `/operator`                   | Operator: verify + activate routes (pre-flight checklist), pause                      |
-| `/docs`                       | Explainer: how a business capability maps to the agent route contract                 |
-| `/evidence`                   | Public results: real vs demo vs unavailable, "what changed from feedback", exports    |
-| `GET /v1/:slug/capabilities`  | Public agent capability document (see `docs/CAPABILITY_API.md`)                       |
-| `POST /v1/:slug/:route/quote` | Public agent quote request                                                            |
-| `GET /api/evidence`           | Privacy-safe evidence export — `?format=csv` or `?format=json`                        |
+| Path                          | Purpose                                                                                      |
+| ----------------------------- | -------------------------------------------------------------------------------------------- |
+| `/`                           | Landing page                                                                                 |
+| `/request`                    | Buyer: describe a flyer job → pick a printer → live task                                     |
+| `/tasks/:id`                  | Buyer: status, quote, decision, WhatsApp handoff, Proofline pickup, audit timeline, feedback |
+| `/supplier/onboard`           | Supplier onboarding form + reviewable draft route                                            |
+| `/supplier/:slug/review`      | Supplier: business details, route status/freshness, pause action (`?t=<manageToken>`)        |
+| `/supplier/:slug/requests`    | Supplier: incoming requests → quote/decline; handed-off orders → Proofline "mark ready"      |
+| `/operator`                   | Operator: verify + activate routes (pre-flight checklist), pause                             |
+| `/docs`                       | Explainer: how a business capability maps to the agent route contract                        |
+| `/evidence`                   | Public results: real vs demo vs unavailable, "what changed from feedback", exports           |
+| `GET /v1/:slug/capabilities`  | Public agent capability document (see `docs/CAPABILITY_API.md`)                              |
+| `POST /v1/:slug/:route/quote` | Public agent quote request                                                                   |
+| `GET /api/evidence`           | Privacy-safe evidence export — `?format=csv` or `?format=json`                               |
 
 ## Project structure
 
