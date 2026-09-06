@@ -169,7 +169,7 @@ Status values: `Accepted`, `Superseded by ADR-NNN`, `Deprecated`.
 ## ADR-009 — "Calm clinic" visual system (Ease Health reference)
 
 - **Date:** 2026-08-30
-- **Status:** Accepted
+- **Status:** Palette superseded by [ADR-022](#adr-022--visual-system-moves-to-a-warm-editorial-palette-supersedes-adr-009s-direction) (2026-09-07); its light-first / flat / accessible-status principles still hold
 - **Context:** Five style references were supplied (`docs/design/`). Three are
   dark "gallery/observatory" aesthetics built for marketing pages; Intra is a
   utility used by students and small-business owners on inexpensive phones in
@@ -821,3 +821,40 @@ scorecard}`. New `NEXT_PUBLIC_AMPLITUDE_API_KEY` (client) and `AMPLITUDE_API_KEY
   (no prohibited sensitive data — enforced by `sanitizeProps`), §5 (engineering
   standards), §6.1 (`.eslintrc.json` + `layout.tsx` changed, justified), §6.2
   (new package, phase started).
+
+---
+
+## ADR-022 — Visual system moves to a warm editorial palette (supersedes ADR-009's direction)
+
+- **Date:** 2026-09-07
+- **Status:** Accepted (supersedes the palette in [ADR-009](#adr-009--calm-clinic-visual-system-ease-health-reference))
+- **Context:** The "calm clinic" forest-green system (ADR-009) read as clinical
+  and product-generic for what Intra actually is — an approachable way for
+  students and small-business owners to get real work done. Ahead of the M10
+  pilot the visual direction was reworked toward a warm editorial workspace
+  (Claude-style reference): calm ivory canvas, ink-dark actions, a serif display
+  face used with restraint, generous whitespace, warm hairline borders.
+- **Decision:** Re-point every token in `src/styles/tokens.css` to the new
+  palette — canvas `#faf9f5`, white surfaces, warm near-black text `#141413`,
+  **ink `#1f1e1d` as the single action colour** (replacing forest green
+  `#0f3e17`), adjusted status washes, larger radii (10 / 16 / 24px), a wider
+  `--container-max` (72rem), a larger display step. `src/styles/globals.css`
+  gains three component utilities — `.eyebrow` (uppercase kicker), `.page-enter`
+  (staggered rise-in, **guarded by `prefers-reduced-motion`**), `.interactive-card`
+  (hover lift) — plus a faint radial-gradient page background and `::selection`
+  tint. The public surfaces (`/`, `/agent`, `/request`, `/supplier/onboard`,
+  `Header`, `Footer`, `MainContainer`) are rebuilt on the new system; a sticky
+  header with a reduced public nav (`Home`, `For businesses`, `Docs` + a
+  "Join as a business" CTA) keeps operator-only routes (`/activity`,
+  `/operator`, `/evidence`) out of the marketing chrome.
+- **Consequences:** every token-driven component picks up the new palette
+  automatically; internal pages not yet re-laid-out (`TaskPage`, supplier
+  workspace, operator, activity, evidence, docs) inherit the colours cleanly but
+  keep their old spacing/heading rhythm until re-touched — a follow-up, not a
+  regression. `Header.test.tsx` updated for the reduced nav. What ADR-009 keeps:
+  light-first (no dark mode), flat surfaces (no drop shadows), status colours
+  always paired with an icon + label, system font stacks (no web-font fetch),
+  accessibility mandates (`NFR-A11Y-001`, `NFR-UX-001`).
+- **Requirements:** `NFR-UX-001`, `NFR-A11Y-001`, PRD §7; CLAUDE.md §6.1
+  (`src/styles/` tokens are load-bearing — this is a deliberate, documented
+  full-system change).

@@ -17,14 +17,13 @@ export const metadata: Metadata = { title: "Home" };
  */
 export default function BuyerHomePage() {
   return (
-    <div className="mx-auto max-w-2xl space-y-10">
+    <div className="page-enter mx-auto max-w-2xl space-y-10">
       <header className="space-y-2">
-        <p className="text-sm font-medium text-primary">Intra</p>
-        <h1 className="text-3xl font-semibold tracking-tight">What do you need?</h1>
+        <p className="eyebrow">Your workspace</p>
+        <h1 className="text-3xl sm:text-4xl">What do you need?</h1>
         <p className="text-sm leading-relaxed text-muted">
-          Talk to me like a person. If you&apos;re after something a real business can do, I&apos;ll
-          find one, get a real price and let you decide. Nothing is ordered and no money moves
-          without you.
+          Describe it in your own words. We&apos;ll turn it into a clear request for a real
+          business; you&apos;ll see the price before you decide what happens next.
         </p>
       </header>
 

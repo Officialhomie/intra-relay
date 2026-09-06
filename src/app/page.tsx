@@ -1,161 +1,157 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import {
-  ArrowRight,
-  BadgeCheck,
-  Bot,
-  CircleDollarSign,
-  MessageCircle,
-  Network,
-  ShieldCheck,
-} from "lucide-react";
+import { ArrowRight, BadgeCheck, Bot, MessageCircle, ShieldCheck } from "lucide-react";
 
 const steps = [
-  {
-    number: "01",
-    title: "A business chooses one service",
-    body: "A printer, designer, or caterer starts with a template—not an API or an AI agent.",
-  },
-  {
-    number: "02",
-    title: "Intra creates a capability",
-    body: "The business receives a structured quote route an agent can understand, with its terms and contact channel.",
-  },
-  {
-    number: "03",
-    title: "An agent asks, pays, and hands off",
-    body: "Celo supports paid, verifiable information requests. The buyer always approves the final order.",
-  },
+  [
+    "01",
+    "Tell us what you need",
+    "Describe a printing job in everyday language. No specialist terms required.",
+  ],
+  [
+    "02",
+    "Get a real response",
+    "A verified business reviews the brief and sends an honest price and turnaround.",
+  ],
+  [
+    "03",
+    "Choose with confidence",
+    "You approve the quote and send the final order yourself on WhatsApp.",
+  ],
 ] as const;
 
 export default function HomePage() {
   return (
-    <div className="space-y-16 pb-8">
-      <section className="relative overflow-hidden rounded-2xl border border-border bg-surface px-5 py-12 sm:px-10 sm:py-16">
-        <div className="absolute -right-24 -top-24 size-80 rounded-full bg-primary-wash blur-3xl" />
-        <div className="relative max-w-3xl space-y-6">
-          <div className="inline-flex items-center gap-2 rounded-full border border-border bg-bg px-3 py-1.5 text-xs font-medium">
-            <Network aria-hidden className="size-3.5 text-primary" /> Built for agent-ready African
-            businesses
-          </div>
-          <h1 className="max-w-3xl text-4xl font-semibold tracking-tight sm:text-6xl">
-            Turn one real business service into a trusted, agent-ready capability.
-          </h1>
-          <p className="max-w-2xl text-base leading-relaxed text-muted sm:text-lg">
-            Intra helps local businesses publish an accurate, structured route that any AI agent can
-            request a quote from, pay for when appropriate, and hand back to a human for final
-            approval.
-          </p>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Link
-              href="/supplier/onboard"
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-contrast transition-opacity hover:opacity-90"
-            >
-              Make my business agent-ready <ArrowRight aria-hidden className="size-4" />
-            </Link>
-            <Link
-              href="/agent"
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-border bg-bg px-4 text-sm font-medium hover:bg-surface"
-            >
-              Try it as a buyer
-            </Link>
-          </div>
-          <p className="text-xs text-muted">
-            No seed phrases. No private keys. No final customer payment without approval.
-          </p>
-        </div>
-      </section>
-      <section className="grid gap-4 md:grid-cols-3">
-        {steps.map((step) => (
-          <article key={step.number} className="rounded-xl border border-border p-5">
-            <p className="font-mono text-xs text-primary">{step.number}</p>
-            <h2 className="mt-5 text-lg font-semibold">{step.title}</h2>
-            <p className="mt-2 text-sm leading-relaxed text-muted">{step.body}</p>
-          </article>
-        ))}
-      </section>
-      <section className="grid gap-8 rounded-2xl border border-border p-5 sm:p-8 lg:grid-cols-[1.05fr_0.95fr]">
-        <div className="space-y-4">
-          <p className="text-sm font-medium text-primary">The product boundary</p>
-          <h2 className="text-3xl font-semibold tracking-tight">
-            Not another shopping agent. The business layer agents can trust.
-          </h2>
-          <p className="text-sm leading-relaxed text-muted">
-            Consumer agents decide where users chat. Intra makes sure the business on the other side
-            can respond with a clear capability, fresh quote, honest status, and safe payment
-            terms—regardless of whether the agent lives in WhatsApp, Telegram, a web app, or an
-            internal procurement tool.
-          </p>
-          <div className="flex flex-wrap gap-2 text-xs font-medium">
-            <span className="rounded-full bg-surface px-3 py-1.5">Channel-neutral</span>
-            <span className="rounded-full bg-surface px-3 py-1.5">Merchant-controlled</span>
-            <span className="rounded-full bg-surface px-3 py-1.5">Celo-ready</span>
-            <span className="rounded-full bg-surface px-3 py-1.5">Human-approved orders</span>
-          </div>
-        </div>
-        <div className="rounded-xl bg-surface p-5">
-          <p className="text-sm font-medium">A capability card, not an MCP burden</p>
-          <pre className="mt-4 overflow-x-auto text-xs leading-relaxed text-muted">{`{
-  "business": "Campus Print Hub",
-  "capability": "flyer-printing-quote",
-  "asks_for": ["size", "quantity", "deadline"],
-  "returns": ["price", "availability", "turnaround"],
-  "payment": "Celo x402 when enabled",
-  "final_order": "human approval required"
-}`}</pre>
-        </div>
-      </section>
-      <section className="space-y-5">
-        <div className="max-w-2xl">
-          <p className="text-sm font-medium text-primary">Trust is the feature</p>
-          <h2 className="mt-2 text-3xl font-semibold tracking-tight">
-            Every agent answer needs a business control behind it.
-          </h2>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Trust
-            icon={<BadgeCheck aria-hidden />}
-            title="Verified identity"
-            text="A route is not public until the business, contact, consent, and public payout address are reviewed."
-          />
-          <Trust
-            icon={<MessageCircle aria-hidden />}
-            title="Human fallback"
-            text="A merchant sees the full request and can confirm, decline, or pause the route."
-          />
-          <Trust
-            icon={<CircleDollarSign aria-hidden />}
-            title="Separate payments"
-            text="A tiny paid query is never confused with the customer’s larger order payment."
-          />
-          <Trust
-            icon={<ShieldCheck aria-hidden />}
-            title="Receipts, not claims"
-            text="Only facilitator-verified Celo settlement is shown as paid. No synthetic receipts."
-          />
-        </div>
-      </section>
-      <section className="rounded-2xl bg-primary p-6 text-primary-contrast sm:p-8">
-        <div className="grid gap-6 lg:grid-cols-[1fr_auto]">
-          <div>
-            <div className="text-primary-contrast/75 flex items-center gap-2 text-sm">
-              <Bot aria-hidden className="size-4" /> Hackathon MVP
+    <div className="page-enter space-y-20 pb-4 sm:space-y-28">
+      <section className="relative overflow-hidden rounded-lg border border-border bg-surface px-6 py-12 sm:px-12 sm:py-20">
+        <div
+          aria-hidden
+          className="bg-mist/40 absolute -right-24 -top-28 size-80 rounded-full blur-3xl"
+        />
+        <div
+          aria-hidden
+          className="bg-sage/40 absolute bottom-0 left-[44%] size-48 rounded-full blur-3xl"
+        />
+        <div className="relative grid items-end gap-10 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="max-w-3xl">
+            <p className="eyebrow mb-5">The trusted business layer for AI commerce</p>
+            <h1 className="text-4xl font-normal tracking-tight sm:text-6xl lg:text-7xl">
+              A clearer way to get work done with real local businesses.
+            </h1>
+            <p className="mt-6 max-w-xl text-base leading-relaxed text-muted sm:text-lg">
+              Intra turns your request into a brief a real business can act on. You get a fresh
+              quote, keep the final say, and never have to decode technical tools to begin.
+            </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/agent"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-sm bg-primary px-5 text-sm font-medium text-primary-contrast transition-transform hover:-translate-y-0.5 active:translate-y-0"
+              >
+                I need something made <ArrowRight aria-hidden className="size-4" />
+              </Link>
+              <Link
+                href="/supplier/onboard"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-sm border border-border-strong bg-surface px-5 text-sm font-medium transition-colors hover:bg-surface-accent"
+              >
+                I run a business
+              </Link>
             </div>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-primary-contrast">
-              Start with printing. Prove agent-to-business commerce. Expand only after it works.
+            <p className="mt-4 text-xs text-subtle">
+              No wallets, no private keys, and no final order without your approval.
+            </p>
+          </div>
+          <div className="bg-bg/75 rounded-md border border-border p-5 backdrop-blur-sm sm:p-6">
+            <p className="eyebrow">A request, made simple</p>
+            <p className="mt-4 font-serif text-2xl leading-snug">
+              “I need 100 flyers for Friday. What will it cost?”
+            </p>
+            <div className="my-5 border-t border-border" />
+            <div className="space-y-3 text-sm">
+              <div className="flex items-start gap-3">
+                <BadgeCheck className="mt-0.5 size-4 text-success" aria-hidden />
+                <span>
+                  <strong>Verified business</strong>
+                  <br />
+                  <span className="text-muted">A real person responds to the brief.</span>
+                </span>
+              </div>
+              <div className="flex items-start gap-3">
+                <MessageCircle className="mt-0.5 size-4 text-primary" aria-hidden />
+                <span>
+                  <strong>WhatsApp handoff</strong>
+                  <br />
+                  <span className="text-muted">You send the order when you are ready.</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="how-it-works">
+        <div className="mb-8 max-w-xl">
+          <p className="eyebrow">How it works</p>
+          <h2 id="how-it-works" className="mt-3 text-3xl sm:text-4xl">
+            One calm path from question to quote.
+          </h2>
+        </div>
+        <div className="grid gap-px overflow-hidden rounded-md border border-border bg-border md:grid-cols-3">
+          {steps.map(([number, title, body]) => (
+            <article key={number} className="interactive-card bg-surface p-6 sm:p-7">
+              <p className="font-mono text-xs text-subtle">{number}</p>
+              <h3 className="mt-10 text-xl font-medium tracking-tight">{title}</h3>
+              <p className="mt-3 text-sm leading-relaxed text-muted">{body}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr] lg:gap-14">
+        <div>
+          <p className="eyebrow">Built around real-world control</p>
+          <h2 className="mt-3 text-3xl sm:text-4xl">Helpful technology. Human decisions.</h2>
+          <p className="mt-5 text-sm leading-relaxed text-muted">
+            Intra makes information legible between agents and businesses. It does not pretend to be
+            the business, make purchases for you, or hold your money.
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Trust
+            icon={<ShieldCheck aria-hidden className="size-5" />}
+            title="You stay in control"
+            text="No order is placed until you choose to send it."
+          />
+          <Trust
+            icon={<BadgeCheck aria-hidden className="size-5" />}
+            title="Businesses stay visible"
+            text="A real business owns its availability and price."
+          />
+          <Trust
+            icon={<Bot aria-hidden className="size-5" />}
+            title="Agents get clarity"
+            text="Structured requests replace guesswork and back-and-forth."
+          />
+        </div>
+      </section>
+
+      <section className="rounded-lg bg-primary px-6 py-10 text-primary-contrast sm:px-10 sm:py-12">
+        <p className="eyebrow !text-primary-contrast/65">For business owners</p>
+        <div className="mt-3 grid items-end gap-6 lg:grid-cols-[1fr_auto]">
+          <div>
+            <h2 className="max-w-2xl text-3xl sm:text-4xl">
+              Let customers find the service you already provide.
             </h2>
-            <p className="text-primary-contrast/75 mt-3 max-w-2xl text-sm leading-relaxed">
-              We are onboarding real businesses with a narrow, testable flyer-printing route.
-              Design, catering, and delivery templates are prepared as drafts—not falsely presented
-              as live.
+            <p className="text-primary-contrast/75 mt-3 max-w-xl text-sm leading-relaxed">
+              Set up your first service in one screen. You review each request and keep the customer
+              relationship direct.
             </p>
           </div>
           <Link
-            href="/docs"
-            className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-md bg-bg px-4 text-sm font-medium text-foreground hover:bg-surface"
+            href="/supplier/onboard"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-sm bg-surface px-5 text-sm font-medium text-foreground transition-transform hover:-translate-y-0.5"
           >
-            Read the route contract <ArrowRight aria-hidden className="size-4" />
+            Set up my business <ArrowRight aria-hidden className="size-4" />
           </Link>
         </div>
       </section>
@@ -165,10 +161,10 @@ export default function HomePage() {
 
 function Trust({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
   return (
-    <article className="rounded-xl border border-border p-4">
+    <article className="interactive-card rounded-md border border-border bg-surface p-5">
       <div className="text-primary">{icon}</div>
-      <h3 className="mt-4 font-medium">{title}</h3>
-      <p className="mt-1.5 text-sm leading-relaxed text-muted">{text}</p>
+      <h3 className="mt-6 font-medium">{title}</h3>
+      <p className="mt-2 text-sm leading-relaxed text-muted">{text}</p>
     </article>
   );
 }

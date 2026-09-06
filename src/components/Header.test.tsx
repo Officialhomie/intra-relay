@@ -11,17 +11,27 @@ vi.mock("next/link", () => ({
 }));
 
 describe("Header", () => {
-  it("renders the Intra brand and primary navigation links", () => {
+  it("renders the Intra brand and the reduced primary navigation", () => {
     render(<Header />);
 
     expect(screen.getByRole("link", { name: "Intra" })).toHaveAttribute("href", "/");
     expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/agent");
-    expect(screen.getByRole("link", { name: "Activity" })).toHaveAttribute("href", "/activity");
     expect(screen.getByRole("link", { name: "For businesses" })).toHaveAttribute(
       "href",
       "/supplier/onboard",
     );
-    expect(screen.getByRole("link", { name: "Operator" })).toHaveAttribute("href", "/operator");
     expect(screen.getByRole("link", { name: "Docs" })).toHaveAttribute("href", "/docs");
+    expect(screen.getByRole("link", { name: /join as a business/i })).toHaveAttribute(
+      "href",
+      "/supplier/onboard",
+    );
+  });
+
+  it("keeps operator-only surfaces out of the public header", () => {
+    render(<Header />);
+
+    expect(screen.queryByRole("link", { name: "Activity" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Operator" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Evidence" })).toBeNull();
   });
 });
