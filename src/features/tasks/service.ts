@@ -19,6 +19,7 @@ import { findRouteByBusinessAndSlug, findRouteById } from "@/features/routes/rep
 import { findBusinessById, findBusinessBySlug } from "@/features/businesses/repository";
 import { loadUsableRoute } from "@/features/routes/service";
 import { recordServicePaymentIntent } from "@/features/payments/service";
+import { getOrderPaymentForTask, type PublicOrderPayment } from "@/features/payments/order/service";
 import { quoteEffectiveStatus } from "@/features/quotes/expiry";
 import type { NormalizedQuote } from "@/features/quotes/normalize";
 import { buildOrderMessage } from "@/features/quotes/order-message";
@@ -258,6 +259,12 @@ export interface TaskView {
    * withheld `salt` is never included.
    */
   handoverCode: string | null;
+  /**
+   * The buyer's on-chain order payment via MiniPay (M10.5, ADR-023). Present
+   * only once the order is at a payable stage (`HANDOFF_READY`); null otherwise.
+   * Additive — the WhatsApp handoff is always the fallback.
+   */
+  orderPayment: PublicOrderPayment | null;
   /**
    * When an order ended in an exception rather than a clean handover, the
    * semantic account of it: what happened, whether the buyer must act, what
@@ -540,6 +547,10 @@ export async function getTaskView(
     ? await getProoflineView(db, taskId, { includePickupCode: false })
     : null;
 
+  // The MiniPay order-payment view — only at a payable stage (M10.5).
+  const orderPayment =
+    task.status === "HANDOFF_READY" ? await getOrderPaymentForTask(db, taskId) : null;
+
   return {
     task,
     route,
@@ -554,6 +565,7 @@ export async function getTaskView(
     handoffConfirmedAt,
     proofline,
     handoverCode: commitment?.handoverCode ?? null,
+    orderPayment,
     exception: describeTaskException(task),
   };
 }

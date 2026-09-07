@@ -164,3 +164,153 @@ Never present it, or any fixture tx hash, as a real settlement.
 cPay (the closed-beta agent marketplace) has no public SDK or docs. When access
 lands, add `src/features/payments/adapter/cpay.ts` implementing the same
 `PaymentAdapter` interface and branch on it in `getPaymentAdapter()`.
+
+---
+
+# Buyer order payment (MiniPay) — M10.5, ADR-023
+
+A **separate** payment path from the x402 adapter above. x402 is the _agent
+query fee_ (BR-004). This is the **buyer paying the business for the order**, on
+Celo, through [MiniPay](https://www.opera.com/products/minipay) — Opera's
+non-custodial wallet. It is **additive**: the pre-filled WhatsApp handoff still
+sits beside it and is the fallback for every buyer who can't or won't pay
+on-chain (M10.5 §5, §50).
+
+Module: `src/features/payments/order/` (server) + `src/features/payments/minipay/`
+(client). It does **not** touch `MODEL_TOOLS`, the x402 adapter, the registered
+EAS schemas, or the WhatsApp handoff.
+
+## What stays true (the §2 / §43 invariants)
+
+| Guarantee | How |
+| --- | --- |
+| Intra never custodies funds | the wallet transfers USDC straight to the business payout address; no Intra address is ever in the path |
+| The human approves the commercial terms | the payment intent can only be created once `task.status === "HANDOFF_READY"` — i.e. the buyer already accepted the quote |
+| The human approves the wallet transaction | `PayPanel` → the wallet's own confirm dialog; Intra never holds a key or a signature |
+| The agent cannot pay | the controller is a plain server module; `payWithMiniPay` is **not** an LLM tool (§3) |
+| Amount + recipient are server-authoritative | `createOrderPaymentIntent` reads them **only** from the accepted `commitments` row — never the client, an LLM, or free-form text (§8, §9). The submit route accepts **only** a `txHash`. |
+| The intent is immutable after creation | no code path updates `recipientAddress` / `amountAtomic` / `assetAddress` / `quoteId`. A terms change (`quotes/revision.ts`, `tasks/exception-service.ts`) calls `invalidateOrderPaymentsForTask` → the intent is `EXPIRED` and a fresh human approval mints a new one (§11). |
+| "Confirmed" cannot be spoofed | `CONFIRMED` is reachable **only** through `verifyOrderPayment` reading a real Celo receipt (§17–§19). The server never trusts a client "success". |
+| Replay is blocked | `order_payments.tx_hash` is `UNIQUE`; the controller rejects a hash already linked to another payment (`TX_ALREADY_USED`); `matchReceipt` requires the transfer to go to _this_ intent's recipient for _this_ intent's exact amount, so a receipt for order A cannot confirm order B. |
+| A dead order can't be paid | every task-exception path expires the live intent; a **confirmed** on-chain payment is left exactly as it is — no refund, no reversal, no fabricated outcome (§4.1). |
+
+## NGN → USD reference rate (§16)
+
+SMEs quote in **naira**; MiniPay settles **USD stablecoins**. Bridging them:
+
+- A real, public FX rate is fetched server-side from `NGN_USD_RATE_URL`
+  (default `https://open.er-api.com/v6/latest/USD` — free, keyless, no secret).
+- The rate + its source + the fetch timestamp are **locked into the payment
+  intent** at creation and **always shown to the buyer**:
+  _"₦45,000 · ≈ 30.00 USDC (reference rate from open.er-api.com, locked 14:32)"_.
+- It is a **reference** rate, not a guaranteed one. If the buyer disputes it,
+  they use the WhatsApp handoff.
+- If the source is unreachable, `createOrderPaymentIntent` returns
+  `503 PAYMENT_METHOD_UNAVAILABLE` — a rate is **never guessed** (§8, §15).
+- 10-minute in-memory cache (`rate.ts`). Conversion is integer-first
+  (`convertNgnMinorToUsdcAtomic`): `round(ngnMinor × 1e4 ÷ ngnPerUsd)`.
+
+## Asset — USDC only
+
+One asset for the pilot: **USDC on Celo mainnet**
+(`0xcEBA9300f2b948710d2653dD7B07f33A8B32118C`, 6 dp — the address already
+verified in `adapter/networks.ts`). MiniPay also supports USDT and cUSD;
+cNGN is **not** a MiniPay asset. Additional stablecoins are a later, deliberate
+addition, not an M10.5 scope creep.
+
+## Lifecycle
+
+```
+CREATED ─▶ AWAITING_WALLET ─▶ SUBMITTED ─▶ CONFIRMING ─▶ CONFIRMED
+   │                                           │
+   ├──────────────▶ CANCELLED (buyer dismissed the wallet — order untouched)
+   ├──────────────▶ EXPIRED   (30-min window elapsed, or terms changed)
+   └──────────────▶ FAILED    (tx reverted, or the receipt does not match the intent)
+```
+
+- `POST /api/tasks/[id]/order-payment` — `x-session-id` + `Idempotency-Key`.
+  `createOrderPaymentIntent`. `503 PAYMENT_METHOD_UNAVAILABLE` if disabled or the
+  rate source is down. A repeat within the window returns the same intent.
+- `POST /api/tasks/[id]/order-payment/submit` — body `{ txHash }` only.
+  `recordSubmittedOrderPayment` → `CONFIRMING` + schedules `verifyOrderPayment`
+  via `after()`. Idempotent on the hash.
+- `POST /api/tasks/[id]/order-payment/cancel` — `cancelOrderPayment`. No
+  idempotency key. Refuses once a `txHash` exists.
+- `GET /api/tasks/[id]/order-payment` — polls; also re-runs verification for
+  anything in flight (`resumeOrderPaymentVerification`, §22 — resumable across a
+  tab close / device switch).
+
+`verifyOrderPayment` asserts, in order: receipt found · `status === "success"` ·
+`chainId` matches (when the provider returns it) · `to` is the USDC contract ·
+**exactly one** USDC `Transfer` to the intent's recipient for the intent's exact
+amount. All pass ⇒ `CONFIRMED` + `settledAt` + `payerAddress` (from the Transfer
+`from`), and `commitment.buyerAddress` is bound to the payer **if still zero**
+(used by the later _handover_ attestation — the commitment attestation was
+already written at accept time and is **not** re-touched, §28). No receipt yet ⇒
+stays `CONFIRMING`, up to 8 checks, then keeps checking on the next open — never
+a false `FAILED` (§21).
+
+## Environment (server-only, no secret)
+
+| Var | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `NETWORK_ENV` | to enable | `staging` | `production` gates the path on — same gate the attestation layer uses. Otherwise the WhatsApp handoff is the only order path. |
+| `NGN_USD_RATE_URL` | no | `https://open.er-api.com/v6/latest/USD` | Public FX endpoint returning `{ rates: { NGN } }` on a USD base. **No key.** |
+| `RPC_URL` | no | `https://forno.celo.org` | Reused from the attestation config. Verification is a public `eth_getTransactionReceipt` read. |
+
+`readOrderPaymentConfig()` is `enabled` only when `NETWORK_ENV=production` **and**
+USDC is configured. No key is needed — settlement verification is a public RPC
+read and the buyer's wallet signs everything.
+
+## Evidence
+
+`GET /api/operator/evidence/[taskId]` (`evidence/trace.ts`) gains an
+`orderPayment` section — status, `txHash` + celoscan link, asset, `amountAtomic`,
+recipient, `payerAddress`, the locked rate + source + timestamp, `verified`
+boolean — and `consistency.orderPaymentConfirmed` +
+`consistency.paymentRecipientMatchesPayout` (the confirmed transfer went to the
+business's on-file payout address).
+
+## MiniPay Mini App directory (Victor's step)
+
+Detection is `window.ethereum?.isMiniPay === true` — the wallet is
+**pre-connected** inside the MiniPay in-app browser (no `eth_requestAccounts`
+ceremony). To list Intra in the MiniPay dApp store:
+
+1. Deploy to a public HTTPS URL (done — `intra-relay.vercel.app`).
+2. Verify the buyer flow renders at a 360 px viewport inside a webview, external
+   links are `target="_blank" rel="noreferrer"`, and a cold deep link to
+   `/tasks/<id>` works.
+3. Submit through the MiniPay dev portal
+   (<https://www.mento.org/developers> → MiniPay) with the app URL, icon, and a
+   one-line description. This needs the MiniPay developer account — Victor's.
+
+## Live-test runbook (§41 — one real MiniPay transaction)
+
+M10.5 lands **code-complete, one real MiniPay transaction pending** (same shape
+as M9's outstanding on-chain item). The deterministic tests cover every branch
+with a fake receipt client; the real transaction needs Victor:
+
+1. A physical Android phone with MiniPay installed, **Developer mode** on
+   (MiniPay → Settings → About → tap the version 7×), site testing enabled.
+2. A MiniPay wallet funded with a small amount of **USDC on Celo** (a few
+   dollars) and enough of a stablecoin for the network fee.
+3. A **real SME** onboarded with a **real Celo payout address** (operator-
+   verified out of band per `FR-SUP-003` — never by collecting a secret).
+4. Set `NETWORK_ENV=production` on the deployment (already set for attestation).
+5. From the MiniPay in-app browser, open the deployed app, drive a flyer order
+   as a buyer: submit the brief → receive the SME's quote → **accept it**.
+6. On the task page, the "Pay for your order" panel shows the ₦ amount, the
+   locked USDC amount + rate provenance, and "Pay with MiniPay".
+7. Tap it → MiniPay's confirm sheet → approve. Note the tx hash MiniPay shows.
+8. The panel moves to "Payment submitted", then "Payment confirmed" within a
+   minute or two (the `GET` poll re-runs verification).
+9. Confirm on <https://celoscan.io/tx/<hash>>: a single USDC transfer, from the
+   MiniPay wallet, to the SME's payout address, for the exact locked amount.
+10. `GET /api/operator/evidence/<taskId>` (operator key) → `orderPayment.status
+    === "CONFIRMED"`, `verified: true`, `consistency.paymentRecipientMatchesPayout
+    === true`.
+11. Report the tx hash. Then M10.5's outstanding item is closed.
+
+**Never** fabricate the transaction, the hash, or the confirmed state to close
+this item (§42).

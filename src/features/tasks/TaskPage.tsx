@@ -17,6 +17,8 @@ import { formatDateTime, formatMoney, isExpired, relativeTime } from "@/lib/form
 import { getSessionId } from "@/lib/session";
 import { BuyerPickupPanel } from "@/features/proofline/BuyerPickupPanel";
 import { HandoverCodePanel } from "@/features/attestation/HandoverCodePanel";
+import { PayPanel } from "@/features/payments/minipay/PayPanel";
+import type { PublicOrderPayment } from "@/features/payments/order/service";
 import { ResumeSignal } from "@/features/pwa/ResumeSignal";
 import { OrderProblemPanel } from "./OrderProblemPanel";
 import { PriceChangePanel, type PriceChangeDto } from "@/features/quotes/PriceChangePanel";
@@ -107,6 +109,7 @@ interface TaskViewDto {
   handoffConfirmedAt: string | null;
   proofline: ProoflineView | null;
   handoverCode: string | null;
+  orderPayment: PublicOrderPayment | null;
   exception: {
     reason: string;
     origin: "provider" | "buyer" | "system";
@@ -435,6 +438,16 @@ export function TaskPage({ taskId }: { taskId: string }) {
         <PaymentReceipt
           payments={payments}
           timeline={timeline.filter((event) => event.type.startsWith("payment."))}
+        />
+      ) : null}
+
+      {readyForHandoff && !handoffConfirmedAt && view.orderPayment ? (
+        <PayPanel
+          taskId={task.id}
+          businessName={supplier?.name ?? route?.name ?? "the business"}
+          orderSummary={route?.name ?? "Printing order"}
+          initial={view.orderPayment}
+          onChanged={load}
         />
       ) : null}
 

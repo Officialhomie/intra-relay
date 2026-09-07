@@ -858,3 +858,67 @@ scorecard}`. New `NEXT_PUBLIC_AMPLITUDE_API_KEY` (client) and `AMPLITUDE_API_KEY
 - **Requirements:** `NFR-UX-001`, `NFR-A11Y-001`, PRD §7; CLAUDE.md §6.1
   (`src/styles/` tokens are load-bearing — this is a deliberate, documented
   full-system change).
+
+---
+
+## ADR-023 — Buyer order payment via MiniPay (on-chain, non-custodial, human-approved, additive)
+
+- **Date:** 2026-09-07
+- **Status:** Accepted (code-complete; one real MiniPay transaction pending — see
+  `docs/PAYMENTS.md` live-test runbook)
+- **Context:** Until now Intra had **no** buyer→business order settlement
+  anywhere — a buyer accepts a quote, gets a pre-filled WhatsApp message, and
+  pays the business off-platform (BR-001, ADR-003). The only `payments` code is
+  the never-configured x402 _agent query fee_. M10.5 adds an on-chain payment
+  path **through Intra's own UI**, settled in [MiniPay](https://www.opera.com/products/minipay)
+  (Opera's non-custodial Celo wallet), as a distribution channel — MiniPay is a
+  **payment surface, not** the product, the agent, or a source of truth.
+- **Decision:** A new deterministic module `src/features/payments/order/`
+  (server) + `src/features/payments/minipay/` (client). A payment **intent** is
+  born **only** from `createOrderPaymentIntent`, which requires
+  `task.status === "HANDOFF_READY"` (the buyer already approved the commercial
+  terms) and reads recipient / amount / asset **exclusively** from the accepted
+  `commitments` row. The buyer's wallet builds an ERC-20 `transfer` over the
+  project's `viem` stack (no ethers, no wagmi) and returns a tx hash — the
+  **only** value the client submits. `verifyOrderPayment` reads the real Celo
+  receipt server-side and only reaches `CONFIRMED` when chain, success, the USDC
+  `to`, and a single Transfer to the intent's recipient for the intent's exact
+  amount all match. The path is **additive** — the WhatsApp handoff stays the
+  fallback and nothing gates on payment.
+  - **USDC only** for the pilot (6 dp, address already in `adapter/networks.ts`).
+  - **NGN quotes + a real NGN→USD reference rate** (`NGN_USD_RATE_URL`, default
+    the keyless `open.er-api.com`), locked into the intent and always shown with
+    its source + timestamp. Source down ⇒ `503`, never a guessed rate (§16).
+  - **Intent immutable** after creation; a terms change (`quotes/revision.ts`,
+    `tasks/exception-service.ts`) invalidates it and a fresh human approval is
+    required.
+  - **The agent boundary holds:** `payWithMiniPay` is **not** an LLM tool; the
+    controller is a plain module; `MODEL_TOOLS` is untouched (§3).
+  - **Server-side verification is mandatory** — the server never trusts a client
+    "success" (§18). Replay is blocked by a `UNIQUE` `tx_hash`, the controller's
+    `TX_ALREADY_USED`, and `matchReceipt`'s recipient+amount binding.
+  - **No EAS schema change** (§28): the commitment attestation was already
+    written at accept time with `buyer: zero`; the settlement `txHash` lives only
+    in `order_payments` + the evidence trace. The **handover** attestation
+    (written later) picks up the real payer via `commitment.buyerAddress`, which
+    already flows into `encodeHandoverData({ buyer })` — no schema touched.
+  - **Product analytics** gains 11 events (`payment_method_viewed` →
+    `payment_confirmed` funnel), 3 forwarded server-side; a throwing analytics
+    arm cannot fail settlement (`safeForward`, tested).
+- **Consequences:** new migration `0011_*` (`order_payments` table + enum,
+  `tx_hash` unique, partial-unique live-intent-per-commitment index). New
+  server-only env `NGN_USD_RATE_URL` (no secret). `getTaskView` gains
+  `orderPayment`; `TaskPage` renders `PayPanel` before the handoff card;
+  `evidence/trace.ts` gains an `orderPayment` section + two consistency checks;
+  `notifications/catalogue.ts` gains 4 events; `analytics/events.ts` gains 11.
+  `viem` was already admitted (ADR-018) — no new chain library. The real
+  end-to-end MiniPay transaction (§41) needs Victor's phone + a funded wallet + a
+  real SME and happens during the M10 pilot; deterministic tests with a fake
+  receipt client cover every branch.
+- **Requirements:** M10.5 §1–§54; CLAUDE.md §4.1 (no fabricated payment / hash /
+  settlement — `CONFIRMED` only on a real receipt), §4.2 (no prohibited data —
+  only a public `0x` address and a `tx_hash` are stored, no signature or key),
+  §4.3 (human approval preserved — commercial _and_ wallet approval stay
+  separate and manual), §6.2 (x402 phase already started; `viem` already
+  admitted), BR-001 (Intra is evaluator, never custodian — the transfer is
+  wallet→business direct).

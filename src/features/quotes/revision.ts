@@ -5,6 +5,7 @@ import type { QuoteRow, TaskRow } from "@/lib/db/schema";
 import { HttpError } from "@/lib/http/response";
 import { appendAuditEvent } from "@/features/audit/repository";
 import { notify } from "@/features/notifications/service";
+import { invalidateOrderPaymentsForTask } from "@/features/payments/order/intent";
 import { findBusinessById } from "@/features/businesses/repository";
 import { findRouteById } from "@/features/routes/repository";
 import { findTaskById, listTaskQuotes } from "@/features/tasks/repository";
@@ -330,6 +331,10 @@ export async function decideOnPriceChange(
       currency: inForce.currency,
     },
   });
+
+  // The agreed amount changed — any MiniPay payment intent built on the old
+  // amount is now invalid; a fresh approval mints a new one (M10.5 §11).
+  await invalidateOrderPaymentsForTask(db, taskId);
 
   return { decision: "ACCEPTED", inForce, task };
 }

@@ -115,6 +115,19 @@ export interface AnalyticsEventMap {
   pwa_install_prompted: Empty;
   pwa_install_accepted: Empty;
   pwa_install_dismissed: Empty;
+
+  // --- buyer order payment (MiniPay, M10.5) -----------------------------
+  minipay_available: { minipay_available: boolean; wallet_available: boolean };
+  payment_method_viewed: { minipay_available: boolean; wallet_available: boolean };
+  minipay_selected: { payment_method: string };
+  wallet_request_started: { payment_method: string; network: number; asset: string };
+  wallet_approved: { payment_method: string; network: number; asset: string };
+  wallet_rejected: { payment_method: string };
+  payment_submitted: { payment_method: string; network: number; asset: string };
+  payment_confirmed: { payment_method: string; network: number; asset: string };
+  payment_failed: { payment_method: string; network: number; asset: string };
+  payment_resumed: { payment_method: string };
+  payment_receipt_viewed: { payment_method: string };
 }
 
 export type AnalyticsEventName = keyof AnalyticsEventMap;
@@ -168,6 +181,17 @@ export const EVENT_NAMES = [
   "pwa_install_prompted",
   "pwa_install_accepted",
   "pwa_install_dismissed",
+  "minipay_available",
+  "payment_method_viewed",
+  "minipay_selected",
+  "wallet_request_started",
+  "wallet_approved",
+  "wallet_rejected",
+  "payment_submitted",
+  "payment_confirmed",
+  "payment_failed",
+  "payment_resumed",
+  "payment_receipt_viewed",
 ] as const satisfies readonly AnalyticsEventName[];
 
 /** Events forwarded from the server because they have no browser actor. */
@@ -177,4 +201,8 @@ export const SERVER_FORWARDED_EVENTS = [
   "notification_created",
   "push_sent",
   "business_ready",
+  // The buyer often closes the tab before the network confirms (M10.5 §22, §37).
+  "payment_submitted",
+  "payment_confirmed",
+  "payment_failed",
 ] as const satisfies readonly AnalyticsEventName[];

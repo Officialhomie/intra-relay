@@ -12,17 +12,7 @@ import { useAnalytics } from "@/features/analytics/useAnalytics";
 import { ApiError, apiRequest } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { easExplorerUrl } from "@/features/attestation/chain";
-
-/** The minimal shape of an EIP-1193 injected wallet — no wallet library added (M9: "no new frameworks"). */
-interface Eip1193Provider {
-  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
-}
-
-declare global {
-  interface Window {
-    ethereum?: Eip1193Provider;
-  }
-}
+import "@/features/payments/minipay/provider";
 
 export interface HandoverPublicView {
   status: "PENDING_CODE" | "PENDING_SIGNATURE" | "ATTESTED" | "ATTESTATION_FAILED";

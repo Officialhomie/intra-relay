@@ -187,6 +187,60 @@ export function specsForEvent(ctx: DomainEventContext): NotificationSpec[] {
       );
       break;
 
+    // --- Buyer order payment (MiniPay, M10.5) -------------------------------
+    case "order_payment.confirmed":
+      out.push(
+        buyerOrderSpec(
+          task,
+          event,
+          "COMPLETED",
+          "Payment confirmed",
+          business
+            ? `Your payment to ${business.name} has been confirmed. Open the order for the receipt.`
+            : "Your payment has been confirmed. Open the order for the receipt.",
+        ),
+      );
+      break;
+
+    case "order_payment.pending_verification":
+      out.push(
+        buyerOrderSpec(
+          task,
+          event,
+          "INFORMATIONAL",
+          "We're still confirming your payment",
+          "Your payment was submitted and we're waiting for the network to confirm it. Open the order to check the status.",
+        ),
+      );
+      break;
+
+    case "order_payment.failed":
+      out.push(
+        buyerOrderSpec(
+          task,
+          event,
+          "ACTION_REQUIRED",
+          "Your payment didn't go through",
+          "No payment was confirmed. Open the order to try again, or use the WhatsApp handoff.",
+        ),
+      );
+      break;
+
+    case "order_payment.received":
+      if (business) {
+        out.push(
+          businessRequestSpec(
+            business,
+            task,
+            event,
+            "INFORMATIONAL",
+            "Payment received",
+            "The customer's payment for this order has been confirmed on-chain. Continue with fulfilment.",
+          ),
+        );
+      }
+      break;
+
     case "task.failed": {
       // task.failed only ever comes from a provider or a system exception here;
       // a buyer cancellation is task.buyer_declined. Reuse the semantic account
