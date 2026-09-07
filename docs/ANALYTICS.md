@@ -122,19 +122,19 @@ _agent query fee_. All go through `sanitizeProps`; a signature, key, or raw
 wallet payload is **never** a property. `network` is the numeric chain id
 (`42220`), `asset` is `"USDC"`.
 
-| Event                    | Trigger                                                            | Key properties                        |
-| ------------------------ | ----------------------------------------------------------------- | ------------------------------------- |
+| Event                    | Trigger                                                           | Key properties                          |
+| ------------------------ | ----------------------------------------------------------------- | --------------------------------------- |
 | `payment_method_viewed`  | the "Pay for your order" panel renders after an accepted quote    | `minipay_available`, `wallet_available` |
 | `minipay_available`      | the panel renders inside the MiniPay in-app browser               | `minipay_available`, `wallet_available` |
-| `minipay_selected`       | buyer taps "Pay with MiniPay" / "Pay from your wallet"            | `payment_method`                      |
-| `wallet_request_started` | the wallet transaction is about to be requested                   | `payment_method`, `network`, `asset`  |
-| `wallet_approved`        | the wallet returned a tx hash                                     | `payment_method`, `network`, `asset`  |
-| `wallet_rejected`        | the buyer dismissed the wallet (→ intent `CANCELLED`, order fine) | `payment_method`                      |
-| `payment_submitted`ˢ     | the tx hash is recorded server-side, verification scheduled       | `payment_method`, `network`, `asset`  |
-| `payment_confirmed`ˢ     | `verifyOrderPayment` read a matching Celo receipt                 | `payment_method`, `network`, `asset`  |
-| `payment_failed`ˢ        | the receipt did not match the intent, or the tx reverted          | `payment_method`, `network`, `asset`  |
-| `payment_resumed`        | an in-flight payment is picked up again on page load (§22)        | `payment_method`                      |
-| `payment_receipt_viewed` | the confirmed-payment receipt card is shown                       | `payment_method`                      |
+| `minipay_selected`       | buyer taps "Pay with MiniPay" / "Pay from your wallet"            | `payment_method`                        |
+| `wallet_request_started` | the wallet transaction is about to be requested                   | `payment_method`, `network`, `asset`    |
+| `wallet_approved`        | the wallet returned a tx hash                                     | `payment_method`, `network`, `asset`    |
+| `wallet_rejected`        | the buyer dismissed the wallet (→ intent `CANCELLED`, order fine) | `payment_method`                        |
+| `payment_submitted`ˢ     | the tx hash is recorded server-side, verification scheduled       | `payment_method`, `network`, `asset`    |
+| `payment_confirmed`ˢ     | `verifyOrderPayment` read a matching Celo receipt                 | `payment_method`, `network`, `asset`    |
+| `payment_failed`ˢ        | the receipt did not match the intent, or the tx reverted          | `payment_method`, `network`, `asset`    |
+| `payment_resumed`        | an in-flight payment is picked up again on page load (§22)        | `payment_method`                        |
+| `payment_receipt_viewed` | the confirmed-payment receipt card is shown                       | `payment_method`                        |
 
 `payment_submitted` / `payment_confirmed` / `payment_failed` are **also**
 forwarded from the server (`SERVER_FORWARDED_EVENTS`) because the buyer often
@@ -401,16 +401,16 @@ did they complete another workflow.
 
 Verified against the deployed app + the Amplitude MCP.
 
-|                                  |                                                                                                                                                                   |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Org / project                    | `late-wildflower-209746` / **`Intra`** (`appId 860617`)                                                                                                           |
-| Dashboard URL                    | `https://app.amplitude.com/analytics/late-wildflower-209746/dashboard/j0dkb6do` — "M10 · Intra Controlled Pilot"                                                  |
-| Browser key                      | live, inlined into the client bundle, `environment: production`                                                                                                   |
-| Server key (`AMPLITUDE_API_KEY`) | set in Vercel, armed by the 2026-09-06 redeploy; first-verified at Checkpoint 3                                                                                   |
+|                                  |                                                                                                                                                                                                                                     |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Org / project                    | `late-wildflower-209746` / **`Intra`** (`appId 860617`)                                                                                                                                                                             |
+| Dashboard URL                    | `https://app.amplitude.com/analytics/late-wildflower-209746/dashboard/j0dkb6do` — "M10 · Intra Controlled Pilot"                                                                                                                    |
+| Browser key                      | live, inlined into the client bundle, `environment: production`                                                                                                                                                                     |
+| Server key (`AMPLITUDE_API_KEY`) | set in Vercel, armed by the 2026-09-06 redeploy; first-verified at Checkpoint 3                                                                                                                                                     |
 | Governed tracking plan           | **58 events** (6 categories — M10.5 added the 11-event "Buyer order payment" category 2026-09-07), **30 event properties**, **3 user properties** (`role`, `environment`, `is_test`) — pushed via MCP, branch `main`, not protected |
-| Data to date                     | `app_opened` × 4, `session_start` × 2 — **all `is_test = true`** (M9.5 verification). Zero real (non-test) production events.                                     |
-| Identity                         | verified: `user_id` = opaque buyer session id, `role`, `is_test`, `environment` all correct; **no** message text / contact / token / secret in any event property |
-| Amplitude autocapture            | IP address + city/region/country ON (kept — campus-pilot geo). Attribution + sessions ON. Element / form / page-view capture OFF.                                 |
+| Data to date                     | `app_opened` × 4, `session_start` × 2 — **all `is_test = true`** (M9.5 verification). Zero real (non-test) production events.                                                                                                       |
+| Identity                         | verified: `user_id` = opaque buyer session id, `role`, `is_test`, `environment` all correct; **no** message text / contact / token / secret in any event property                                                                   |
+| Amplitude autocapture            | IP address + city/region/country ON (kept — campus-pilot geo). Attribution + sessions ON. Element / form / page-view capture OFF.                                                                                                   |
 
 **The 6 core funnels and 2 cohorts are NOT yet built** — Amplitude rejects a
 funnel built on an event with zero data (`"Invalid intent_ready"`). They are
@@ -419,14 +419,14 @@ fire. Exact definitions:
 
 ### Funnels (filter each to `environment = production` AND `is_test ≠ true`)
 
-| #   | Name                       | Steps                                                                                                                         | Window                |
-| --- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| 1   | Buyer activation           | `app_opened → intent_ready → results_shown`                                                                                   | 7 days                |
-| 2   | Buyer conversion           | `intent_ready → results_shown → approval_viewed → approval_accepted → workflow_completed`                                     | 7 days                |
-| 3   | Business conversion        | `business_onboarding_completed → business_ready → request_received → quote_sent → approval_accepted → business_job_completed` | 30 days               |
-| 4   | Notification effectiveness | `attention_required → notification_opened → workflow_resumed → workflow_completed`                                            | 3 days                |
-| 5   | First → second workflow    | `workflow_completed` (retention, n ≥ 2), start `_new`, return `workflow_completed`                                            | 1 / 7 / 30 d brackets |
-| 6   | Clarification friction     | histogram of `clarification_count` on `intent_ready`, group by `category`                                                     | —                     |
+| #   | Name                       | Steps                                                                                                                           | Window                |
+| --- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| 1   | Buyer activation           | `app_opened → intent_ready → results_shown`                                                                                     | 7 days                |
+| 2   | Buyer conversion           | `intent_ready → results_shown → approval_viewed → approval_accepted → workflow_completed`                                       | 7 days                |
+| 3   | Business conversion        | `business_onboarding_completed → business_ready → request_received → quote_sent → approval_accepted → business_job_completed`   | 30 days               |
+| 4   | Notification effectiveness | `attention_required → notification_opened → workflow_resumed → workflow_completed`                                              | 3 days                |
+| 5   | First → second workflow    | `workflow_completed` (retention, n ≥ 2), start `_new`, return `workflow_completed`                                              | 1 / 7 / 30 d brackets |
+| 6   | Clarification friction     | histogram of `clarification_count` on `intent_ready`, group by `category`                                                       | —                     |
 | 7   | MiniPay payment (M10.5)    | `approval_accepted → payment_method_viewed → minipay_selected → wallet_request_started → payment_submitted → payment_confirmed` | 1 day                 |
 
 ### Cohorts

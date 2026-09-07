@@ -182,17 +182,17 @@ EAS schemas, or the WhatsApp handoff.
 
 ## What stays true (the §2 / §43 invariants)
 
-| Guarantee | How |
-| --- | --- |
-| Intra never custodies funds | the wallet transfers USDC straight to the business payout address; no Intra address is ever in the path |
-| The human approves the commercial terms | the payment intent can only be created once `task.status === "HANDOFF_READY"` — i.e. the buyer already accepted the quote |
-| The human approves the wallet transaction | `PayPanel` → the wallet's own confirm dialog; Intra never holds a key or a signature |
-| The agent cannot pay | the controller is a plain server module; `payWithMiniPay` is **not** an LLM tool (§3) |
-| Amount + recipient are server-authoritative | `createOrderPaymentIntent` reads them **only** from the accepted `commitments` row — never the client, an LLM, or free-form text (§8, §9). The submit route accepts **only** a `txHash`. |
-| The intent is immutable after creation | no code path updates `recipientAddress` / `amountAtomic` / `assetAddress` / `quoteId`. A terms change (`quotes/revision.ts`, `tasks/exception-service.ts`) calls `invalidateOrderPaymentsForTask` → the intent is `EXPIRED` and a fresh human approval mints a new one (§11). |
-| "Confirmed" cannot be spoofed | `CONFIRMED` is reachable **only** through `verifyOrderPayment` reading a real Celo receipt (§17–§19). The server never trusts a client "success". |
-| Replay is blocked | `order_payments.tx_hash` is `UNIQUE`; the controller rejects a hash already linked to another payment (`TX_ALREADY_USED`); `matchReceipt` requires the transfer to go to _this_ intent's recipient for _this_ intent's exact amount, so a receipt for order A cannot confirm order B. |
-| A dead order can't be paid | every task-exception path expires the live intent; a **confirmed** on-chain payment is left exactly as it is — no refund, no reversal, no fabricated outcome (§4.1). |
+| Guarantee                                   | How                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Intra never custodies funds                 | the wallet transfers USDC straight to the business payout address; no Intra address is ever in the path                                                                                                                                                                               |
+| The human approves the commercial terms     | the payment intent can only be created once `task.status === "HANDOFF_READY"` — i.e. the buyer already accepted the quote                                                                                                                                                             |
+| The human approves the wallet transaction   | `PayPanel` → the wallet's own confirm dialog; Intra never holds a key or a signature                                                                                                                                                                                                  |
+| The agent cannot pay                        | the controller is a plain server module; `payWithMiniPay` is **not** an LLM tool (§3)                                                                                                                                                                                                 |
+| Amount + recipient are server-authoritative | `createOrderPaymentIntent` reads them **only** from the accepted `commitments` row — never the client, an LLM, or free-form text (§8, §9). The submit route accepts **only** a `txHash`.                                                                                              |
+| The intent is immutable after creation      | no code path updates `recipientAddress` / `amountAtomic` / `assetAddress` / `quoteId`. A terms change (`quotes/revision.ts`, `tasks/exception-service.ts`) calls `invalidateOrderPaymentsForTask` → the intent is `EXPIRED` and a fresh human approval mints a new one (§11).         |
+| "Confirmed" cannot be spoofed               | `CONFIRMED` is reachable **only** through `verifyOrderPayment` reading a real Celo receipt (§17–§19). The server never trusts a client "success".                                                                                                                                     |
+| Replay is blocked                           | `order_payments.tx_hash` is `UNIQUE`; the controller rejects a hash already linked to another payment (`TX_ALREADY_USED`); `matchReceipt` requires the transfer to go to _this_ intent's recipient for _this_ intent's exact amount, so a receipt for order A cannot confirm order B. |
+| A dead order can't be paid                  | every task-exception path expires the live intent; a **confirmed** on-chain payment is left exactly as it is — no refund, no reversal, no fabricated outcome (§4.1).                                                                                                                  |
 
 ## NGN → USD reference rate (§16)
 
@@ -252,11 +252,11 @@ a false `FAILED` (§21).
 
 ## Environment (server-only, no secret)
 
-| Var | Required | Default | Notes |
-| --- | --- | --- | --- |
-| `NETWORK_ENV` | to enable | `staging` | `production` gates the path on — same gate the attestation layer uses. Otherwise the WhatsApp handoff is the only order path. |
-| `NGN_USD_RATE_URL` | no | `https://open.er-api.com/v6/latest/USD` | Public FX endpoint returning `{ rates: { NGN } }` on a USD base. **No key.** |
-| `RPC_URL` | no | `https://forno.celo.org` | Reused from the attestation config. Verification is a public `eth_getTransactionReceipt` read. |
+| Var                | Required  | Default                                 | Notes                                                                                                                         |
+| ------------------ | --------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `NETWORK_ENV`      | to enable | `staging`                               | `production` gates the path on — same gate the attestation layer uses. Otherwise the WhatsApp handoff is the only order path. |
+| `NGN_USD_RATE_URL` | no        | `https://open.er-api.com/v6/latest/USD` | Public FX endpoint returning `{ rates: { NGN } }` on a USD base. **No key.**                                                  |
+| `RPC_URL`          | no        | `https://forno.celo.org`                | Reused from the attestation config. Verification is a public `eth_getTransactionReceipt` read.                                |
 
 `readOrderPaymentConfig()` is `enabled` only when `NETWORK_ENV=production` **and**
 USDC is configured. No key is needed — settlement verification is a public RPC
@@ -308,8 +308,8 @@ with a fake receipt client; the real transaction needs Victor:
 9. Confirm on <https://celoscan.io/tx/<hash>>: a single USDC transfer, from the
    MiniPay wallet, to the SME's payout address, for the exact locked amount.
 10. `GET /api/operator/evidence/<taskId>` (operator key) → `orderPayment.status
-    === "CONFIRMED"`, `verified: true`, `consistency.paymentRecipientMatchesPayout
-    === true`.
+=== "CONFIRMED"`, `verified: true`, `consistency.paymentRecipientMatchesPayout
+=== true`.
 11. Report the tx hash. Then M10.5's outstanding item is closed.
 
 **Never** fabricate the transaction, the hash, or the confirmed state to close
