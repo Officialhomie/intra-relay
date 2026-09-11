@@ -184,6 +184,21 @@ describe("createOrderPaymentIntent — guards", () => {
     ).rejects.toMatchObject({ status: 409, code: "COMMITMENT_EXPIRED" });
   });
 
+  it("503 PAYMENT_METHOD_UNAVAILABLE when the business has no real payout address (M10 pilot-readiness audit)", async () => {
+    // A quick-start business is stored with the zero-address placeholder
+    // (src/features/businesses/quick-start.ts), never a guess. Sending USDC
+    // there would be an irrecoverable loss — refuse before the rate/wallet.
+    const { task, session } = await createHandoffReadyOrder(db, {
+      payoutAddress: `0x${"0".repeat(40)}`,
+    });
+
+    await expect(createOrderPaymentIntent(db, task.id, session, deps)).rejects.toMatchObject({
+      status: 503,
+      code: "PAYMENT_METHOD_UNAVAILABLE",
+    });
+    expect(await db.select().from(orderPayments)).toHaveLength(0);
+  });
+
   it("503 (never a guessed rate) when the FX source is unreachable (§16)", async () => {
     const { task, session } = await createHandoffReadyOrder(db);
     await expect(
