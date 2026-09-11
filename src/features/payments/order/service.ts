@@ -18,7 +18,7 @@ import {
   findLatestOrderPaymentByTaskId,
 } from "./repository";
 import { findCommitmentByTaskId } from "@/features/commitments/repository";
-import { commitmentIsExpired } from "@/features/commitments/status";
+import { commitmentIsExpired, OFF_CHAIN_ASSET } from "@/features/commitments/status";
 import { findTaskById } from "@/features/tasks/repository";
 import { isOrderPaymentTerminal } from "./status";
 
@@ -108,7 +108,10 @@ export async function getOrderPaymentForTask(
   if (confirmed) return toPublicOrderPayment(confirmed, config);
 
   const expired = commitmentIsExpired(commitment.validUntil);
-  const offered = config.enabled && !expired;
+  // A quick-start business has no real payout address on file (M10 audit) —
+  // never offer to send funds toward the zero-address placeholder.
+  const noPayoutAddress = commitment.providerAddress.toLowerCase() === OFF_CHAIN_ASSET;
+  const offered = config.enabled && !expired && !noPayoutAddress;
 
   return {
     status: existing ? existing.status : null,
@@ -130,9 +133,11 @@ export async function getOrderPaymentForTask(
     explorerUrl: null,
     reason: !config.enabled
       ? config.reason
-      : expired
-        ? "The agreed offer has expired. Ask the business to reconfirm the price."
-        : null,
+      : noPayoutAddress
+        ? "This business hasn't set up on-chain payment yet."
+        : expired
+          ? "The agreed offer has expired. Ask the business to reconfirm the price."
+          : null,
     expiresAt: null,
   };
 }

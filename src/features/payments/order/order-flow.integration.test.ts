@@ -177,4 +177,13 @@ describe("the order still completes when the FX source is down (§16, §50)", ()
     expect(view!.reason).toMatch(/not production/i);
     expect(view!.paid).toBe(false);
   });
+
+  it("getOrderPaymentForTask never offers MiniPay to a business with no real payout address (M10 pilot-readiness audit)", async () => {
+    const { task } = await createHandoffReadyOrder(db, { payoutAddress: `0x${"0".repeat(40)}` });
+    const view = await getOrderPaymentForTask(db, task.id, CONFIG);
+    expect(view).not.toBeNull();
+    expect(view!.offered).toBe(false);
+    expect(view!.paid).toBe(false);
+    expect(view!.reason).toMatch(/hasn't set up on-chain payment/i);
+  });
 });

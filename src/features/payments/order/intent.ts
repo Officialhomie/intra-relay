@@ -10,7 +10,7 @@ import type { Database } from "@/lib/db/client";
 import type { OrderPaymentRow } from "@/lib/db/schema";
 import { HttpError } from "@/lib/http/response";
 import { appendAuditEvent } from "@/features/audit/repository";
-import { commitmentIsExpired } from "@/features/commitments/status";
+import { commitmentIsExpired, OFF_CHAIN_ASSET } from "@/features/commitments/status";
 import { findCommitmentByTaskId } from "@/features/commitments/repository";
 import { findTaskById } from "@/features/tasks/repository";
 import { taskBelongsToSession } from "@/features/tasks/ownership";
@@ -65,6 +65,16 @@ export async function createOrderPaymentIntent(
   const commitment = await findCommitmentByTaskId(db, task.id);
   if (!commitment) {
     throw new HttpError(409, "NO_COMMITMENT", "This order has no accepted commitment to pay for.");
+  }
+  // A quick-start business has no real payout address (stored as the zero
+  // address, never a guess). Sending USDC there would be an irrecoverable loss
+  // — refuse before ever touching a rate or a wallet (M10 pilot-readiness audit).
+  if (commitment.providerAddress.toLowerCase() === OFF_CHAIN_ASSET) {
+    throw new HttpError(
+      503,
+      "PAYMENT_METHOD_UNAVAILABLE",
+      "This business hasn't set up on-chain payment yet. Use the WhatsApp handoff to pay directly.",
+    );
   }
   if (commitmentIsExpired(commitment.validUntil, new Date(now()))) {
     throw new HttpError(

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { CheckCircle2, PackageCheck } from "lucide-react";
 
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Callout } from "@/components/ui/Callout";
 import { Card, CardTitle } from "@/components/ui/Section";
 import { TextField } from "@/components/ui/TextField";
+import { useAnalytics } from "@/features/analytics/useAnalytics";
 import { ApiError, apiRequest } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { getSessionId } from "@/lib/session";
@@ -28,6 +29,7 @@ export function BuyerPickupPanel({
   proofline: ProoflineView;
   onChanged: () => void;
 }) {
+  const analytics = useAnalytics("buyer");
   const [code, setCode] = useState("");
   const [showCode, setShowCode] = useState(false);
   const [pending, setPending] = useState<null | "session" | "code">(null);
@@ -35,6 +37,18 @@ export function BuyerPickupPanel({
 
   const ready = proofline.evidenceStatus === "MERCHANT_MARKED_READY";
   const confirmed = proofline.evidenceStatus === "BUYER_CONFIRMED_PICKUP";
+
+  // The buyer's own fulfilment-completion signal — the missing symmetric half
+  // of the merchant's `fulfillment_started` (M10 pilot funnel).
+  const completedTracked = useRef(false);
+  useEffect(() => {
+    if (confirmed && !completedTracked.current) {
+      completedTracked.current = true;
+      analytics.track("fulfilment_completed", {
+        confirmation_method: proofline.pickupConfirmedBy ?? "buyer_session",
+      });
+    }
+  }, [confirmed, proofline.pickupConfirmedBy, analytics]);
 
   async function confirm(mode: "session" | "code") {
     setPending(mode);

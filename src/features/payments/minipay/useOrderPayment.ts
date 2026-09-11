@@ -139,6 +139,11 @@ export function useOrderPayment(taskId: string, initial: PublicOrderPayment | nu
       return;
     }
     setState((s) => ({ ...s, payment: intent, phase: "wallet", message: null }));
+    analytics.track("payment_intent_created", {
+      payment_method: method,
+      network: intent.chainId,
+      asset: intent.asset,
+    });
 
     if (
       !intent.assetAddress ||

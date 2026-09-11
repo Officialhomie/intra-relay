@@ -91,6 +91,10 @@ export interface AnalyticsEventMap {
   handover_completed: { mode: "onchain" | "mock" };
   business_job_completed: Empty;
 
+  // --- buyer: fulfilment (Proofline, M10 pilot funnel) --------------------
+  /** The buyer's own confirmation they received the order — the missing symmetric half of `fulfillment_started`. */
+  fulfilment_completed: { confirmation_method: string };
+
   // --- notifications ------------------------------------------------------
   attention_required: { domain_event: string; level: string; audience: string };
   notification_created: {
@@ -120,6 +124,8 @@ export interface AnalyticsEventMap {
   minipay_available: { minipay_available: boolean; wallet_available: boolean };
   payment_method_viewed: { minipay_available: boolean; wallet_available: boolean };
   minipay_selected: { payment_method: string };
+  /** The server minted a payment intent (recipient/amount/asset resolved) — before the wallet is invoked. */
+  payment_intent_created: { payment_method: string; network: number; asset: string };
   wallet_request_started: { payment_method: string; network: number; asset: string };
   wallet_approved: { payment_method: string; network: number; asset: string };
   wallet_rejected: { payment_method: string };
@@ -168,6 +174,7 @@ export const EVENT_NAMES = [
   "handover_started",
   "handover_completed",
   "business_job_completed",
+  "fulfilment_completed",
   "attention_required",
   "notification_created",
   "push_sent",
@@ -184,6 +191,7 @@ export const EVENT_NAMES = [
   "minipay_available",
   "payment_method_viewed",
   "minipay_selected",
+  "payment_intent_created",
   "wallet_request_started",
   "wallet_approved",
   "wallet_rejected",
