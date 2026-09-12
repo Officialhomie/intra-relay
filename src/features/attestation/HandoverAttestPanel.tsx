@@ -3,7 +3,6 @@
 import { useState } from "react";
 
 import { useRouter } from "next/navigation";
-import { ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Callout } from "@/components/ui/Callout";
@@ -12,6 +11,7 @@ import { useAnalytics } from "@/features/analytics/useAnalytics";
 import { ApiError, apiRequest } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { easExplorerUrl } from "@/features/attestation/chain";
+import { HandoverCodeCard } from "@/features/attestation/HandoverCodeCard";
 import "@/features/payments/minipay/provider";
 
 export interface HandoverPublicView {
@@ -133,15 +133,7 @@ export function HandoverAttestPanel({
   }
 
   return (
-    <div className="space-y-3 rounded-md border border-border bg-bg p-4">
-      <div className="flex items-center gap-2">
-        <ShieldCheck aria-hidden className="size-4 text-primary" />
-        <p className="text-sm font-medium">Confirm handover</p>
-      </div>
-      <p className="text-sm text-muted">
-        Ask the customer for the code they were given, then confirm that this job was handed over.
-        This confirmation will be recorded as part of the transaction history.
-      </p>
+    <HandoverCodeCard mode="merchant">
       <TextField
         label="Code from the customer"
         value={code}
@@ -168,6 +160,6 @@ export function HandoverAttestPanel({
           {error}
         </p>
       ) : null}
-    </div>
+    </HandoverCodeCard>
   );
 }

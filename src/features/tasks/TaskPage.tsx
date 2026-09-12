@@ -11,15 +11,20 @@ import { DataList, DataRow } from "@/components/ui/DataList";
 import { ErrorState, LoadingPanel } from "@/components/ui/States";
 import { Card, CardTitle, SectionHeader } from "@/components/ui/Section";
 import { StatusPill, taskStatusLabel, taskStatusTone } from "@/components/ui/StatusPill";
+import { Disclosure } from "@/components/ui/Disclosure";
+import { NextActionCard } from "@/components/ui/NextActionCard";
+import { Tracker } from "@/components/ui/Tracker";
 import { ApiError, apiRequest } from "@/lib/api";
 import { useAnalytics } from "@/features/analytics/useAnalytics";
 import { formatDateTime, formatMoney, isExpired, relativeTime } from "@/lib/format";
 import { getSessionId } from "@/lib/session";
+import { briefFieldLabel, briefFieldValue } from "./brief-format";
 import { BuyerPickupPanel } from "@/features/proofline/BuyerPickupPanel";
-import { HandoverCodePanel } from "@/features/attestation/HandoverCodePanel";
+import { HandoverCodeCard } from "@/features/attestation/HandoverCodeCard";
 import { PayPanel } from "@/features/payments/minipay/PayPanel";
 import type { PublicOrderPayment } from "@/features/payments/order/service";
 import { ResumeSignal } from "@/features/pwa/ResumeSignal";
+import { nextAction } from "./next-action";
 import { OrderProblemPanel } from "./OrderProblemPanel";
 import { PriceChangePanel, type PriceChangeDto } from "@/features/quotes/PriceChangePanel";
 import type { ProoflineView } from "@/features/proofline/view";
@@ -159,37 +164,22 @@ function eventLabel(type: string): string {
   return tail.charAt(0).toUpperCase() + tail.slice(1).replace(/_/g, " ");
 }
 
-/** Plain labels + values for the structured brief keys (§22). */
-const BRIEF_FIELD_LABEL: Record<string, string> = {
-  size: "Paper size",
-  quantity: "How many",
-  colour: "Colour",
-  deadline: "Needed by",
-  deliveryArea: "Delivery / pick-up",
-  pages: "Pages",
-  copies: "Copies",
-  device: "Device",
-  fault: "What is wrong",
-};
+/** The forward-only part of the task lifecycle (§7) — FAILED/CANCELLED are exceptions, shown as a `Callout` instead. */
+const TASK_TRACKER_STEPS = ["Sent", "Waiting for a price", "Quote ready", "Ready to send"];
 
-function briefLabel(key: string): string {
-  return (
-    BRIEF_FIELD_LABEL[key] ??
-    key.charAt(0).toUpperCase() +
-      key
-        .slice(1)
-        .replace(/([A-Z])/g, " $1")
-        .toLowerCase()
-  );
-}
-
-function briefDisplayValue(key: string, value: unknown): string {
-  const raw = String(value).trim();
-  if (key === "colour") {
-    const v = raw.toLowerCase().replace(/-/g, " ");
-    return v.charAt(0).toUpperCase() + v.slice(1);
+function taskTrackerIndex(status: string): number | null {
+  switch (status) {
+    case "SUBMITTED":
+      return 0;
+    case "AWAITING_QUOTE":
+      return 1;
+    case "RECOMMENDED":
+      return 2;
+    case "HANDOFF_READY":
+      return 3;
+    default:
+      return null;
   }
-  return raw;
 }
 
 export function TaskPage({ taskId }: { taskId: string }) {
@@ -298,13 +288,20 @@ export function TaskPage({ taskId }: { taskId: string }) {
   const supplierDeclined =
     quote?.status === "DECLINED" || task.failureReason === "SUPPLIER_DECLINED";
   const quoteExpired = quote?.effectiveStatus === "EXPIRED";
-  const awaitingDecision = task.status === "RECOMMENDED";
   const readyForHandoff = task.status === "HANDOFF_READY";
   const buyerDeclined = task.status === "CANCELLED";
+  const showFeedback = handoffConfirmedAt !== null || task.status === "FAILED" || buyerDeclined;
+  const action = nextAction(view);
+  // HandoffCard and the buyer's HandoverCodeCard outlive the active "close the order"
+  // moment (no `!handoffConfirmedAt` guard) — they render as the dominant
+  // action there, then as Detail-zone record once something else takes over.
+  const handoffIsHistory = readyForHandoff && action.kind !== "close_order";
 
   return (
     <div className="space-y-8">
       <ResumeSignal />
+
+      {/* ------------------------------------------------------- 1. status */}
       <SectionHeader
         eyebrow="Your request"
         title={route?.name ?? "Printing quote"}
@@ -314,182 +311,236 @@ export function TaskPage({ taskId }: { taskId: string }) {
         }
       />
 
-      {exception ? (
-        <Callout
-          tone={exception.origin === "buyer" ? "info" : "warning"}
-          title={exception.headline}
-        >
-          <p>{exception.whatHappened}</p>
-          {task.buyerDeclineReason ? (
-            <p className="mt-1.5 text-xs italic">Your note: “{task.buyerDeclineReason}”</p>
-          ) : null}
-          {exception.actionNeeded ? (
-            <p className="mt-2">
-              <span className="font-medium">What to do: </span>
-              {exception.actionNeeded}
-            </p>
-          ) : null}
-          <p className="mt-2 text-xs text-muted">{exception.whatNext}</p>
-          <p className="mt-1 text-xs text-muted">{exception.moneyNote}</p>
-          <p className="mt-3">
-            <Link href="/agent" className="underline">
-              Send a new request
-            </Link>
-          </p>
-        </Callout>
-      ) : null}
-
-      <Card>
-        <CardTitle>Your brief</CardTitle>
-        <DataList className="mt-4">
-          {Object.entries(brief).map(([key, value]) => (
-            <DataRow key={key} label={briefLabel(key)}>
-              {briefDisplayValue(key, value)}
-            </DataRow>
-          ))}
-          {route ? (
-            <DataRow
-              label="Route freshness"
-              hint={
-                route.priceUpdatedAt
-                  ? `Prices confirmed ${relativeTime(route.priceUpdatedAt)}`
-                  : "Prices not yet confirmed"
-              }
-            >
-              Verified {route.verifiedAt ? relativeTime(route.verifiedAt) : "—"} · SLA{" "}
-              {route.responseSlaMinutes} min
-            </DataRow>
-          ) : null}
-        </DataList>
-      </Card>
-
-      {quote && !supplierDeclined ? (
+      {!exception && taskTrackerIndex(task.status) !== null ? (
         <Card>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle>The quote</CardTitle>
-            <div className="flex items-center gap-2">
-              {quoteExpired ? <StatusPill tone="warning">Expired</StatusPill> : null}
-              <span className="text-xs font-medium uppercase tracking-wide text-subtle">
-                {quote.fixed ? "Fixed price" : "Estimate — confirm before paying"}
-              </span>
-            </div>
-          </div>
-          <p className="mt-1 text-xs text-subtle">
-            Entered by the printer or an Intra operator. Not independently checked by Intra.
-          </p>
-          <DataList className="mt-4">
-            <DataRow label="Price">
-              {quote.amountMax && quote.amountMax !== quote.amountMin
-                ? `${formatMoney(quote.amountMin, quote.currency)} – ${formatMoney(quote.amountMax, quote.currency)}`
-                : formatMoney(quote.amountMin, quote.currency)}
-            </DataRow>
-            {quote.deliveryCharge ? (
-              <DataRow label="Delivery charge">
-                {formatMoney(quote.deliveryCharge, quote.currency)}
-              </DataRow>
-            ) : null}
-            <DataRow label="Turnaround">{quote.turnaround}</DataRow>
-            {quote.availabilityNote ? (
-              <DataRow label="Availability">{quote.availabilityNote}</DataRow>
-            ) : null}
-            {quote.assumptions ? <DataRow label="Assumptions">{quote.assumptions}</DataRow> : null}
-            {quote.confidence ? <DataRow label="Confidence">{quote.confidence}</DataRow> : null}
-            <DataRow label="Quote validity">
-              {quote.expiresAt ? (
-                isExpired(quote.expiresAt) ? (
-                  <span className="text-warning">
-                    Expired {relativeTime(quote.expiresAt)} — reconfirm the price before paying
-                  </span>
-                ) : (
-                  <span>
-                    <Clock3 aria-hidden className="mr-1 inline size-3.5" />
-                    Valid until {formatDateTime(quote.expiresAt)} ({relativeTime(quote.expiresAt)})
-                  </span>
-                )
-              ) : (
-                "No stated expiry — treat as an estimate"
-              )}
-            </DataRow>
-          </DataList>
+          <Tracker steps={TASK_TRACKER_STEPS} current={taskTrackerIndex(task.status)!} />
         </Card>
       ) : null}
 
-      {recommendation && !supplierDeclined ? (
-        <RecommendationCard
-          recommendation={recommendation}
-          currency={quote?.currency ?? recommendation.normalized.currency}
-        />
-      ) : null}
+      {/* ----------------------------------------------------- 2. what now */}
+      <NextActionCard
+        eyebrow={action.eyebrow}
+        headline={action.headline}
+        description={action.description}
+      >
+        {action.kind === "exception" && exception ? (
+          <Callout
+            tone={exception.origin === "buyer" ? "info" : "warning"}
+            title={exception.headline}
+          >
+            <p>{exception.whatHappened}</p>
+            {task.buyerDeclineReason ? (
+              <p className="mt-1.5 text-xs italic">Your note: “{task.buyerDeclineReason}”</p>
+            ) : null}
+            {exception.actionNeeded ? (
+              <p className="mt-2">
+                <span className="font-medium">What to do: </span>
+                {exception.actionNeeded}
+              </p>
+            ) : null}
+            <p className="mt-2 text-xs text-muted">{exception.whatNext}</p>
+            <p className="mt-1 text-xs text-muted">{exception.moneyNote}</p>
+            <p className="mt-3">
+              <Link href="/agent" className="underline">
+                Send a new request
+              </Link>
+            </p>
+          </Callout>
+        ) : null}
 
-      {view.priceChange && supplier ? (
-        <PriceChangePanel
-          taskId={task.id}
-          change={view.priceChange}
-          businessName={supplier.name}
-          onDecided={load}
-        />
-      ) : null}
+        {action.kind === "price_change" && view.priceChange && supplier ? (
+          <PriceChangePanel
+            taskId={task.id}
+            change={view.priceChange}
+            businessName={supplier.name}
+            onDecided={load}
+          />
+        ) : null}
 
-      {awaitingDecision && recommendation ? (
-        <DecisionPanel taskId={task.id} quoteExpired={quoteExpired} onDecided={load} />
-      ) : null}
+        {action.kind === "pickup" && view.proofline ? (
+          <BuyerPickupPanel taskId={task.id} proofline={view.proofline} onChanged={load} />
+        ) : null}
 
-      {payments.length > 0 ? (
-        <PaymentReceipt
-          payments={payments}
-          timeline={timeline.filter((event) => event.type.startsWith("payment."))}
-        />
-      ) : null}
+        {action.kind === "close_order" ? (
+          <>
+            {view.orderPayment ? (
+              <PayPanel
+                taskId={task.id}
+                businessName={supplier?.name ?? route?.name ?? "the business"}
+                orderSummary={route?.name ?? "Printing order"}
+                initial={view.orderPayment}
+                onChanged={load}
+              />
+            ) : null}
+            {recommendation && supplier?.contactChannelValue ? (
+              <HandoffCard
+                taskId={task.id}
+                supplier={supplier}
+                message={recommendation.orderMessage}
+                quoteExpired={recommendation.quoteExpired}
+                confirmedAt={handoffConfirmedAt}
+                onConfirmed={load}
+              />
+            ) : null}
+            {recommendation ? <HandoverCodeCard mode="buyer" code={view.handoverCode} /> : null}
+            <Disclosure summary="Having a problem with this order?" defaultOpen={false}>
+              <OrderProblemPanel taskId={task.id} onChanged={load} />
+            </Disclosure>
+          </>
+        ) : null}
 
-      {readyForHandoff && !handoffConfirmedAt && view.orderPayment ? (
-        <PayPanel
-          taskId={task.id}
-          businessName={supplier?.name ?? route?.name ?? "the business"}
-          orderSummary={route?.name ?? "Printing order"}
-          initial={view.orderPayment}
-          onChanged={load}
-        />
-      ) : null}
+        {action.kind === "decision" && recommendation ? (
+          <DecisionPanel taskId={task.id} quoteExpired={quoteExpired} onDecided={load} />
+        ) : null}
 
-      {readyForHandoff && recommendation && supplier?.contactChannelValue ? (
-        <HandoffCard
-          taskId={task.id}
-          supplier={supplier}
-          message={recommendation.orderMessage}
-          quoteExpired={recommendation.quoteExpired}
-          confirmedAt={handoffConfirmedAt}
-          onConfirmed={load}
-        />
-      ) : null}
+        {action.kind === "waiting" ? (
+          <p className="text-sm text-muted">
+            {route
+              ? `${route.name} usually responds within ${route.responseSlaMinutes} minutes. We'll let you know the moment they do.`
+              : "We'll let you know the moment a business responds."}
+          </p>
+        ) : null}
 
-      {readyForHandoff && recommendation ? <HandoverCodePanel code={view.handoverCode} /> : null}
+        {/* A closing action independent of which state got us here — matches
+            the original page's unconditional feedback gate (handoffConfirmedAt
+            || FAILED || buyer-declined), not a per-kind special case. */}
+        {showFeedback ? (
+          <FeedbackForm taskId={task.id} existing={view.feedback.length > 0} />
+        ) : null}
+      </NextActionCard>
 
-      {handoffConfirmedAt && view.proofline ? (
-        <BuyerPickupPanel taskId={task.id} proofline={view.proofline} onChanged={load} />
-      ) : null}
+      {/* ------------------------------------------------------- 3. detail */}
+      <div className="space-y-4">
+        <p className="eyebrow">Detail</p>
 
-      {readyForHandoff && !handoffConfirmedAt ? (
-        <OrderProblemPanel taskId={task.id} onChanged={load} />
-      ) : null}
+        <Disclosure summary="Your brief">
+          <DataList>
+            {Object.entries(brief).map(([key, value]) => (
+              <DataRow key={key} label={briefFieldLabel(key)}>
+                {briefFieldValue(key, value)}
+              </DataRow>
+            ))}
+            {route ? (
+              <DataRow
+                label="Route freshness"
+                hint={
+                  route.priceUpdatedAt
+                    ? `Prices confirmed ${relativeTime(route.priceUpdatedAt)}`
+                    : "Prices not yet confirmed"
+                }
+              >
+                Verified {route.verifiedAt ? relativeTime(route.verifiedAt) : "—"} · SLA{" "}
+                {route.responseSlaMinutes} min
+              </DataRow>
+            ) : null}
+          </DataList>
+        </Disclosure>
 
-      <Card>
-        <CardTitle>Activity</CardTitle>
-        <ol className="mt-4 space-y-3">
-          {timeline.map((event) => (
-            <li key={event.id} className="flex gap-3 text-sm">
-              <CheckCircle2 aria-hidden className="mt-0.5 size-4 shrink-0 text-success" />
-              <div>
-                <p className="text-foreground">{eventLabel(event.type)}</p>
-                <p className="text-xs text-subtle">{formatDateTime(event.createdAt)}</p>
+        {quote && !supplierDeclined ? (
+          <Card>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle>The quote</CardTitle>
+              <div className="flex items-center gap-2">
+                {quoteExpired ? <StatusPill tone="warning">Expired</StatusPill> : null}
+                <span className="text-xs font-medium uppercase tracking-wide text-subtle">
+                  {quote.fixed ? "Fixed price" : "Estimate — confirm before paying"}
+                </span>
               </div>
-            </li>
-          ))}
-        </ol>
-      </Card>
+            </div>
+            <p className="mt-1 text-xs text-subtle">
+              Entered by the printer or an Intra operator. Not independently checked by Intra.
+            </p>
+            <DataList className="mt-4">
+              <DataRow label="Price">
+                {quote.amountMax && quote.amountMax !== quote.amountMin
+                  ? `${formatMoney(quote.amountMin, quote.currency)} – ${formatMoney(quote.amountMax, quote.currency)}`
+                  : formatMoney(quote.amountMin, quote.currency)}
+              </DataRow>
+              {quote.deliveryCharge ? (
+                <DataRow label="Delivery charge">
+                  {formatMoney(quote.deliveryCharge, quote.currency)}
+                </DataRow>
+              ) : null}
+              <DataRow label="Turnaround">{quote.turnaround}</DataRow>
+              {quote.availabilityNote ? (
+                <DataRow label="Availability">{quote.availabilityNote}</DataRow>
+              ) : null}
+              {quote.assumptions ? (
+                <DataRow label="Assumptions">{quote.assumptions}</DataRow>
+              ) : null}
+              {quote.confidence ? <DataRow label="Confidence">{quote.confidence}</DataRow> : null}
+              <DataRow label="Quote validity">
+                {quote.expiresAt ? (
+                  isExpired(quote.expiresAt) ? (
+                    <span className="text-warning">
+                      Expired {relativeTime(quote.expiresAt)} — reconfirm the price before paying
+                    </span>
+                  ) : (
+                    <span>
+                      <Clock3 aria-hidden className="mr-1 inline size-3.5" />
+                      Valid until {formatDateTime(quote.expiresAt)} ({relativeTime(quote.expiresAt)}
+                      )
+                    </span>
+                  )
+                ) : (
+                  "No stated expiry — treat as an estimate"
+                )}
+              </DataRow>
+            </DataList>
+          </Card>
+        ) : null}
 
-      {handoffConfirmedAt || task.status === "FAILED" || buyerDeclined ? (
-        <FeedbackForm taskId={task.id} existing={view.feedback.length > 0} />
-      ) : null}
+        {recommendation && !supplierDeclined ? (
+          <RecommendationCard
+            recommendation={recommendation}
+            currency={quote?.currency ?? recommendation.normalized.currency}
+          />
+        ) : null}
+
+        {handoffIsHistory && recommendation && supplier?.contactChannelValue ? (
+          <HandoffCard
+            taskId={task.id}
+            supplier={supplier}
+            message={recommendation.orderMessage}
+            quoteExpired={recommendation.quoteExpired}
+            confirmedAt={handoffConfirmedAt}
+            onConfirmed={load}
+          />
+        ) : null}
+
+        {handoffIsHistory && recommendation ? (
+          <HandoverCodeCard mode="buyer" code={view.handoverCode} />
+        ) : null}
+
+        {payments.length > 0 ? (
+          <PaymentReceipt
+            payments={payments}
+            timeline={timeline.filter((event) => event.type.startsWith("payment."))}
+          />
+        ) : null}
+
+        {handoffConfirmedAt && view.proofline && action.kind !== "pickup" ? (
+          <BuyerPickupPanel taskId={task.id} proofline={view.proofline} onChanged={load} />
+        ) : null}
+      </div>
+
+      {/* ------------------------------------------------------ 4. history */}
+      <div className="space-y-4">
+        <p className="eyebrow">History</p>
+        <Disclosure summary={`Activity · ${timeline.length}`} defaultOpen={false}>
+          <ol className="space-y-3">
+            {timeline.map((event) => (
+              <li key={event.id} className="flex gap-3 text-sm">
+                <CheckCircle2 aria-hidden className="mt-0.5 size-4 shrink-0 text-success" />
+                <div>
+                  <p className="text-foreground">{eventLabel(event.type)}</p>
+                  <p className="text-xs text-subtle">{formatDateTime(event.createdAt)}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </Disclosure>
+      </div>
     </div>
   );
 }
