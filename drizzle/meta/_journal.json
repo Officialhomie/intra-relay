@@ -78,6 +78,20 @@
       "when": 1788588759653,
       "tag": "0010_cynical_meteorite",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788741408620,
+      "tag": "0011_tranquil_dreadnoughts",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789133932805,
+      "tag": "0012_square_violations",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,2629 @@
+{
+  "$comment": "Machine-readable model of the Intra Relay frontend AS BUILT on branch feat/m10.5-minipay-payment (HEAD 51c194e). Reverse-engineered, not redesigned. Every object carries `source` file references. Companion prose: docs/frontend-xray/00..10.",
+  "generatedFrom": "repository study, docs/frontend-xray/00-MASTER-XRAY.md through 10-REDESIGN-INPUT-PACK.md",
+
+  "product": {
+    "name": "Intra",
+    "fullName": "Intra Relay",
+    "tagline": "The trusted business layer for AI-agent commerce",
+    "thesis": "Makes a real, WhatsApp-run, non-API business safely callable by any AI agent — without the business building anything, and without either side losing human control of the money or the final order.",
+    "mvpScope": "Campus flyer printing for Nigerian students and small businesses. One vertical only.",
+    "hackathon": "Celo 'Agents at Work' — primary track Real World Adoption; secondary Best Stablecoin Adoption, AskBots CLI Growth, Judges' Favorite",
+    "nonGoals": [
+      "general shopping agent or public marketplace",
+      "custody, escrow, remittances, swaps, automatic final payments",
+      "bank/KYC/off-ramp integrations",
+      "requiring suppliers to run MCP/API infrastructure",
+      "native mobile app or WhatsApp bot",
+      "fake payment receipts or simulated x402 success",
+      "any public reliability / reputation / on-time score"
+    ],
+    "stack": {
+      "framework": "Next.js 15 App Router",
+      "react": "19.0",
+      "language": "TypeScript strict",
+      "styling": "Tailwind CSS 3 + CSS-variable design tokens (src/styles/tokens.css); no CSS-in-JS; no web-font fetch; no dark mode",
+      "componentLibrary": "none — 9 hand-rolled primitives in src/components/ui/",
+      "icons": "lucide-react 1.37",
+      "validation": "Zod 4.5 (shared client/server)",
+      "forms": "react-hook-form on RequestForm + OnboardingForm; raw FormData / useState elsewhere",
+      "chain": "viem 2.56 (client-lazy-imported) — only chain library; no ethers/wagmi",
+      "payments": "@x402/core 2.24 (adapter interface only)",
+      "agentModel": "@anthropic-ai/sdk 0.123 (Claude Haiku 4.5, server-only)",
+      "push": "web-push 3.6 + self-generated VAPID",
+      "analytics": "@amplitude/analytics-browser 2.45 (client) + a narrow server forward",
+      "persistence": "drizzle-orm + @electric-sql/pglite (dev) / pg (prod)"
+    },
+    "source": [
+      "package.json",
+      "CLAUDE.md",
+      "docs/PRD.md",
+      "docs/PRODUCT_VISION.md",
+      "src/lib/site.ts",
+      "docs/DECISIONS.md"
+    ]
+  },
+
+  "users": [
+    {
+      "id": "buyer",
+      "label": "Buyer (student / small business)",
+      "identity": "opaque per-device session id 'intra.sessionId' in localStorage, sent as x-session-id header; no account, no wallet login",
+      "goals": [
+        "get a real price from a real business",
+        "keep the final say on the order and the money",
+        "not have to learn crypto",
+        "pick up where I left off"
+      ],
+      "reachesValueIn": "one form, one page, no account",
+      "source": ["src/lib/session.ts", "src/lib/api.ts", "docs/UX_ARCHITECTURE.md"]
+    },
+    {
+      "id": "buyer-agent",
+      "label": "Buyer's AI agent (built-in /agent run, or a third-party)",
+      "identity": "server-generated 'agent:<rand>' session; the human keeps a buyerClaim on the task",
+      "goals": ["a fresh, structured quote"],
+      "reachesValueIn": "one HTTP call",
+      "source": [
+        "src/features/agent/run/service.ts",
+        "src/lib/db/schema.ts:170",
+        "src/app/v1/[businessSlug]/[routeSlug]/quote/route.ts"
+      ]
+    },
+    {
+      "id": "buyer-wallet",
+      "label": "Buyer's wallet (MiniPay / injected EIP-1193)",
+      "identity": "wallet address, detected via window.ethereum (never a user-agent string)",
+      "goals": ["pay the business for the order, on-chain, non-custodially"],
+      "reachesValueIn": "one tap + one wallet approval",
+      "source": [
+        "src/features/payments/minipay/detect.ts",
+        "src/features/payments/minipay/wallet-adapter.ts"
+      ]
+    },
+    {
+      "id": "business",
+      "label": "Supplier / Business (printer)",
+      "identity": "opaque manageToken (32 hex chars, not a wallet secret) delivered as a ?t=<token> link; no account",
+      "goals": [
+        "my business can take agent orders without building anything",
+        "set my price my way; an agreed price stays agreed",
+        "know a request arrived without watching a page",
+        "completed jobs count for something, without a rating"
+      ],
+      "reachesValueIn": "one session, one link saved",
+      "source": [
+        "src/lib/db/schema.ts:106",
+        "src/lib/http/operator.ts:getManageToken",
+        "docs/DECISIONS.md ADR-008"
+      ]
+    },
+    {
+      "id": "operator",
+      "label": "Operator",
+      "identity": "x-operator-key matching an OPERATOR_API_KEYS entry (label:secret), constant-time compared; held in sessionStorage, never stored server-side, never logged",
+      "goals": [
+        "verify a business is safe before it goes live",
+        "keep route data current",
+        "prove a transaction is real"
+      ],
+      "reachesValueIn": "sign in → verify 6 checks → activate",
+      "source": [
+        "src/lib/http/operator.ts",
+        "src/features/operator/OperatorConsole.tsx",
+        "src/features/routes/activation.ts"
+      ]
+    },
+    {
+      "id": "judge",
+      "label": "Judge / evaluator (public)",
+      "identity": "none",
+      "goals": ["see what is real vs demo vs unavailable"],
+      "reachesValueIn": "/evidence + /operator trace",
+      "source": ["src/app/evidence/page.tsx", "src/features/metrics/EvidenceView.tsx"]
+    },
+    {
+      "id": "paid-agent-service",
+      "label": "Paid agent service (x402 counterparty)",
+      "identity": "n/a — external",
+      "goals": ["receive an authorised x402 query-fee payment, return a result"],
+      "status": "CURRENTLY UNAVAILABLE — no X402_API_KEY configured; the /v1 quote endpoint returns 503 for paid routes",
+      "source": ["docs/PAYMENTS.md", "docs/DECISIONS.md ADR-004/011/017"]
+    }
+  ],
+
+  "roles": [
+    {
+      "role": "buyer",
+      "authMechanism": "x-session-id header (localStorage), OR a match on task.buyerClaimSession",
+      "permissions": [
+        "create/view own task",
+        "run the agent",
+        "correct the brief",
+        "decide on a quote (accept/decline)",
+        "confirm handoff sent",
+        "pay via wallet",
+        "confirm pickup",
+        "decide on a proposed price change",
+        "cancel an agreed order",
+        "report a failed handover",
+        "leave feedback"
+      ],
+      "cannotDo": [
+        "accept/pay via the LLM (not a model tool)",
+        "see another session's task (403)",
+        "recover a task on a different device"
+      ],
+      "source": [
+        "docs/API.md",
+        "src/features/tasks/ownership.ts",
+        "src/features/tasks/service.ts:assertSession"
+      ]
+    },
+    {
+      "role": "business",
+      "authMechanism": "x-manage-token header / ?t=<token> query param",
+      "permissions": [
+        "pause a route",
+        "submit a route for review",
+        "send / revise / decline a quote",
+        "edit a published price",
+        "mark an order ready for pickup (get a pickup code)",
+        "sign a handover attestation (own wallet)",
+        "view own workspace + notifications"
+      ],
+      "cannotDo": [
+        "activate a route (operator only)",
+        "reactivate a paused route",
+        "edit an accepted quote's terms",
+        "view /supplier/:slug/requests or /review without a valid token (notFound)"
+      ],
+      "source": [
+        "docs/API.md",
+        "src/features/businesses/access.ts",
+        "src/app/supplier/[slug]/requests/page.tsx:73"
+      ]
+    },
+    {
+      "role": "operator",
+      "authMechanism": "x-operator-key header (sessionStorage)",
+      "permissions": [
+        "verify + activate/reactivate a route (6-check checklist)",
+        "pause any route",
+        "respond to a request on a business's behalf (curl-only, no console UI)",
+        "read the operator queue",
+        "view metrics",
+        "view a transaction trace"
+      ],
+      "cannotDo": [
+        "create a business/route via UI (curl only)",
+        "act if OPERATOR_API_KEYS is unset"
+      ],
+      "source": [
+        "docs/API.md",
+        "src/lib/http/operator.ts",
+        "src/app/api/operator/routes/route.ts",
+        "src/features/operator/OperatorConsole.tsx"
+      ]
+    }
+  ],
+
+  "routes": [
+    {
+      "path": "/",
+      "file": "src/app/page.tsx",
+      "role": "public",
+      "rendering": "static",
+      "purpose": "landing / value prop + route to a buyer or business start",
+      "authGate": "none"
+    },
+    {
+      "path": "/agent",
+      "file": "src/app/agent/page.tsx",
+      "role": "buyer",
+      "rendering": "client islands",
+      "purpose": "buyer home: describe a need (ConversationView) + all requests (BuyerWorkPanel)",
+      "authGate": "session (client); PWA start_url",
+      "primaryEntry": true
+    },
+    {
+      "path": "/activity",
+      "file": "src/app/activity/page.tsx",
+      "role": "buyer",
+      "rendering": "client islands",
+      "purpose": "action centre (notifications) + the same work list",
+      "authGate": "session (client)"
+    },
+    {
+      "path": "/request",
+      "file": "src/app/request/page.tsx",
+      "role": "buyer",
+      "rendering": "client island",
+      "purpose": "structured brief form → pick a printer → task (no agent run, single route)",
+      "authGate": "session (client)",
+      "problem": "ORPHANED — not linked from anywhere in the app (a grep for '/request' across src finds only /supplier/:slug/requests); reachable only by typing the URL"
+    },
+    {
+      "path": "/tasks/[id]",
+      "file": "src/app/tasks/[id]/page.tsx → src/features/tasks/TaskPage.tsx",
+      "role": "buyer (task session or buyerClaim)",
+      "rendering": "client, polls GET /api/tasks/:id",
+      "purpose": "the buyer's whole view of one request — status, quote, decision, pay, handoff, code, proofline, exception, activity, feedback",
+      "authGate": "x-session-id must match; 403 → 'belongs to another device'"
+    },
+    {
+      "path": "/supplier/onboard",
+      "file": "src/app/supplier/onboard/page.tsx → QuickStartForm",
+      "role": "business (unauthenticated)",
+      "rendering": "client form",
+      "purpose": "one-screen business + first-service setup",
+      "authGate": "none (creates PENDING_VERIFICATION)"
+    },
+    {
+      "path": "/supplier/onboard/full",
+      "file": "src/app/supplier/onboard/full/page.tsx → OnboardingForm",
+      "role": "business (operator-assisted)",
+      "rendering": "client, 4-step wizard",
+      "purpose": "the detailed Capability Card — PRODUCES A DRAFT ONLY, no persistence",
+      "authGate": "none",
+      "problem": "dead end — no POST"
+    },
+    {
+      "path": "/supplier/[slug]",
+      "file": "src/app/supplier/[slug]/page.tsx",
+      "role": "business (manage token) / anyone (read-only shell)",
+      "rendering": "RSC, force-dynamic",
+      "purpose": "action-first workspace: what needs me / what's happening / my record / services",
+      "authGate": "?t= → canManage; without it a read-only shell"
+    },
+    {
+      "path": "/supplier/[slug]/requests",
+      "file": "src/app/supplier/[slug]/requests/page.tsx",
+      "role": "business (manage token)",
+      "rendering": "RSC",
+      "purpose": "request inbox: quote/decline/revise; handed-off orders (Proofline + handover attestation)",
+      "authGate": "notFound() without a valid ?t="
+    },
+    {
+      "path": "/supplier/[slug]/review",
+      "file": "src/app/supplier/[slug]/review/page.tsx",
+      "role": "business (manage token)",
+      "rendering": "RSC",
+      "purpose": "business details + route status/freshness + pause",
+      "authGate": "notFound() without a valid ?t="
+    },
+    {
+      "path": "/operator",
+      "file": "src/app/operator/page.tsx → OperatorConsole",
+      "role": "operator",
+      "rendering": "client, key in sessionStorage",
+      "purpose": "3 tabs: Review queue (verify+activate) / Metrics / Evidence trace",
+      "authGate": "x-operator-key; 401 → 'not accepted'"
+    },
+    {
+      "path": "/docs",
+      "file": "src/app/docs/page.tsx",
+      "role": "public (agent-builder facing)",
+      "rendering": "static",
+      "purpose": "explain the agent route contract (deliberately technical)",
+      "authGate": "none"
+    },
+    {
+      "path": "/evidence",
+      "file": "src/app/evidence/page.tsx → EvidenceView",
+      "role": "public / judge",
+      "rendering": "RSC, force-dynamic",
+      "purpose": "real results vs demo data vs unavailable integrations; what changed from feedback; CSV/JSON export",
+      "authGate": "none"
+    },
+    {
+      "path": "/offline",
+      "file": "src/app/offline/page.tsx",
+      "role": "any",
+      "rendering": "static (must render from SW cache)",
+      "purpose": "service-worker navigation fallback",
+      "authGate": "none"
+    },
+    {
+      "path": "(special) error.tsx",
+      "file": "src/app/error.tsx",
+      "role": "any",
+      "purpose": "route-segment error boundary — 'Something went wrong on our side'"
+    },
+    {
+      "path": "(special) global-error.tsx",
+      "file": "src/app/global-error.tsx",
+      "role": "any",
+      "purpose": "root-layout error boundary — own <html>, inline-styled, STALE green button"
+    },
+    {
+      "path": "(special) not-found.tsx",
+      "file": "src/app/not-found.tsx",
+      "role": "any",
+      "purpose": "'Not found. That page does not exist.'"
+    },
+    {
+      "path": "(special) manifest.ts",
+      "file": "src/app/manifest.ts",
+      "role": "any",
+      "purpose": "PWA manifest — start_url /agent, display standalone, theme_color STALE #0f3e17"
+    },
+    {
+      "path": "(special) opengraph-image.tsx",
+      "file": "src/app/opengraph-image.tsx",
+      "role": "any",
+      "purpose": "generated OG card — uses the STALE green palette"
+    },
+    {
+      "path": "GET /v1/[businessSlug]/capabilities",
+      "file": "src/app/v1/[businessSlug]/capabilities/route.ts",
+      "role": "machine agent",
+      "purpose": "public Capability Card — per route: availability verdict + reason + detail, freshness, quoteSla, handoff, orderContact only when AVAILABLE (ADR-014)",
+      "authGate": "none, no-store"
+    },
+    {
+      "path": "POST /v1/[businessSlug]/[routeSlug]/quote",
+      "file": "src/app/v1/[businessSlug]/[routeSlug]/quote/route.ts",
+      "role": "machine agent",
+      "purpose": "public agent quote — x402: 402 → verify → settle → 200, or 402 PAYMENT_FAILED / 503 UNAVAILABLE / 503 INDETERMINATE / 202 (free) / 409 ROUTE_UNAVAILABLE. With no X402_API_KEY: paid → 503, free → 202",
+      "authGate": "Idempotency-Key; X-PAYMENT optional"
+    },
+    {
+      "apiRoutes": "41 internal handlers under src/app/api/**; see 05-INTERACTION-STATE-MODEL.md §1 for behaviour. All use the envelope { success, data } / { success, error:{ code, message, details? } }; all writes require an Idempotency-Key."
+    }
+  ],
+
+  "screens": [
+    {
+      "id": "S-01",
+      "name": "Landing",
+      "route": "/",
+      "role": "public",
+      "purpose": "explain + route to a start",
+      "leadsFrom": ["first visit"],
+      "leadsTo": ["S-02", "S-15"],
+      "primaryCTA": "I need something made",
+      "source": ["src/app/page.tsx"]
+    },
+    {
+      "id": "S-02",
+      "name": "Buyer home",
+      "route": "/agent",
+      "role": "buyer",
+      "purpose": "describe a need + view all work",
+      "components": ["ConversationView", "AgentConsole", "BuyerWorkPanel"],
+      "leadsTo": ["S-03", "S-04", "S-05"],
+      "primaryCTA": "the conversation input",
+      "source": ["src/app/agent/page.tsx"]
+    },
+    {
+      "id": "S-03",
+      "name": "Buyer activity",
+      "route": "/activity",
+      "role": "buyer",
+      "purpose": "notifications + fallback work list",
+      "components": ["ActionCentre", "NotificationSettings", "BuyerWorkPanel"],
+      "source": ["src/app/activity/page.tsx"]
+    },
+    {
+      "id": "S-04",
+      "name": "Task workspace",
+      "route": "/tasks/[id]",
+      "role": "buyer",
+      "purpose": "one resumable place for one request",
+      "components": [
+        "TaskPage",
+        "RecommendationCard",
+        "DecisionPanel",
+        "PaymentReceipt",
+        "PayPanel",
+        "HandoffCard",
+        "HandoverCodePanel",
+        "BuyerPickupPanel",
+        "OrderProblemPanel",
+        "PriceChangePanel",
+        "FeedbackForm",
+        "ResumeSignal"
+      ],
+      "conditionalStates": [
+        "S-04a waiting-for-price",
+        "S-04b quote-ready-decision",
+        "S-04c ready-to-send",
+        "S-04d handed-off (Proofline)",
+        "S-04e price-change",
+        "S-04f x402-receipt",
+        "S-04g exception"
+      ],
+      "errorStates": [
+        "forbidden → 'belongs to another device'",
+        "missing → 'Request not found'",
+        "error → 'Could not load'"
+      ],
+      "source": ["src/features/tasks/TaskPage.tsx"]
+    },
+    {
+      "id": "S-05",
+      "name": "Agent run (inline)",
+      "route": "/agent (no own route)",
+      "role": "buyer",
+      "conditionalStates": [
+        "S-05a running",
+        "S-05b clarification-needed",
+        "S-05c awaiting-approval",
+        "S-05d approved",
+        "S-05e declined/unsuccessful"
+      ],
+      "components": [
+        "StageList",
+        "UnderstandingCard",
+        "RecommendationPanel",
+        "ApprovalPanel",
+        "OutcomePanel",
+        "ActivityFeed"
+      ],
+      "source": ["src/features/agent/console/AgentConsole.tsx"]
+    },
+    {
+      "id": "S-06",
+      "name": "Request form",
+      "route": "/request",
+      "role": "buyer",
+      "purpose": "form path to a quote (single-route)",
+      "components": ["RequestForm"],
+      "phases": ["brief", "pick"],
+      "emptyState": "'No printers are live yet'",
+      "leadsTo": ["S-04"],
+      "source": ["src/features/tasks/RequestForm.tsx"]
+    },
+    {
+      "id": "S-07",
+      "name": "Quick-start onboarding",
+      "route": "/supplier/onboard",
+      "role": "business",
+      "purpose": "one-screen setup",
+      "components": ["QuickStartForm"],
+      "fields": 11,
+      "requiredFields": 9,
+      "leadsTo": ["S-15"],
+      "source": ["src/features/businesses/QuickStartForm.tsx"]
+    },
+    {
+      "id": "S-08",
+      "name": "Full onboarding",
+      "route": "/supplier/onboard/full",
+      "role": "business",
+      "purpose": "the detailed Capability Card (draft only)",
+      "components": ["OnboardingForm", "DraftRoutePreview"],
+      "fields": 15,
+      "steps": 4,
+      "persists": false,
+      "leadsTo": ["S-09"],
+      "problem": "dead end",
+      "source": ["src/features/businesses/OnboardingForm.tsx"]
+    },
+    {
+      "id": "S-09",
+      "name": "Draft preview",
+      "route": "/supplier/onboard/full (post-submit)",
+      "role": "business",
+      "purpose": "show what an agent sees + 'send this to your operator'",
+      "persists": false,
+      "source": ["src/features/businesses/DraftRoutePreview.tsx"]
+    },
+    {
+      "id": "S-15",
+      "name": "Business workspace",
+      "route": "/supplier/[slug]",
+      "role": "business",
+      "purpose": "action-first overview",
+      "readOnlyVariant": "S-15r without ?t=",
+      "components": [
+        "ActionCentre",
+        "NotificationSettings",
+        "PushPrompt",
+        "EditPublishedPriceForm",
+        "AnalyticsBusinessIdentity"
+      ],
+      "leadsTo": ["S-16", "S-17"],
+      "source": ["src/app/supplier/[slug]/page.tsx"]
+    },
+    {
+      "id": "S-16",
+      "name": "Request inbox",
+      "route": "/supplier/[slug]/requests",
+      "role": "business",
+      "purpose": "quote/decline/revise + handed-off orders",
+      "components": [
+        "QuoteResponseForm",
+        "ChangePriceForm",
+        "MerchantFulfilmentPanel",
+        "HandoverAttestPanel",
+        "ResumeSignal"
+      ],
+      "authGate": "notFound() without ?t=",
+      "emptyState": "'No customer requests yet'",
+      "source": ["src/app/supplier/[slug]/requests/page.tsx"]
+    },
+    {
+      "id": "S-17",
+      "name": "Route review",
+      "route": "/supplier/[slug]/review",
+      "role": "business",
+      "purpose": "details + route status/freshness + pause",
+      "components": ["PauseRouteButton"],
+      "authGate": "notFound() without ?t=",
+      "source": ["src/app/supplier/[slug]/review/page.tsx"]
+    },
+    {
+      "id": "S-19",
+      "name": "Operator console",
+      "route": "/operator",
+      "role": "operator",
+      "purpose": "verify+activate; metrics; trace",
+      "tabs": ["Review queue", "Metrics", "Evidence"],
+      "components": ["OperatorConsole", "OperatorRouteCard", "MetricsPanel", "EvidencePanel"],
+      "source": ["src/features/operator/OperatorConsole.tsx"]
+    },
+    {
+      "id": "S-20",
+      "name": "Operator metrics",
+      "route": "/operator (Metrics tab)",
+      "role": "operator",
+      "components": ["MetricsPanel", "EvidenceView"],
+      "source": ["src/features/operator/MetricsPanel.tsx"]
+    },
+    {
+      "id": "S-21",
+      "name": "Operator evidence trace",
+      "route": "/operator (Evidence tab)",
+      "role": "operator / judge",
+      "purpose": "cross-reference one transaction's DB + on-chain state",
+      "components": ["EvidencePanel", "TraceView"],
+      "leaksRawEnums": true,
+      "source": ["src/features/operator/EvidencePanel.tsx"]
+    },
+    {
+      "id": "S-22",
+      "name": "Public evidence",
+      "route": "/evidence",
+      "role": "public / judge",
+      "purpose": "real / demo / unavailable, strictly separated",
+      "components": ["EvidenceView"],
+      "emptyState": "'No real activity recorded yet… that is the honest state, not a bug'",
+      "source": ["src/app/evidence/page.tsx"]
+    },
+    {
+      "id": "S-23",
+      "name": "Route contract docs",
+      "route": "/docs",
+      "role": "public (agent builders)",
+      "purpose": "the agent lifecycle + an illustrative manifest",
+      "deliberatelyTechnical": true,
+      "source": ["src/app/docs/page.tsx"]
+    },
+    {
+      "id": "S-24",
+      "name": "Offline fallback",
+      "route": "/offline",
+      "role": "any",
+      "purpose": "SW navigation fallback",
+      "servedFromCache": true,
+      "source": ["src/app/offline/page.tsx", "public/sw.js"]
+    },
+    {
+      "id": "S-25/26/27",
+      "name": "Error / Not-found / Global-error",
+      "route": "—",
+      "role": "any",
+      "source": ["src/app/error.tsx", "src/app/not-found.tsx", "src/app/global-error.tsx"]
+    }
+  ],
+
+  "components": [
+    {
+      "name": "Header",
+      "path": "src/components/Header.tsx",
+      "type": "pure",
+      "usedIn": ["layout"],
+      "note": "sticky, flex-wrap, reduced nav (3 of 7 primaryNav entries); CTA hidden on mobile"
+    },
+    { "name": "Footer", "path": "src/components/Footer.tsx", "type": "pure", "usedIn": ["layout"] },
+    {
+      "name": "MainContainer",
+      "path": "src/components/MainContainer.tsx",
+      "type": "pure",
+      "usedIn": ["layout"],
+      "note": "max-w-[72rem], px-4 sm:px-6"
+    },
+    {
+      "name": "OfflineBanner",
+      "path": "src/components/OfflineBanner.tsx",
+      "type": "client",
+      "usedIn": ["layout"],
+      "state": ["offline (navigator.onLine)"]
+    },
+    {
+      "name": "Button",
+      "path": "src/components/ui/Button.tsx",
+      "type": "pure",
+      "props": [
+        "variant (primary|secondary|ghost|danger)",
+        "size (sm min-h-9 | md min-h-11)",
+        "pending",
+        "block"
+      ]
+    },
+    {
+      "name": "Callout",
+      "path": "src/components/ui/Callout.tsx",
+      "type": "pure",
+      "props": ["tone (info|warning|success|unavailable)", "title", "children"],
+      "note": "the workhorse trust device; 'unavailable' tone = honesty statements"
+    },
+    { "name": "CheckboxField", "path": "src/components/ui/CheckboxField.tsx", "type": "pure" },
+    {
+      "name": "DataList / DataRow",
+      "path": "src/components/ui/DataList.tsx",
+      "type": "pure",
+      "note": "label/value/hint — the standard record layout"
+    },
+    {
+      "name": "SectionHeader / Card / CardTitle",
+      "path": "src/components/ui/Section.tsx",
+      "type": "pure"
+    },
+    {
+      "name": "SelectField",
+      "path": "src/components/ui/SelectField.tsx",
+      "type": "pure",
+      "note": "text-base to avoid iOS zoom"
+    },
+    {
+      "name": "States (EmptyState/Skeleton/CardSkeleton/LoadingPanel/ErrorState)",
+      "path": "src/components/ui/States.tsx",
+      "type": "pure"
+    },
+    {
+      "name": "StatusPill",
+      "path": "src/components/ui/StatusPill.tsx",
+      "type": "pure",
+      "note": "dot + uppercase label, never colour alone; + routeStatusLabel/Tone, taskStatusLabel/Tone helpers"
+    },
+    { "name": "TextField", "path": "src/components/ui/TextField.tsx", "type": "pure" },
+    {
+      "name": "ConversationView",
+      "path": "src/features/agent/console/ConversationView.tsx",
+      "type": "client",
+      "usedIn": ["/agent"],
+      "api": ["POST /api/conversation"],
+      "state": ["messages[]", "draft", "pending", "understood"],
+      "copy": ["'Demo only — nothing here is saved.'"]
+    },
+    {
+      "name": "AgentConsole",
+      "path": "src/features/agent/console/AgentConsole.tsx",
+      "type": "client",
+      "usedIn": ["ConversationView (embedded)"],
+      "api": [
+        "POST /api/agent/run",
+        "GET /api/agent/run/:id (poll 1.5s)",
+        "POST /api/agent/run/:id/approve"
+      ],
+      "state": ["run", "phase", "problem", "reconnecting"]
+    },
+    {
+      "name": "StageList",
+      "path": "src/features/agent/console/StageList.tsx",
+      "type": "pure",
+      "note": "7-stage spine; icon + word, never a bare spinner"
+    },
+    {
+      "name": "UnderstandingCard",
+      "path": "src/features/agent/console/UnderstandingCard.tsx",
+      "type": "client",
+      "note": "'What I understood' + a correction editor; the request text is carried forward"
+    },
+    {
+      "name": "RecommendationPanel",
+      "path": "src/features/agent/console/RecommendationPanel.tsx",
+      "type": "client",
+      "note": "who/how much/how fast/why; Alternatives (plain-money deltas); RuledOut; the only AI signal is a '✨ agent's reasoning' label"
+    },
+    {
+      "name": "ApprovalPanel",
+      "path": "src/features/agent/console/ApprovalPanel.tsx",
+      "type": "client",
+      "note": "THE HARD GATE — full offer dl on the surface; button 'Approve {price} with {business}'; bound to offerFingerprint"
+    },
+    {
+      "name": "OutcomePanel",
+      "path": "src/features/agent/console/OutcomePanel.tsx",
+      "type": "client",
+      "variants": [
+        "Approved (4-step checklist + link to /tasks/:id)",
+        "Declined",
+        "Unsuccessful (outcomeCopy)"
+      ]
+    },
+    {
+      "name": "ActivityFeed",
+      "path": "src/features/agent/console/ActivityFeed.tsx",
+      "type": "client",
+      "note": "'who did what' narrative (You/Agent/Printer/Intra) + a 2-deep nested <details> engineering trace"
+    },
+    {
+      "name": "TaskPage",
+      "path": "src/features/tasks/TaskPage.tsx",
+      "type": "client",
+      "size": "~1000 lines, largest component",
+      "nested": [
+        "RecommendationCard",
+        "DecisionPanel",
+        "PaymentReceipt",
+        "HandoffCard",
+        "FeedbackForm"
+      ],
+      "api": ["GET /api/tasks/:id"],
+      "note": "renders 7-8 stacked panels on a HANDOFF_READY task with MiniPay"
+    },
+    {
+      "name": "BuyerWorkPanel",
+      "path": "src/features/tasks/BuyerWorkPanel.tsx",
+      "type": "client",
+      "usedIn": ["/agent", "/activity"],
+      "api": ["GET /api/tasks → listBuyerWork"],
+      "note": "5 plain buckets (ATTENTION/READY/WAITING/IN_PROGRESS/COMPLETED); no internal status name shown; hosts PushPrompt+InstallPrompt when hasAsyncWork"
+    },
+    {
+      "name": "RequestForm",
+      "path": "src/features/tasks/RequestForm.tsx",
+      "type": "client",
+      "usedIn": ["/request"],
+      "api": ["GET /api/routes/active", "POST /api/tasks", "POST /api/tasks/:id/submit"]
+    },
+    {
+      "name": "OrderProblemPanel",
+      "path": "src/features/tasks/OrderProblemPanel.tsx",
+      "type": "client",
+      "api": ["POST /api/tasks/:id/cancel", "POST /api/tasks/:id/handover-problem"],
+      "copy": ["'Intra never held any money for this order, so there is nothing to refund here.'"]
+    },
+    {
+      "name": "PayPanel",
+      "path": "src/features/payments/minipay/PayPanel.tsx",
+      "type": "client",
+      "usedIn": ["/tasks/:id (before HandoffCard)"],
+      "hook": "useOrderPayment",
+      "note": "'network fee' language; no ABI/contract/chain-id on the default view; the rate hint shows source + lock time"
+    },
+    {
+      "name": "useOrderPayment",
+      "path": "src/features/payments/minipay/useOrderPayment.ts",
+      "type": "client hook",
+      "phases": [
+        "idle",
+        "creating",
+        "wallet",
+        "submitting",
+        "confirming",
+        "confirmed",
+        "cancelled",
+        "failed"
+      ],
+      "api": ["POST/GET /api/tasks/:id/order-payment", ".../submit", ".../cancel"],
+      "polls": "2.5s"
+    },
+    {
+      "name": "wallet-adapter",
+      "path": "src/features/payments/minipay/wallet-adapter.ts",
+      "type": "client",
+      "note": "the ONE place a wallet transaction is built; lazy-imports viem; ERC-20 transfer; returns only a txHash"
+    },
+    {
+      "name": "PriceChangePanel",
+      "path": "src/features/quotes/PriceChangePanel.tsx",
+      "type": "client",
+      "api": ["POST /api/tasks/:id/price-change"],
+      "note": "computes the money delta; shows the reason verbatim; 'still stands until you decide'"
+    },
+    {
+      "name": "BuyerPickupPanel",
+      "path": "src/features/proofline/BuyerPickupPanel.tsx",
+      "type": "client",
+      "api": ["POST /api/tasks/:id/proofline/confirm-pickup"],
+      "copy": [
+        "the PROOFLINE_DISCLAIMER verbatim",
+        "'This is the printer's statement, not a check by Intra.'"
+      ]
+    },
+    {
+      "name": "MerchantFulfilmentPanel",
+      "path": "src/features/proofline/MerchantFulfilmentPanel.tsx",
+      "type": "client",
+      "api": ["POST /api/tasks/:id/proofline/ready"],
+      "note": "issues + shows a 6-char pickup code (merchant-only)"
+    },
+    {
+      "name": "HandoverCodePanel",
+      "path": "src/features/attestation/HandoverCodePanel.tsx",
+      "type": "pure",
+      "note": "buyer-only; shows the code to say aloud; visually near-identical to the merchant pickup code (a UX problem)"
+    },
+    {
+      "name": "HandoverAttestPanel",
+      "path": "src/features/attestation/HandoverAttestPanel.tsx",
+      "type": "client",
+      "api": ["POST /api/tasks/:id/handover/sign-request", "POST /api/tasks/:id/handover/submit"],
+      "note": "requires window.ethereum; eth_signTypedData_v4; wording stays plain ('Confirm that this job was handed over')"
+    },
+    {
+      "name": "QuoteResponseForm",
+      "path": "src/features/supplier/QuoteResponseForm.tsx",
+      "type": "client",
+      "api": ["POST /api/routes/:id/quotes"],
+      "fields": 10,
+      "problem": "fixed/range, confidence low/med/high, datetime-local expiry — precision for a phone user mid-job; highest-frequency merchant interaction"
+    },
+    {
+      "name": "ChangePriceForm",
+      "path": "src/features/supplier/ChangePriceForm.tsx",
+      "type": "client",
+      "api": ["POST /api/routes/:id/quotes {revise:true}"],
+      "note": "copy differs by alreadyAgreed"
+    },
+    {
+      "name": "EditPublishedPriceForm",
+      "path": "src/features/supplier/EditPublishedPriceForm.tsx",
+      "type": "client",
+      "api": ["PATCH /api/routes/:id/pricing"],
+      "copy": [
+        "'Any job someone has already agreed keeps the price you agreed — this does not change a quote.'"
+      ]
+    },
+    {
+      "name": "PauseRouteButton",
+      "path": "src/features/supplier/PauseRouteButton.tsx",
+      "type": "client",
+      "api": ["PATCH /api/routes/:id/status {status:PAUSED}"],
+      "note": "confirm step; 'only an operator can reactivate'"
+    },
+    {
+      "name": "QuickStartForm",
+      "path": "src/features/businesses/QuickStartForm.tsx",
+      "type": "client",
+      "api": ["POST /api/businesses/quick-start"],
+      "note": "raw FormData; success card + 'Keep this link' Callout"
+    },
+    {
+      "name": "OnboardingForm",
+      "path": "src/features/businesses/OnboardingForm.tsx",
+      "type": "client",
+      "api": ["NONE — onSubmit only setDraft()"],
+      "note": "4-step RHF wizard; the dead end"
+    },
+    {
+      "name": "DraftRoutePreview",
+      "path": "src/features/businesses/DraftRoutePreview.tsx",
+      "type": "pure",
+      "note": "'Send these answers to your Intra operator'; a <details> with the raw route JSON"
+    },
+    {
+      "name": "OperatorConsole / OperatorRouteCard",
+      "path": "src/features/operator/OperatorConsole.tsx",
+      "type": "client",
+      "api": ["GET /api/operator/routes", "PATCH /api/routes/:id/status"],
+      "note": "key in sessionStorage; 6-check fieldset; StatusPill shows near-raw status"
+    },
+    {
+      "name": "MetricsPanel",
+      "path": "src/features/operator/MetricsPanel.tsx",
+      "type": "client",
+      "api": ["GET /api/operator/metrics"]
+    },
+    {
+      "name": "EvidencePanel / TraceView",
+      "path": "src/features/operator/EvidencePanel.tsx",
+      "type": "client",
+      "api": ["GET /api/operator/evidence/:taskId"],
+      "problem": "leaks raw enums (PENDING_ATTESTATION), attestationMode:'mock', bare 'MISMATCH', schema UIDs — judge-facing"
+    },
+    {
+      "name": "EvidenceView",
+      "path": "src/features/metrics/EvidenceView.tsx",
+      "type": "pure",
+      "usedIn": ["/evidence", "/operator Metrics"],
+      "note": "3 zones: Real results / Demo data / Unavailable & external integrations; every figure a COUNT"
+    },
+    {
+      "name": "ActionCentre / NotificationRow",
+      "path": "src/features/notifications/ActionCentre.tsx",
+      "type": "client",
+      "api": ["GET /api/notifications", "POST .../:id/read", ".../read-all"],
+      "note": "'Needs your attention' vs 'Updates'; reading is optimistic and ≠ acting"
+    },
+    {
+      "name": "NotificationSettings",
+      "path": "src/features/notifications/NotificationSettings.tsx",
+      "type": "client",
+      "hook": "usePushSetup",
+      "note": "2 switches; honest about all 4 permission states"
+    },
+    {
+      "name": "ServiceWorker",
+      "path": "src/features/pwa/ServiceWorker.tsx",
+      "type": "client",
+      "note": "registers /sw.js on load; install-and-wait update banner; handles SW NAVIGATE messages"
+    },
+    {
+      "name": "InstallPrompt",
+      "path": "src/features/pwa/InstallPrompt.tsx",
+      "type": "client",
+      "note": "never on first load; only when hasAsyncWork; iOS Safari Share-sheet hint; permanent dismissal"
+    },
+    {
+      "name": "PushPrompt",
+      "path": "src/features/pwa/PushPrompt.tsx",
+      "type": "client",
+      "note": "needs a reason; only while permission==='default'; permanent dismissal"
+    },
+    {
+      "name": "ResumeSignal",
+      "path": "src/features/pwa/ResumeSignal.tsx",
+      "type": "client",
+      "note": "fires workflow_resumed once when ?ref=push is present; renders null"
+    },
+    {
+      "name": "usePushSetup",
+      "path": "src/features/pwa/usePushSetup.ts",
+      "type": "client hook",
+      "returns": [
+        "permission (unsupported/default/granted/denied)",
+        "available",
+        "subscribed",
+        "enable/disable/setInformational"
+      ]
+    },
+    {
+      "name": "AnalyticsProvider",
+      "path": "src/features/analytics/AnalyticsProvider.tsx",
+      "type": "client",
+      "note": "renders null; inits Amplitude once; derives role from the path; fires app_opened"
+    },
+    {
+      "name": "AnalyticsBusinessIdentity",
+      "path": "src/features/analytics/AnalyticsBusinessIdentity.tsx",
+      "type": "client",
+      "note": "renders null; identifyBusiness once the server resolved the id"
+    },
+    {
+      "name": "useAnalytics",
+      "path": "src/features/analytics/useAnalytics.ts",
+      "type": "client hook",
+      "note": "no-op-safe; the adapter swallows failures; a hand-written taxonomy of 58 events"
+    }
+  ],
+
+  "workflows": [
+    {
+      "id": "W1",
+      "name": "Buyer: get a printing quote (conversational)",
+      "actor": "buyer",
+      "entry": "/agent",
+      "necessaryActions": 4,
+      "currentActions": "3-8 taps + 1-5 messages",
+      "cognitiveLoad": "low-to-moderate",
+      "source": ["01-USER-JOURNEYS.md J1", "09-TASK-COMPLEXITY-AUDIT.md W1"]
+    },
+    {
+      "id": "W2",
+      "name": "Buyer: get a printing quote (form)",
+      "actor": "buyer",
+      "entry": "/request",
+      "necessaryActions": 5,
+      "cognitiveLoad": "low",
+      "source": ["01-USER-JOURNEYS.md J2", "09 W2"]
+    },
+    {
+      "id": "W3",
+      "name": "Buyer: decide + hand off",
+      "actor": "buyer",
+      "entry": "/tasks/:id (RECOMMENDED)",
+      "necessaryActions": 4,
+      "cognitiveLoad": "moderate-to-high",
+      "problem": "7-8 stacked panels",
+      "source": ["01 J6", "09 W3"]
+    },
+    {
+      "id": "W4",
+      "name": "Buyer: pay the order via MiniPay",
+      "actor": "buyer + wallet",
+      "entry": "/tasks/:id PayPanel (HANDOFF_READY, NETWORK_ENV=production)",
+      "necessaryActions": 2,
+      "cognitiveLoad": "low",
+      "note": "well abstracted",
+      "source": ["01 J8", "09 W4", "07-TRUST-MONEY-BLOCKCHAIN-UX.md §4-6"]
+    },
+    {
+      "id": "W5",
+      "name": "Buyer: confirm pickup (Proofline)",
+      "actor": "buyer",
+      "necessaryActions": 1,
+      "cognitiveLoad": "very low",
+      "source": ["01 J10", "09 W5"]
+    },
+    {
+      "id": "W6",
+      "name": "Buyer: the handover code",
+      "actor": "buyer",
+      "necessaryActions": 0,
+      "note": "verbal, in person; coordination + code-confusion burden",
+      "source": ["01 J11", "09 W6"]
+    },
+    {
+      "id": "W7",
+      "name": "Buyer: decide on a proposed price change",
+      "actor": "buyer",
+      "necessaryActions": 1,
+      "cognitiveLoad": "low",
+      "source": ["01 J9", "09 W7"]
+    },
+    {
+      "id": "W8",
+      "name": "Buyer: cancel / report a failed handover",
+      "actor": "buyer",
+      "necessaryActions": 1,
+      "cognitiveLoad": "low",
+      "source": ["01 J12", "09 W8"]
+    },
+    {
+      "id": "W9",
+      "name": "Business: quick-start onboarding",
+      "actor": "business",
+      "entry": "/supplier/onboard",
+      "necessaryActions": "9 fields",
+      "cognitiveLoad": "moderate",
+      "note": "well abstracted",
+      "source": ["01 J15", "09 W9"]
+    },
+    {
+      "id": "W10",
+      "name": "Business: full onboarding",
+      "actor": "business",
+      "entry": "/supplier/onboard/full",
+      "necessaryActions": "~12",
+      "currentActions": "15 fields + a dead end",
+      "cognitiveLoad": "high + misdirected",
+      "problem": "produces nothing; merchant emails a JSON blob to an operator",
+      "source": ["01 J16", "09 W10", "docs/UX_ARCHITECTURE.md F1"]
+    },
+    {
+      "id": "W11",
+      "name": "Business: send a quote",
+      "actor": "business",
+      "entry": "/supplier/:slug/requests",
+      "necessaryActions": 3,
+      "currentActions": "2-8 fields + 2 decisions",
+      "cognitiveLoad": "moderate (too high)",
+      "note": "highest-frequency merchant interaction",
+      "source": ["01 J18", "09 W11", "docs/AGENTIC_ARCHITECTURE.md §5.3"]
+    },
+    {
+      "id": "W12",
+      "name": "Business: revise / edit a price",
+      "actor": "business",
+      "necessaryActions": "1-2",
+      "cognitiveLoad": "low-to-moderate",
+      "source": ["01 J19-J20", "09 W12"]
+    },
+    {
+      "id": "W13",
+      "name": "Business: mark ready + sign the handover",
+      "actor": "business + wallet",
+      "necessaryActions": "~4",
+      "cognitiveLoad": "moderate-to-high",
+      "problem": "requires window.ethereum — a non-crypto merchant cannot use it",
+      "source": ["01 J22-J23", "09 W13"]
+    },
+    {
+      "id": "W14",
+      "name": "Operator: verify + activate a route",
+      "actor": "operator",
+      "entry": "/operator",
+      "necessaryActions": 7,
+      "cognitiveLoad": "high (by design)",
+      "note": "the abstraction boundary — all 6 checks stay manual",
+      "source": ["01 J25", "09 W14", "AC-SUP-*"]
+    },
+    {
+      "id": "W15",
+      "name": "Operator: trace a transaction",
+      "actor": "operator / judge",
+      "entry": "/operator Evidence tab",
+      "cognitiveLoad": "very high",
+      "note": "raw by design; 'MISMATCH' reads badly",
+      "source": ["01 J28", "09 W15"]
+    }
+  ],
+
+  "states": [
+    {
+      "domain": "task",
+      "values": [
+        "DRAFT",
+        "SUBMITTED",
+        "AWAITING_QUOTE",
+        "RECOMMENDED",
+        "HANDOFF_READY",
+        "FAILED",
+        "CANCELLED"
+      ],
+      "buyerLabels": {
+        "DRAFT": "Draft",
+        "SUBMITTED": "Sent",
+        "AWAITING_QUOTE": "Waiting for a price",
+        "RECOMMENDED": "Quote ready — your decision",
+        "HANDOFF_READY": "Ready to send",
+        "FAILED": "Closed",
+        "CANCELLED": "Cancelled"
+      },
+      "source": [
+        "src/features/tasks/status.ts",
+        "src/features/tasks/lifecycle.ts",
+        "src/components/ui/StatusPill.tsx"
+      ]
+    },
+    {
+      "domain": "quote",
+      "values": [
+        "PENDING",
+        "RECEIVED",
+        "PROPOSED",
+        "SUPERSEDED",
+        "WITHDRAWN",
+        "EXPIRED",
+        "DECLINED"
+      ],
+      "readTimeOverlay": "effectiveStatus = EXPIRED if a RECEIVED quote is past expiresAt",
+      "invariant": "an accepted row is immutable; a change is always a new PROPOSED row",
+      "source": [
+        "src/features/quotes/status.ts",
+        "src/features/quotes/revision.ts",
+        "src/features/quotes/expiry.ts"
+      ]
+    },
+    {
+      "domain": "route",
+      "values": ["DRAFT", "PENDING_VERIFICATION", "ACTIVE", "PAUSED", "ARCHIVED"],
+      "readTimeOverlay": "'stale' — an ACTIVE route whose priceUpdatedAt is > 14 days old is treated as UNAVAILABLE",
+      "buyerMerchantLabels": {
+        "DRAFT": "Draft",
+        "PENDING_VERIFICATION": "Awaiting operator check",
+        "ACTIVE": "Available to customers",
+        "PAUSED": "Paused",
+        "ARCHIVED": "Archived"
+      },
+      "activationAuth": "operator ONLY + all 6 checklist checks + consentAt set",
+      "source": ["src/features/routes/schema.ts", "src/features/routes/freshness.ts", "docs/API.md"]
+    },
+    {
+      "domain": "orderPayment",
+      "table": "order_payments",
+      "values": [
+        "CREATED",
+        "AWAITING_WALLET",
+        "SUBMITTED",
+        "CONFIRMING",
+        "CONFIRMED",
+        "FAILED",
+        "EXPIRED",
+        "CANCELLED"
+      ],
+      "window": "30 min",
+      "confirmedRule": "only via a real server-side Celo receipt read: chain + success + USDC 'to' + a single Transfer to the recipient for the exact amount",
+      "source": ["src/features/payments/order/status.ts", "src/features/payments/order/verify.ts"]
+    },
+    {
+      "domain": "servicePayment",
+      "table": "service_payments",
+      "values": ["NOT_REQUIRED", "REQUESTED_402", "AUTHORISED", "SETTLED", "FAILED", "UNAVAILABLE"],
+      "currentState": "always UNAVAILABLE on the buyer web flow (no X402_API_KEY)",
+      "appendOnly": true,
+      "buyerLabels": {
+        "NOT_REQUIRED": "Not charged",
+        "REQUESTED_402": "Payment requested",
+        "AUTHORISED": "Reconciling",
+        "SETTLED": "Paid",
+        "FAILED": "Did not go through",
+        "UNAVAILABLE": "Unavailable"
+      },
+      "source": [
+        "src/features/payments/status.ts",
+        "src/features/tasks/service.ts:193",
+        "docs/DECISIONS.md ADR-017"
+      ]
+    },
+    {
+      "domain": "commitment",
+      "values": ["PENDING_ATTESTATION", "ATTESTED", "ATTESTATION_FAILED"],
+      "createdAt": "the moment of human approval (local + transactional)",
+      "source": ["src/features/commitments/status.ts", "src/features/commitments/service.ts"]
+    },
+    {
+      "domain": "handoverAttestation",
+      "values": ["PENDING_CODE", "PENDING_SIGNATURE", "ATTESTED", "ATTESTATION_FAILED"],
+      "signing": "the merchant signs with their own wallet (eth_signTypedData_v4); Intra relays via EAS attestByDelegation; 2-of-2, server as non-signing referee",
+      "source": ["src/features/attestation/handover-status.ts", "docs/DECISIONS.md ADR-018"]
+    },
+    {
+      "domain": "prooflineEvidence",
+      "values": ["NOT_STARTED", "MERCHANT_MARKED_READY", "BUYER_CONFIRMED_PICKUP"],
+      "eventTypes": ["READY_FOR_PICKUP", "PICKUP_CONFIRMED"],
+      "gate": "no event before task.handoffConfirmedAt",
+      "appendOnly": true,
+      "noScore": "no public reliability/reputation/on-time score is derived",
+      "source": [
+        "src/features/proofline/status.ts",
+        "src/features/proofline/view.ts",
+        "docs/DECISIONS.md ADR-016"
+      ]
+    },
+    {
+      "domain": "agentRun",
+      "values": [
+        "RUNNING",
+        "AWAITING_APPROVAL",
+        "APPROVED",
+        "DECLINED",
+        "NO_VIABLE_OFFER",
+        "CLARIFICATION_NEEDED",
+        "FAILED"
+      ],
+      "buyerStages": ["understand", "discover", "check", "quote", "compare", "decide", "record"],
+      "stageStatuses": ["pending", "active", "waiting", "done", "blocked", "needs-you", "skipped"],
+      "store": "in-memory, 30-min TTL, bound to buyerSessionId; a restart drops it (the DB rows survive)",
+      "source": ["src/features/agent/run/store.ts", "src/features/agent/run/stages.ts"]
+    },
+    {
+      "domain": "conversationIntent",
+      "values": [
+        "CONVERSATION",
+        "INFORMATIONAL",
+        "DISCOVERY",
+        "COMPARISON",
+        "QUOTE_REQUEST",
+        "TRANSACTION",
+        "FULFILLMENT"
+      ],
+      "classifier": "deterministic pattern-matching (classifyMessage), NOT a model call",
+      "confidenceFloor": 0.5,
+      "source": [
+        "src/features/intent/types.ts",
+        "src/features/intent/routing.ts",
+        "src/features/intent/classify.ts"
+      ]
+    },
+    {
+      "domain": "buyerWorkGroup",
+      "values": ["ATTENTION", "READY", "WAITING", "IN_PROGRESS", "COMPLETED"],
+      "derivedFrom": "task/quote/proofline state via derive()",
+      "note": "no internal status name reaches this output",
+      "source": ["src/features/tasks/work.ts"]
+    },
+    {
+      "domain": "notificationLevel",
+      "values": ["INFORMATIONAL", "ACTION_REQUIRED", "TIME_SENSITIVE", "COMPLETED"],
+      "attentionLevels": ["ACTION_REQUIRED", "TIME_SENSITIVE"],
+      "source": ["src/features/notifications/attention.ts"]
+    },
+    {
+      "domain": "pushPermission",
+      "values": ["unsupported", "default", "granted", "denied"],
+      "source": ["src/features/pwa/usePushSetup.ts"]
+    },
+    {
+      "domain": "genericAsyncUI",
+      "values": ["loading", "empty", "validation-error", "network-error", "success", "unavailable"],
+      "mandate": "NFR-UX-001 — every async surface must render all of these",
+      "source": ["src/components/ui/States.tsx", "src/components/ui/Callout.tsx", "docs/PRD.md §12"]
+    }
+  ],
+
+  "transitions": [
+    {
+      "machine": "task",
+      "from": "DRAFT",
+      "to": "SUBMITTED",
+      "trigger": "POST /api/tasks/:id/submit (valid brief, route ACTIVE)",
+      "actor": "buyer"
+    },
+    {
+      "machine": "task",
+      "from": "SUBMITTED",
+      "to": "AWAITING_QUOTE",
+      "trigger": "submitTask (same call)",
+      "actor": "system",
+      "sideEffects": [
+        "notify BUSINESS 'New customer request'",
+        "write an UNAVAILABLE service_payments row"
+      ]
+    },
+    {
+      "machine": "task",
+      "from": "AWAITING_QUOTE",
+      "to": "RECOMMENDED",
+      "trigger": "POST /api/routes/:id/quotes (submitQuote)",
+      "actor": "business",
+      "sideEffects": [
+        "build a Recommendation + a never-sent orderMessage",
+        "notify BUYER 'A quote is ready for your decision'"
+      ]
+    },
+    {
+      "machine": "task",
+      "from": "AWAITING_QUOTE",
+      "to": "FAILED",
+      "trigger": "declineRequest / withdraw / route no longer ACTIVE",
+      "actor": "business/system",
+      "failureReasons": ["SUPPLIER_DECLINED", "PROVIDER_WITHDREW", "ROUTE_UNAVAILABLE"]
+    },
+    {
+      "machine": "task",
+      "from": "RECOMMENDED",
+      "to": "HANDOFF_READY",
+      "trigger": "POST /api/tasks/:id/decision {ACCEPT} (decideOnQuote) OR POST /api/agent/run/:id/approve {ACCEPT}",
+      "actor": "buyer",
+      "sideEffects": [
+        "quote acceptedAt set (immutable)",
+        "orderMessage finalised",
+        "createCommitmentForApproval → commitments PENDING_ATTESTATION + handover secret issued",
+        "contact channel revealed",
+        "notify BUYER 'ready to send' + BUSINESS 'accepted'"
+      ]
+    },
+    {
+      "machine": "task",
+      "from": "RECOMMENDED",
+      "to": "CANCELLED",
+      "trigger": "POST /api/tasks/:id/decision {DECLINE}",
+      "actor": "buyer",
+      "sideEffects": [
+        "buyerDeclineReason stored on the task",
+        "notify BUSINESS 'decided not to proceed'"
+      ]
+    },
+    {
+      "machine": "task",
+      "from": "HANDOFF_READY",
+      "to": "CANCELLED",
+      "trigger": "POST /api/tasks/:id/cancel (buyerCancelsAfterAgreement)",
+      "actor": "buyer",
+      "failureReason": "BUYER_CANCELLED_AFTER_AGREEMENT",
+      "sideEffects": [
+        "live quotes → WITHDRAWN",
+        "invalidateOrderPaymentsForTask",
+        "NO refund claimed"
+      ]
+    },
+    {
+      "machine": "task",
+      "from": "HANDOFF_READY",
+      "to": "FAILED",
+      "trigger": "POST /api/tasks/:id/handover-problem OR provider withdraw/cannotFulfil",
+      "actor": "buyer/business",
+      "failureReasons": [
+        "HANDOVER_FAILED",
+        "PROVIDER_WITHDREW_AFTER_AGREEMENT",
+        "PROVIDER_CANNOT_FULFILL"
+      ]
+    },
+    {
+      "machine": "quote",
+      "from": "RECEIVED (buyer not accepted)",
+      "to": "SUPERSEDED",
+      "trigger": "reviseQuote",
+      "note": "the old row is superseded; a new RECEIVED row replaces it; the recommendation regenerates"
+    },
+    {
+      "machine": "quote",
+      "from": "accepted RECEIVED",
+      "to": "still RECEIVED (untouched)",
+      "trigger": "reviseQuote after acceptance",
+      "note": "a new PROPOSED row is created; the accepted row is NEVER edited"
+    },
+    {
+      "machine": "quote",
+      "from": "PROPOSED",
+      "to": "RECEIVED + acceptedAt",
+      "trigger": "POST /api/tasks/:id/price-change {ACCEPT}",
+      "sideEffects": ["the prior accepted row → SUPERSEDED", "invalidateOrderPaymentsForTask"]
+    },
+    {
+      "machine": "quote",
+      "from": "PROPOSED",
+      "to": "WITHDRAWN",
+      "trigger": "POST /api/tasks/:id/price-change {DECLINE}",
+      "note": "the originally agreed terms stand"
+    },
+    {
+      "machine": "route",
+      "from": "DRAFT/PENDING_VERIFICATION/PAUSED",
+      "to": "ACTIVE",
+      "trigger": "PATCH /api/routes/:id/status {ACTIVE, checklist}",
+      "actor": "operator ONLY",
+      "guards": ["all 6 checklist checks true", "consentAt set"],
+      "sideEffects": [
+        "verifiedAt + priceUpdatedAt + checklist stamped",
+        "business marked operator-verified"
+      ]
+    },
+    {
+      "machine": "route",
+      "from": "ACTIVE",
+      "to": "PAUSED",
+      "trigger": "PATCH /api/routes/:id/status {PAUSED}",
+      "actor": "operator OR manage token",
+      "note": "only an operator can reactivate"
+    },
+    {
+      "machine": "orderPayment",
+      "from": "CREATED",
+      "to": "CONFIRMING",
+      "trigger": "POST .../order-payment/submit {txHash}",
+      "note": "verifyOrderPayment scheduled via after()"
+    },
+    {
+      "machine": "orderPayment",
+      "from": "CONFIRMING",
+      "to": "CONFIRMED",
+      "trigger": "verifyOrderPayment reads a matching real receipt",
+      "sideEffects": [
+        "payerAddress recorded from the on-chain 'from'",
+        "notify BUYER 'Payment confirmed' + BUSINESS 'Payment received'"
+      ]
+    },
+    {
+      "machine": "orderPayment",
+      "from": "any non-terminal",
+      "to": "EXPIRED",
+      "trigger": "invalidateOrderPaymentsForTask (a terms change) OR the 30-min window",
+      "note": "a fresh human approval mints a new intent"
+    },
+    {
+      "machine": "handoverAttestation",
+      "from": "PENDING_CODE",
+      "to": "PENDING_SIGNATURE",
+      "trigger": "POST .../handover/sign-request {code} — code matches",
+      "note": "EIP-712 typed data + a frozen signNonce + a real EAS deadline (10 min) issued"
+    },
+    {
+      "machine": "handoverAttestation",
+      "from": "PENDING_SIGNATURE",
+      "to": "ATTESTED",
+      "trigger": "POST .../handover/submit {signature} → EAS attestByDelegation (or a labelled mock)"
+    },
+    {
+      "machine": "prooflineEvidence",
+      "from": "NOT_STARTED",
+      "to": "MERCHANT_MARKED_READY",
+      "trigger": "POST /api/tasks/:id/proofline/ready (manage token)",
+      "note": "a 6-char pickupCode is issued, merchant-only"
+    },
+    {
+      "machine": "prooflineEvidence",
+      "from": "MERCHANT_MARKED_READY",
+      "to": "BUYER_CONFIRMED_PICKUP",
+      "trigger": "POST /api/tasks/:id/proofline/confirm-pickup (buyer_session OR one_time_code)"
+    },
+    {
+      "machine": "agentRun",
+      "from": "RUNNING",
+      "to": "AWAITING_APPROVAL",
+      "trigger": "the run reached a recommendation and stopped"
+    },
+    {
+      "machine": "agentRun",
+      "from": "AWAITING_APPROVAL",
+      "to": "APPROVED",
+      "trigger": "POST /api/agent/run/:id/approve {ACCEPT, offerFingerprint}",
+      "guard": "offerFingerprint must equal the shown recommendation's; a stale one → APPROVAL_STALE"
+    }
+  ],
+
+  "userJourneys": [
+    {
+      "id": "J1",
+      "name": "New buyer, conversational path",
+      "actor": "buyer",
+      "entry": "/agent",
+      "exits": ["approve → /tasks/:id", "decline → OutcomePanel", "no viable offer → 'Try again'"],
+      "source": "01-USER-JOURNEYS.md J1"
+    },
+    {
+      "id": "J2",
+      "name": "New buyer, structured-form path",
+      "actor": "buyer",
+      "entry": "/request",
+      "source": "01 J2"
+    },
+    {
+      "id": "J3",
+      "name": "Returning buyer, persisted work, no notification",
+      "actor": "buyer",
+      "entry": "/agent or /activity (BuyerWorkPanel)",
+      "source": "01 J3"
+    },
+    {
+      "id": "J4",
+      "name": "Returning buyer via a push notification / deep link",
+      "actor": "buyer",
+      "entry": "push → /tasks/:id?ref=push",
+      "source": "01 J4"
+    },
+    {
+      "id": "J5",
+      "name": "Returning buyer, PWA cold launch",
+      "actor": "buyer",
+      "entry": "installed icon → /agent",
+      "source": "01 J5"
+    },
+    {
+      "id": "J6",
+      "name": "Buyer accepts → handoff → confirm → feedback",
+      "actor": "buyer",
+      "entry": "/tasks/:id (RECOMMENDED)",
+      "source": "01 J6"
+    },
+    { "id": "J7", "name": "Buyer declines the quote", "actor": "buyer", "source": "01 J7" },
+    {
+      "id": "J8",
+      "name": "Buyer pays the order via MiniPay",
+      "actor": "buyer + wallet",
+      "source": "01 J8"
+    },
+    {
+      "id": "J9",
+      "name": "Buyer decides on a proposed price change",
+      "actor": "buyer",
+      "source": "01 J9"
+    },
+    {
+      "id": "J10",
+      "name": "Buyer confirms pickup (Proofline)",
+      "actor": "buyer",
+      "source": "01 J10"
+    },
+    {
+      "id": "J11",
+      "name": "Buyer gives the merchant the handover code",
+      "actor": "buyer",
+      "source": "01 J11"
+    },
+    {
+      "id": "J12",
+      "name": "Buyer cancels an agreed order / reports a failed handover",
+      "actor": "buyer",
+      "source": "01 J12"
+    },
+    {
+      "id": "J13",
+      "name": "Buyer whose task belongs to another device — DEAD END",
+      "actor": "buyer",
+      "recovery": "none",
+      "source": "01 J13"
+    },
+    { "id": "J14", "name": "Interrupted / failed agent run", "actor": "buyer", "source": "01 J14" },
+    {
+      "id": "J15",
+      "name": "New business, quick-start (one screen)",
+      "actor": "business",
+      "entry": "/supplier/onboard",
+      "source": "01 J15"
+    },
+    {
+      "id": "J16",
+      "name": "New business, full form (DRAFT ONLY — dead end)",
+      "actor": "business",
+      "entry": "/supplier/onboard/full",
+      "source": "01 J16"
+    },
+    {
+      "id": "J17",
+      "name": "Returning business, manage link",
+      "actor": "business",
+      "entry": "/supplier/:slug?t=",
+      "source": "01 J17"
+    },
+    {
+      "id": "J18",
+      "name": "Business sends a quote / declines a request",
+      "actor": "business",
+      "source": "01 J18"
+    },
+    {
+      "id": "J19",
+      "name": "Business revises a price (before vs after acceptance)",
+      "actor": "business",
+      "source": "01 J19"
+    },
+    {
+      "id": "J20",
+      "name": "Business edits its published price",
+      "actor": "business",
+      "source": "01 J20"
+    },
+    { "id": "J21", "name": "Business pauses a route", "actor": "business", "source": "01 J21" },
+    {
+      "id": "J22",
+      "name": "Business marks an order ready + reads the pickup code",
+      "actor": "business",
+      "source": "01 J22"
+    },
+    {
+      "id": "J23",
+      "name": "Business signs a handover attestation (own wallet)",
+      "actor": "business + wallet",
+      "source": "01 J23"
+    },
+    {
+      "id": "J24",
+      "name": "Business without a manage link — read-only shell / notFound()",
+      "actor": "business",
+      "recovery": "none in-app",
+      "source": "01 J24"
+    },
+    {
+      "id": "J25",
+      "name": "Operator verifies + activates a route (6-check)",
+      "actor": "operator",
+      "source": "01 J25"
+    },
+    { "id": "J26", "name": "Operator pauses a route", "actor": "operator", "source": "01 J26" },
+    {
+      "id": "J27",
+      "name": "Operator responds to a request for a business (curl-only)",
+      "actor": "operator",
+      "source": "01 J27"
+    },
+    {
+      "id": "J28",
+      "name": "Operator reviews metrics / evidence / traces a task",
+      "actor": "operator",
+      "source": "01 J28"
+    },
+    {
+      "id": "J29",
+      "name": "Machine agent — read capabilities, request a quote",
+      "actor": "agent",
+      "source": "01 J29"
+    },
+    { "id": "J30", "name": "Offline / connectivity loss", "actor": "any", "source": "01 J30" },
+    {
+      "id": "J31",
+      "name": "Supplier withdraws or cannot fulfil an order",
+      "actor": "business + buyer",
+      "source": "01 J31"
+    },
+    {
+      "id": "J32",
+      "name": "Completed transaction (full happy path, all layers)",
+      "actor": "buyer + business",
+      "source": "01 J32"
+    }
+  ],
+
+  "userDecisions": [
+    {
+      "actor": "buyer",
+      "decision": "accept or decline a quote",
+      "surface": "ApprovalPanel / DecisionPanel",
+      "cannotBeAutomated": "BR-001, FR-REC-004; not a model tool (ADR-019)",
+      "source": ["src/features/agent/console/ApprovalPanel.tsx", "src/features/tasks/TaskPage.tsx"]
+    },
+    {
+      "actor": "buyer",
+      "decision": "correct the agent's reading of the brief",
+      "surface": "UnderstandingCard editor",
+      "why": "a wrong brief produces a wrong price"
+    },
+    {
+      "actor": "buyer",
+      "decision": "actually send the WhatsApp message",
+      "surface": "HandoffCard (copy / wa.me)",
+      "why": "Intra never sends an order or contacts a supplier"
+    },
+    {
+      "actor": "buyer",
+      "decision": "approve the wallet transaction",
+      "surface": "the wallet's own UI, triggered from PayPanel",
+      "why": "non-custodial; separate from the commercial approval (M10.5 §34)"
+    },
+    {
+      "actor": "buyer",
+      "decision": "confirm they collected the order",
+      "surface": "BuyerPickupPanel",
+      "why": "Proofline records only what its required actor confirms (FR-PROOF-006)"
+    },
+    {
+      "actor": "buyer",
+      "decision": "decide on a proposed price change",
+      "surface": "PriceChangePanel",
+      "why": "an accepted price cannot change underneath the buyer"
+    },
+    {
+      "actor": "buyer",
+      "decision": "cancel an agreed order / report a handover failure",
+      "surface": "OrderProblemPanel",
+      "why": "consequential; no refund is claimed"
+    },
+    {
+      "actor": "buyer",
+      "decision": "say the handover code aloud",
+      "surface": "in person; HandoverCodePanel shows it",
+      "why": "commit-reveal proof of physical presence (ADR-018)"
+    },
+    {
+      "actor": "merchant",
+      "decision": "tick the quote-display consent box",
+      "surface": "both onboarding forms",
+      "why": "consent is never inferred (FR-SUP-005)"
+    },
+    {
+      "actor": "merchant",
+      "decision": "send / revise / decline a quote",
+      "surface": "QuoteResponseForm / ChangePriceForm",
+      "why": "the quote is the only commitment (BR-003)"
+    },
+    {
+      "actor": "merchant",
+      "decision": "mark an order ready for pickup",
+      "surface": "MerchantFulfilmentPanel",
+      "why": "only the merchant can attest event 1 (FR-PROOF-003)"
+    },
+    {
+      "actor": "merchant",
+      "decision": "sign the handover attestation with their own wallet",
+      "surface": "HandoverAttestPanel",
+      "why": "2-of-2; the server is a non-signing referee (ADR-018)"
+    },
+    {
+      "actor": "merchant",
+      "decision": "pause a route",
+      "surface": "PauseRouteButton",
+      "why": "fail-safe merchant control (BR-006)"
+    },
+    {
+      "actor": "operator",
+      "decision": "tick all 6 activation checks + activate",
+      "surface": "OperatorRouteCard fieldset",
+      "why": "cannot be defaulted or auto-approved (AC-SUP-*)"
+    },
+    {
+      "actor": "operator",
+      "decision": "pause a route for stale/inaccurate data",
+      "surface": "OperatorConsole",
+      "why": "BR-006"
+    }
+  ],
+
+  "systemAutomations": [
+    {
+      "automation": "intent classification (deterministic regex/keyword) + accumulate UserIntent + route + remember the turn + detect a topic switch",
+      "source": "src/features/intent/conversation.ts"
+    },
+    {
+      "automation": "agent run: provider discovery, capability reads, quote requests, scoring, ranking, replan; then STOP for the human decision",
+      "source": "src/features/agent/runtime/loop.ts"
+    },
+    {
+      "automation": "the 13-state internal machine → a 7-stage buyer spine + a 'who did what' narrative",
+      "source": "src/features/agent/run/stages.ts, activity.ts"
+    },
+    {
+      "automation": "every enum → a plain label (taskStatusLabel, routeStatusLabel, eventLabel, outcomeCopy, requestErrorCopy, describeTaskException, PRICING_MODEL_COPY, PROOFLINE_*_LABEL)",
+      "source": "src/components/ui/StatusPill.tsx et al."
+    },
+    {
+      "automation": "idempotency-key generation per write; the /v1 quote folds sha256(X-PAYMENT) into the scope",
+      "source": "src/lib/api.ts, src/lib/http/idempotency.ts"
+    },
+    {
+      "automation": "commitment creation + handover-secret issuance at approval (local + transactional)",
+      "source": "src/features/commitments/service.ts"
+    },
+    {
+      "automation": "the WhatsApp orderMessage templating (generated, never sent) + regeneration on decision / revision",
+      "source": "src/features/quotes/order-message.ts"
+    },
+    {
+      "automation": "MiniPay: intent minting from the commitment, FX rate fetch + lock, ERC-20 transfer construction, chain switch, receipt verification, polling, invalidation on a terms change",
+      "source": "src/features/payments/order/*, src/features/payments/minipay/wallet-adapter.ts"
+    },
+    {
+      "automation": "x402 failure taxonomy → 3-5 buyer-facing Callouts (never the codes); malformed config degrades to UNAVAILABLE, never a 500",
+      "source": "src/features/payments/adapter/*, docs/DECISIONS.md ADR-017"
+    },
+    {
+      "automation": "notify() → specsForEvent → rows + dedupe + level classification + fire-and-forget push",
+      "source": "src/features/notifications/*"
+    },
+    {
+      "automation": "listBuyerWork: group every task into 5 plain buckets with a headline + an action pill",
+      "source": "src/features/tasks/work.ts"
+    },
+    {
+      "automation": "route freshness: 14-day window, staleAfter computation, routeIsQuoteReady gate, capability-doc availability verdict",
+      "source": "src/features/routes/freshness.ts"
+    },
+    {
+      "automation": "evidence: aggregate COUNTs from existing tables on read; classify real vs demo; integration-status checks",
+      "source": "src/features/metrics/report.ts, classification.ts"
+    },
+    {
+      "automation": "after() keeps the agent run + payment verifier alive past the HTTP response",
+      "source": "src/features/agent/run/service.ts:186"
+    },
+    {
+      "automation": "the service worker: /api/* network-only; static cache-first; navigations network-first → /offline; install-and-wait updates",
+      "source": "public/sw.js"
+    },
+    {
+      "automation": "analytics: no-op-safe wrappers; the adapter swallows every failure; a thrown analytics arm cannot fail a commerce action",
+      "source": "src/features/analytics/*, docs/DECISIONS.md ADR-021"
+    }
+  ],
+
+  "aiResponsibilities": [
+    {
+      "responsibility": "conversational intent reading",
+      "mechanism": "DETERMINISTIC pattern-matching (classifyMessage), not a model call",
+      "note": "reads as an assistant in copy; the reading is rules",
+      "source": "src/features/intent/classify.ts"
+    },
+    {
+      "responsibility": "understand intent for a run",
+      "mechanism": "LLM (Claude Haiku 4.5, server-only), bounded",
+      "source": "src/features/agent/runtime/assisted.ts"
+    },
+    {
+      "responsibility": "plan which providers to quote",
+      "mechanism": "LLM proposes a plan; the deterministic loop executes and vetoes"
+    },
+    {
+      "responsibility": "choose an offer + write the rationale",
+      "mechanism": "LLM; the UI shows a '✨ agent's reasoning' label when modelReasoned"
+    },
+    { "responsibility": "replan when nothing is usable", "mechanism": "LLM" },
+    {
+      "constraints": {
+        "bounded": "≤ 4 calls/run, ≤ 700 output tokens, 12s timeout",
+        "fallback": "any failure → the run silently continues deterministically",
+        "noKey": "no ANTHROPIC_API_KEY ⇒ the assisted run is byte-for-byte the deterministic run",
+        "neverHoldsATool": true,
+        "neverTouchesTheDB": true,
+        "recordBuyerDecisionNotModelFacing": true,
+        "datesAndMoneyStayDeterministic": "the model returns a deadline PHRASE; the parser makes the date; the model cannot override a parsed value"
+      },
+      "source": "docs/DECISIONS.md ADR-019 (keystone rule)"
+    }
+  ],
+
+  "complexityAbstraction": [
+    {
+      "item": "internal state-machine enum names",
+      "recommendation": "MUST REMAIN HIDDEN",
+      "currentExposure": "leaks in the operator StatusPill and EvidencePanel TraceView",
+      "source": "02-COMPLEXITY-ABSTRACTION.md"
+    },
+    {
+      "item": "the 13-state agent machine, tool names, HTTP, latencies, run ids, model call counts",
+      "recommendation": "MUST REMAIN HIDDEN",
+      "currentExposure": "contained in a 2-deep nested <details> — acceptable"
+    },
+    {
+      "item": "idempotency keys, session headers, the response envelope",
+      "recommendation": "MUST REMAIN HIDDEN",
+      "currentExposure": "fully hidden"
+    },
+    {
+      "item": "keccak256 commit-reveal, salt, handoverCommit, offerFingerprint",
+      "recommendation": "MUST REMAIN HIDDEN",
+      "currentExposure": "fully hidden (only the effect of a stale fingerprint is shown)"
+    },
+    {
+      "item": "USDC atomic units, ERC-20 ABI, contract address, chain-id hex",
+      "recommendation": "MUST REMAIN HIDDEN",
+      "currentExposure": "MiniPay clean; x402 PaymentReceipt leaks amountAtomic/1e6"
+    },
+    {
+      "item": "CAIP-2 network ids, ERC-8021 attribution tags",
+      "recommendation": "MUST REMAIN HIDDEN",
+      "currentExposure": "x402 PaymentReceipt shows a raw 'Attribution tag: celo_…' row"
+    },
+    {
+      "item": "EAS schema UIDs, refUID, attestByDelegation, EIP-712 struct",
+      "recommendation": "MUST REMAIN HIDDEN (buyer/merchant); operator OK",
+      "currentExposure": "EvidencePanel TraceView (operator-only, but judge-facing)"
+    },
+    {
+      "item": "'Capability Card', 'MCP server', 'quote route', the /v1 endpoint string, raw route JSON",
+      "recommendation": "MUST REMAIN HIDDEN",
+      "currentExposure": "OnboardingForm + DraftRoutePreview (the full-form path)"
+    },
+    {
+      "item": "the NGN→USD rate, its source, and its lock timestamp",
+      "recommendation": "MUST BE EXPLAINED",
+      "currentExposure": "shown correctly — the PayPanel rate hint"
+    },
+    {
+      "item": "who the money goes to",
+      "recommendation": "MUST BE EXPLAINED",
+      "currentExposure": "shown correctly — 'Goes to {short}' / 'Who you pay: {business}, directly'"
+    },
+    {
+      "item": "that CONFIRMED requires a real verified tx hash",
+      "recommendation": "MUST BE EXPLAINED",
+      "currentExposure": "shown — the honesty Callouts + explorer links"
+    },
+    {
+      "item": "price/availability freshness + auto-expiry",
+      "recommendation": "MUST BE EXPLAINED",
+      "currentExposure": "shown — 'Prices confirmed 3 days ago', 'stale', a lifecycle explainer"
+    },
+    {
+      "item": "the Proofline disclaimer",
+      "recommendation": "MUST BE EXPLAINED",
+      "currentExposure": "verbatim on every Proofline surface — correct"
+    },
+    {
+      "item": "the attestation honesty bound (proves handover, not quality)",
+      "recommendation": "MUST BE EXPLAINED",
+      "currentExposure": "the HandoverAttestPanel wording + the trace disclaimer — correct"
+    },
+    {
+      "item": "the operator's 6-point verification happened",
+      "recommendation": "MUST BE EXPLAINED",
+      "currentExposure": "'Verified by operator 3 days ago' — correct"
+    },
+    {
+      "item": "that the conversation is not persisted",
+      "recommendation": "MUST BE EXPLAINED (carefully)",
+      "currentExposure": "'Demo only — nothing here is saved' — MISLEADING: the task/quote/decision ARE saved"
+    }
+  ],
+
+  "payments": {
+    "flows": [
+      {
+        "id": "x402-query-fee",
+        "table": "service_payments",
+        "whoPaysWhom": "the buyer's agent → a paid information service",
+        "purpose": "pay for current information; distinct from the order price (BR-004)",
+        "cap": "$0.05/task, server-enforced (not an env var); default fee $0.02",
+        "currentState": "ALWAYS UNAVAILABLE on the buyer web flow (submitTask writes an UNAVAILABLE row); the /v1 quote endpoint returns 503 for paid routes without X402_API_KEY",
+        "settledRule": "a real official-facilitator verification + a real mainnet tx hash; a SETTLED row is append-only and never edited",
+        "failureTaxonomy": {
+          "FAILED": "bad auth (402, retryable by the agent)",
+          "UNAVAILABLE": "no key / bad config / facilitator unreachable (503, not the agent's fault)",
+          "INDETERMINATE": "settle timeout (503, never 'paid', never re-authorised)"
+        },
+        "buyerSurface": "TaskPage PaymentReceipt — label + an honesty Callout ('Intra never fabricates a payment'); PROBLEM: on the rare SETTLED path it leaks attributionTag, atomic amounts, CAIP-2 ids",
+        "source": [
+          "src/features/payments/*",
+          "docs/PAYMENTS.md",
+          "docs/DECISIONS.md ADR-004/011/017"
+        ]
+      },
+      {
+        "id": "minipay-order-payment",
+        "table": "order_payments",
+        "whoPaysWhom": "the buyer → the business, on-chain USDC",
+        "custody": "NON-CUSTODIAL — wallet → business payout address direct; Intra never touches the funds",
+        "availability": "only when task.status === HANDOFF_READY (commercial terms already approved) AND NETWORK_ENV=production; additive — the WhatsApp handoff is always the fallback",
+        "asset": "USDC only (6 dp), address in adapter/networks.ts",
+        "fx": "NGN quotes + a real NGN→USD reference rate (NGN_USD_RATE_URL, default keyless open.er-api.com), LOCKED into the intent with its source + timestamp; source down → 503, never a guessed rate",
+        "intentImmutable": "recipient / amount / rate frozen at creation; a terms change invalidates the intent and needs a fresh human approval",
+        "clientSubmits": "ONLY a tx hash — the server never trusts a client 'success'",
+        "confirmedRule": "verifyOrderPayment reads the real Celo receipt: chain + success + USDC 'to' + a single Transfer to the recipient for the exact amount all match; payerAddress recorded from the on-chain 'from'",
+        "replayGuards": [
+          "UNIQUE tx_hash",
+          "TX_ALREADY_USED",
+          "matchReceipt recipient+amount binding",
+          "a partial unique index (one live intent per commitment)"
+        ],
+        "buyerSurface": "PayPanel — 'network fee' language, no ABI/contract/chain-id on the default view (M10.5 §6, §47); the rate hint; the shortened recipient; 'Still checking with the network. You can close this and come back'; a confirmed receipt + explorer link",
+        "walletAdapter": "src/features/payments/minipay/wallet-adapter.ts — the ONE place a wallet tx is built; lazy-imports viem; no ethers/wagmi",
+        "analytics": "11 events (payment_method_viewed → payment_confirmed); 3 forwarded server-side because the buyer often closes the tab before confirmation",
+        "source": [
+          "src/features/payments/order/*",
+          "src/features/payments/minipay/*",
+          "docs/DECISIONS.md ADR-023"
+        ]
+      }
+    ],
+    "nonNegotiable": "Intra never custodies funds, never signs/executes the buyer's final supplier payment, and never presents a settlement as real without verification + a real tx hash (BR-001, CLAUDE.md §4.1/4.3)"
+  },
+
+  "trustAndEvidence": {
+    "layers": [
+      {
+        "layer": "Proofline pilot",
+        "table": "proofline_events",
+        "what": "2 optional append-only events (READY_FOR_PICKUP by the merchant → a 6-char pickup code; PICKUP_CONFIRMED by the buyer via session OR code), both gated on handoffConfirmedAt",
+        "notProof": "the PROOFLINE_DISCLAIMER is on every surface verbatim: 'operational evidence, not a cryptographic proof, not a payment settlement, not a guarantee'; no public reliability/reputation/on-time score",
+        "source": ["src/features/proofline/*", "docs/DECISIONS.md ADR-016", "docs/PRD.md F-PROOF"]
+      },
+      {
+        "layer": "Commitment attestation",
+        "table": "commitments",
+        "what": "created at the moment of human approval (local + transactional so it can't be lost); publishes handoverCommit = keccak256(code‖salt); the buyer alone gets 'code', the server withholds 'salt'; attested by Intra's own signer to EAS (or a labelled mock) as a separate retryable step",
+        "source": ["src/features/commitments/*", "docs/DECISIONS.md ADR-018"]
+      },
+      {
+        "layer": "Handover attestation",
+        "table": "handover_attestations",
+        "what": "the genuine second signature — the merchant presents the buyer's code, signs EIP-712 typed data with their OWN wallet (must be the payout-address wallet), Intra relays via EAS attestByDelegation; 2-of-2, server as non-signing referee",
+        "honestyBound": "proves the named parties completed the handover protocol at a time — NOT quantity, quality, timeliness, or satisfaction (ADR-018)",
+        "source": ["src/features/attestation/*"]
+      }
+    ],
+    "surfaces": {
+      "public": "/evidence — 3 strictly-separated zones (Real results / Demo data / Unavailable & external integrations) + 'What changed from feedback' + CSV/JSON export; every figure a COUNT from existing tables; demo data (a single [DEMO SEED] business) excluded from real numbers; no session ids, no task content, no addresses",
+      "operator": "/operator Metrics (the same report + a content-free 25-event feed); /operator Evidence (a full cross-referenced task trace — DB state + on-chain refs + a consistency cross-check; PROBLEM: leaks raw enums + 'MISMATCH' + schema UIDs)"
+    },
+    "trustCopyInventory": "~20 verbatim phrases catalogued in 07-TRUST-MONEY-BLOCKCHAIN-UX.md §13 — each is non-negotiable at its current surface",
+    "source": [
+      "docs/DECISIONS.md ADR-013",
+      "src/features/metrics/EvidenceView.tsx",
+      "src/features/operator/EvidencePanel.tsx"
+    ]
+  },
+
+  "notifications": {
+    "model": "a notification is a CURRENT ATTENTION ITEM, not a log line (the audit trail is the history); one row per (audience, recipientKey, dedupeKey); a repeat event updates the row and re-surfaces it unread",
+    "levels": ["INFORMATIONAL", "ACTION_REQUIRED", "TIME_SENSITIVE", "COMPLETED"],
+    "grouping": "ACTION_REQUIRED / TIME_SENSITIVE → 'Needs your attention'; the rest → 'Updates'",
+    "inApp": "ActionCentre (GET /api/notifications) on /activity (buyer) + /supplier/:slug (business); opening a row marks it read optimistically and follows its deeplink; reading ≠ acting",
+    "push": {
+      "mechanism": "web-push + self-generated VAPID (separate per environment)",
+      "degradation": "any of VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY/VAPID_SUBJECT unset → push UNAVAILABLE, in-app only, nothing breaks",
+      "payload": "only { title, body, url, tag } — no id, amount, address, code, or secret (ADR-020 §18)",
+      "delivery": "fire-and-forget from notify(); a failed push never fails the domain action; invalid subscriptions (404/410) deleted; repeated soft failures prune after 3",
+      "levelGate": "ACTION_REQUIRED / TIME_SENSITIVE push whenever push is on; INFORMATIONAL / COMPLETED only if notification_preferences.pushInformational",
+      "binding": "a subscription is bound to the SERVER-resolved recipient; a client-sent id is never trusted"
+    },
+    "contextualPrompts": "PushPrompt + InstallPrompt never fire on first load — only once a person has real async work; dismissal is permanent (localStorage); a denied browser is never re-asked",
+    "deepLinks": "sw.js notificationclick focuses/opens a window at deeplink?ref=push → ResumeSignal fires workflow_resumed; a stale business deep link shows a staleNote Callout and rings the target card",
+    "eventMap": "verified in specsForEvent — see 05-INTERACTION-STATE-MODEL.md §2.11 for the full event→notification table",
+    "source": ["src/features/notifications/*", "public/sw.js", "docs/DECISIONS.md ADR-020"]
+  },
+
+  "mobile": {
+    "requirement": "works at 360px; non-crypto language; real <label>s; keyboard nav; visible focus; associated form errors (NFR-UX-001, NFR-A11Y-001, CLAUDE.md §5)",
+    "breakpoints": "ONE — Tailwind sm: (640px); base classes are the mobile layout; md:/lg: only on the landing page",
+    "usableWidthAt360": "~328px (px-4 gutters)",
+    "modals": "NONE — no <dialog>, no drawers; every 'modal' interaction is an inline panel, a native <details>, or a component mode switch (consequence: no focus-trap issues; but a mid-flow panel has no dismiss)",
+    "navigation": "NO bottom navigation; the 3 buyer surfaces are linked only by in-page pills / back-links",
+    "touchTargets": "buttons min-h-9/min-h-11; full-card tappable rows; <input type=checkbox> is size-4 (16px), mitigated by the wrapping <label>",
+    "inputs": "text-base (no iOS zoom); inputMode hints (numeric/decimal/tel/email); autoCapitalize off on codes/addresses; datetime-local in QuoteResponseForm is a fiddly mobile picker",
+    "responsiveTests": "NONE — jsdom RTL tests do not compute layout; 360px is a manual DoD gate",
+    "difficultOnAPhone": [
+      "QuoteResponseForm (10 fields, datetime-local, mid-job)",
+      "OnboardingForm full wizard (15 fields, dead end)",
+      "mid-flow panels have no dismiss",
+      "the two identical code boxes",
+      "the agent-console dual input",
+      "operator sign-in (sessionStorage key)",
+      "payout-address entry (42 hex, no QR/paste-assist)",
+      "the handover-sign step (requires a wallet)"
+    ],
+    "source": ["08-MOBILE-PWA-AUDIT.md", "src/components/MainContainer.tsx", "vitest.config.ts"]
+  },
+
+  "pwa": {
+    "manifest": {
+      "file": "src/app/manifest.ts",
+      "start_url": "/agent",
+      "display": "standalone",
+      "orientation": "portrait",
+      "theme_color": "#0f3e17 (STALE — ADR-022 is ink #1f1e1d)",
+      "icons": "192 (any), 512 (any), 512 (maskable), committed, generated from one SVG"
+    },
+    "viewport": {
+      "file": "src/app/layout.tsx",
+      "themeColor": "#0f3e17 (STALE)",
+      "viewportFit": "cover",
+      "appleWebApp": true
+    },
+    "serviceWorker": {
+      "file": "public/sw.js",
+      "version": "v1",
+      "cachePolicy": {
+        "/api/*": "network-only, never cached; offline → a clean 503 OFFLINE JSON",
+        "/_next/static/*, /icons/*": "cache-first (content-hashed)",
+        "navigations": "network-first → the cached /offline page",
+        "other GET same-origin": "network-first → cache"
+      },
+      "neverCached": "prices, quotes, approval, payment, fulfilment, cancellation, handover, permissions",
+      "updatePolicy": "install-and-wait; a dismissible 'Update now' banner (ServiceWorker.tsx); ONE reload; never mid-transaction",
+      "notificationClick": "focus/open a window at deeplink?ref=push; falls back to postMessage({type:NAVIGATE}) → router.push"
+    },
+    "installPrompt": "InstallPrompt — never on first load; only when hasAsyncWork; captures beforeinstallprompt; iOS Safari gets a Share-sheet hint; permanent dismissal (localStorage intra.installPromptDismissed)",
+    "pushPrompt": "PushPrompt — needs a reason; only while permission==='default' && available; permanent dismissal (localStorage intra.pushPromptDismissed)",
+    "platformDetection": "detectPlatform() → 'installed_pwa' vs 'web' (matchMedia display-mode: standalone / iOS navigator.standalone); every app_opened analytics event carries it",
+    "source": ["08-MOBILE-PWA-AUDIT.md §5", "docs/DECISIONS.md ADR-020"]
+  },
+
+  "errorsAndRecovery": [
+    {
+      "situation": "network unreachable",
+      "ui": "ApiError(0, NETWORK); OfflineBanner when navigator.onLine false; SW returns 503 OFFLINE JSON",
+      "recovery": "retry when back online; writes are idempotent",
+      "source": ["src/lib/api.ts:51", "public/sw.js:75"]
+    },
+    {
+      "situation": "task belongs to another device",
+      "ui": "ErrorState 'This request belongs to another device' + 'Start a new request'",
+      "recovery": "NONE — localStorage is the only identity",
+      "source": ["src/features/tasks/TaskPage.tsx:252"]
+    },
+    {
+      "situation": "agent run expired (30 min) / server restart",
+      "ui": "requestErrorCopy 'This run has expired… Your request text is still here' + restart",
+      "recovery": "restart; the request text is preserved",
+      "source": ["src/features/agent/run/copy.ts:628"]
+    },
+    {
+      "situation": "agent run taking too long (>120 polls)",
+      "ui": "'This is taking longer than expected… Reload the page to pick the run back up'",
+      "source": ["src/features/agent/console/AgentConsole.tsx:157"]
+    },
+    {
+      "situation": "agent poll transient failure",
+      "ui": "silent quiet retry (MAX_RECONNECTS=5) with a 'Reconnecting…' chip",
+      "source": ["src/features/agent/console/AgentConsole.tsx:165"]
+    },
+    {
+      "situation": "run ended without a usable quote",
+      "ui": "OutcomePanel Unsuccessful + outcomeCopy (NO_PROVIDERS/NO_QUOTES_RETURNED/OUT_OF_SCOPE…) + 'Nothing was ordered and no money moved'",
+      "source": ["src/features/agent/run/copy.ts"]
+    },
+    {
+      "situation": "supplier declines / withdraws / cannot fulfil",
+      "ui": "a semantic Callout from describeTaskException (headline / what happened / what to do / what next / money note)",
+      "source": ["src/features/tasks/exceptions.ts"]
+    },
+    {
+      "situation": "quote expired at decision time",
+      "ui": "accepting is still allowed; a warning Callout; the message gains a 'reconfirm the price' line",
+      "source": ["src/features/tasks/TaskPage.tsx:606"]
+    },
+    {
+      "situation": "approval offerFingerprint stale",
+      "ui": "requestErrorCopy APPROVAL_STALE 'The quote changed… Review the current one'",
+      "source": ["src/features/agent/run/copy.ts:648"]
+    },
+    {
+      "situation": "wallet rejected",
+      "ui": "useOrderPayment catches USER_REJECTED → cancels the intent → 'Payment cancelled. Nothing was confirmed.'",
+      "source": ["src/features/payments/minipay/useOrderPayment.ts:179"]
+    },
+    {
+      "situation": "wallet wrong chain",
+      "ui": "wallet-adapter attempts wallet_switchEthereumChain; on failure 'Switch your wallet to the Celo network'",
+      "source": ["src/features/payments/minipay/wallet-adapter.ts:72"]
+    },
+    {
+      "situation": "order-payment verify hiccup (server unreachable after tx sent)",
+      "ui": "'The tx is real and on-chain — this is a reporting hiccup… reopen the order and it will pick up'",
+      "source": ["src/features/payments/minipay/useOrderPayment.ts:228"]
+    },
+    {
+      "situation": "x402 unavailable / failed / indeterminate",
+      "ui": "3 distinct Callouts; never a receipt; explorer link only on real SETTLED",
+      "source": ["src/features/tasks/TaskPage.tsx:PaymentReceipt"]
+    },
+    {
+      "situation": "form validation",
+      "ui": "inline field errors via zodResolver + mode:'onBlur', or server INVALID_BODY fieldErrors flattened onto fields",
+      "source": ["src/features/businesses/QuickStartForm.tsx:92"]
+    },
+    {
+      "situation": "route paused between task creation and submit",
+      "ui": "submitTask → task FAILED + 409 ROUTE_UNAVAILABLE; RequestForm 'That printer just went offline. Pick another.'",
+      "source": ["src/features/tasks/service.ts:157"]
+    },
+    {
+      "situation": "any unhandled render error",
+      "ui": "app/error.tsx 'Something went wrong on our side. Nothing you did caused it, and no request was sent to a printer.'",
+      "source": ["src/app/error.tsx"]
+    }
+  ],
+
+  "informationArchitecture": {
+    "conceptualAreas": [
+      "BUYER (device session)",
+      "BUSINESS (manage token)",
+      "OPERATOR (operator key)",
+      "PUBLIC / evidence"
+    ],
+    "organisingConcepts": [
+      "the request/task is the buyer's unit of work — everything about one job lives on /tasks/:id, fully resumable from server state",
+      "the route is the business's unit of capability — a lifecycle + a 14-day freshness clock",
+      "the quote is the only commitment — published prices are guidance; an accepted quote is immutable",
+      "the decision is its own step — separate from 'a quote exists' and 'the order was sent'",
+      "evidence is layered and never conflated — a payment ≠ a fulfilment record ≠ a quality rating"
+    ],
+    "navigation": {
+      "buyer": "in-page pills + back-links between /agent, /activity, /tasks/:id (no persistent nav)",
+      "business": "in-page links between /supplier/:slug, /requests, /review",
+      "operator": "3 tabs in one console",
+      "public": "the reduced Header nav (Home→/agent, For businesses→/supplier/onboard, Docs)"
+    },
+    "navGap": "primaryNav lists 7 entries; Header renders 3; /activity, /operator, /evidence, / reachable only by direct URL / in-page links",
+    "source": ["10-REDESIGN-INPUT-PACK.md §5", "src/lib/site.ts", "src/components/Header.tsx"]
+  },
+
+  "nonNegotiables": [
+    {
+      "rule": "the buyer sends the final WhatsApp order themselves; the pre-filled message is shown in full and never auto-sent",
+      "ref": "BR-001, FR-REC-002/004"
+    },
+    {
+      "rule": "the buyer decision is its own explicit step, with the full offer on the surface, before the contact channel is revealed",
+      "ref": "ADR-015"
+    },
+    {
+      "rule": "the buyer approves the wallet transaction separately from the commercial approval",
+      "ref": "M10.5 §34"
+    },
+    {
+      "rule": "SETTLED / CONFIRMED only after real verification + a real transaction hash; an explicit UNAVAILABLE/503 state otherwise; no fabricated receipt ever",
+      "ref": "FR-PAY-003/004, BR-005, ADR-004/017"
+    },
+    { "rule": "a settle timeout renders indeterminate, never 'paid'", "ref": "ADR-017" },
+    {
+      "rule": "price/availability data carries a confirmation timestamp and auto-expires at 14 days → stale → unavailable",
+      "ref": "PRODUCT_VISION.md §3.1"
+    },
+    {
+      "rule": "merchant quote-display consent is an explicit, unbundled tick — never inferred",
+      "ref": "FR-SUP-005"
+    },
+    {
+      "rule": "operator verification (all 6 checks) before a route goes ACTIVE — never defaulted or auto-approved",
+      "ref": "AC-SUP-*"
+    },
+    {
+      "rule": "public wallet address only — never a seed phrase, private key, password, BVN, NIN, card, or bank credential; shown shortened; ownership verified out-of-band",
+      "ref": "CLAUDE.md §4.2, NFR-SEC-001"
+    },
+    { "rule": "demo / non-persistent state is clearly labelled", "ref": "CLAUDE.md §4.4" },
+    {
+      "rule": "the Proofline disclaimer, verbatim, on every Proofline surface; no public reliability/reputation/on-time score",
+      "ref": "ADR-016, FR-PROOF-005/006"
+    },
+    {
+      "rule": "an attestation proves the handover protocol completed at a time — not quantity, quality, timeliness, or satisfaction",
+      "ref": "ADR-018 honesty bound"
+    },
+    {
+      "rule": "the LLM proposes; a human commits the write; the model never holds a tool, never touches the DB; recordBuyerDecision is not model-facing; any model failure falls back to deterministic",
+      "ref": "ADR-019 keystone"
+    },
+    {
+      "rule": "Intra never custodies funds; MiniPay is wallet→business direct; the x402 fee is the agent's, capped at $0.05, distinct from the order price",
+      "ref": "BR-001, BR-004"
+    },
+    {
+      "rule": "every async surface has explicit loading / empty / validation-error / network-error / success / unavailable states",
+      "ref": "NFR-UX-001"
+    },
+    {
+      "rule": "mobile-first, 360px, real <label>s, keyboard nav, visible focus, associated form errors",
+      "ref": "NFR-UX-001, NFR-A11Y-001"
+    },
+    {
+      "rule": "MVP scope: flyer printing only; no new vertical, no marketplace, no directory, no escrow, no dispute flow, no reputation score",
+      "ref": "CLAUDE.md MVP boundary"
+    }
+  ],
+
+  "technicalConstraints": [
+    {
+      "constraint": "Next.js 15 App Router + React 19; the 3 /supplier/* pages + /evidence are RSC (force-dynamic); everything else buyer-facing is a 'use client' island fetching JSON"
+    },
+    {
+      "constraint": "Tailwind 3 + CSS-variable tokens (src/styles/tokens.css — ADR-022 warm-editorial palette; load-bearing per CLAUDE.md §6.1); no CSS-in-JS; no web-font fetch; no dark mode"
+    },
+    {
+      "constraint": "no component library — 9 hand-rolled primitives; the Callout/StatusPill/DataList vocabulary is deeply wired"
+    },
+    { "constraint": "lucide-react for every icon" },
+    {
+      "constraint": "Zod schemas are the client/server contract; the model must produce Zod-valid JSON"
+    },
+    {
+      "constraint": "viem is the only chain library (ADR-018/023) — client-lazy-imported in wallet-adapter; no ethers/wagmi"
+    },
+    { "constraint": "@anthropic-ai/sdk is server-only — never a browser import" },
+    {
+      "constraint": "ESLint bans @amplitude/* outside src/features/analytics/; every client surface calls useAnalytics(role); a hand-written 58-event taxonomy"
+    },
+    {
+      "constraint": "the API envelope { success, data } / { success, error:{ code, message, details? } } and the apiRequest helper"
+    },
+    {
+      "constraint": "auth: buyer = x-session-id (localStorage); business = x-manage-token / ?t=; operator = x-operator-key (sessionStorage); no accounts"
+    },
+    {
+      "constraint": "Idempotency-Key on every write; the /v1 quote folds sha256(X-PAYMENT) into the scope"
+    },
+    {
+      "constraint": "16 DB tables (15 domain + idempotency_keys) with lifecycle invariants (src/lib/db/schema.ts); schema changes via a committed Drizzle migration (ADR-006)"
+    },
+    {
+      "constraint": "after() keeps background work (agent run, payment verify) alive past the HTTP response — a Vercel Phase D fix; do not remove"
+    },
+    {
+      "constraint": "env flags that change the UI (all degrade safely): OPERATOR_API_KEYS, X402_API_KEY, ANTHROPIC_API_KEY, VAPID_* (3), NETWORK_ENV + ATTESTATION_SIGNER_KEY (gates the MiniPay path to production), NGN_USD_RATE_URL, NEXT_PUBLIC_AMPLITUDE_API_KEY"
+    }
+  ],
+
+  "uxProblems": [
+    {
+      "id": 1,
+      "problem": "buyer identity is device-bound with NO recovery — a device switch loses the task + the WhatsApp message about to be sent; the constraint is stated only after access is lost",
+      "severity": "high",
+      "source": [
+        "src/features/tasks/TaskPage.tsx:252",
+        "src/lib/session.ts",
+        "docs/UX_ARCHITECTURE.md F8"
+      ]
+    },
+    {
+      "id": 2,
+      "problem": "the full onboarding form collects 15 fields then dead-ends ('email this JSON to an operator'); the operator has no create UI",
+      "severity": "high",
+      "source": [
+        "src/features/businesses/OnboardingForm.tsx:106",
+        "src/features/businesses/DraftRoutePreview.tsx:152",
+        "docs/UX_ARCHITECTURE.md F1"
+      ]
+    },
+    {
+      "id": 3,
+      "problem": "two parallel buyer entry points (/agent, /request) with different capabilities; /request can't compare providers and is ORPHANED (not linked from anywhere — grep '/request' src); nav 'Home' = /agent not /",
+      "severity": "medium",
+      "source": ["src/lib/site.ts", "src/components/Header.tsx:26", "src/app/page.tsx"]
+    },
+    {
+      "id": 4,
+      "problem": "/tasks/:id shows 7-8 stacked panels on a HANDOFF_READY task with MiniPay; the current action isn't obvious",
+      "severity": "medium",
+      "source": ["src/features/tasks/TaskPage.tsx"]
+    },
+    {
+      "id": 5,
+      "problem": "x402 PaymentReceipt leaks attributionTag, atomic amounts, CAIP-2 ids, 'via agent payment protocol' on a buyer surface",
+      "severity": "medium",
+      "source": ["src/features/tasks/TaskPage.tsx:680"]
+    },
+    {
+      "id": 6,
+      "problem": "QuoteResponseForm (highest-frequency merchant task) asks for fixed/range, confidence, datetime-local — precision for a phone user mid-job",
+      "severity": "medium",
+      "source": ["src/features/supplier/QuoteResponseForm.tsx", "docs/AGENTIC_ARCHITECTURE.md §5.3"]
+    },
+    {
+      "id": 7,
+      "problem": "two visually identical 'code' boxes (buyer handover code, merchant pickup code) on related surfaces",
+      "severity": "medium",
+      "source": [
+        "src/features/attestation/HandoverCodePanel.tsx",
+        "src/features/proofline/MerchantFulfilmentPanel.tsx:90"
+      ]
+    },
+    {
+      "id": 8,
+      "problem": "'Demo only — nothing here is saved' over-prominent and partly false (the task/quote/decision ARE saved)",
+      "severity": "medium",
+      "source": ["src/features/agent/console/ConversationView.tsx:203"]
+    },
+    {
+      "id": 9,
+      "problem": "stale theme colour (#0f3e17 green) in layout.tsx viewport, manifest.ts, opengraph-image.tsx, global-error.tsx",
+      "severity": "low",
+      "source": ["docs/DECISIONS.md ADR-022"]
+    },
+    {
+      "id": 10,
+      "problem": "internal pages inherit the new palette but not the new spacing/heading rhythm",
+      "severity": "low",
+      "source": ["docs/DECISIONS.md ADR-022"]
+    },
+    {
+      "id": 11,
+      "problem": "EvidencePanel TraceView shows raw enums, attestationMode:'mock', bare 'MISMATCH', schema UIDs — judge-facing",
+      "severity": "low",
+      "source": ["src/features/operator/EvidencePanel.tsx:105"]
+    },
+    {
+      "id": 12,
+      "problem": "primaryNav lists 7, Header renders 3; /activity, /operator, /evidence reachable only by direct URL / in-page links",
+      "severity": "low",
+      "source": ["src/lib/site.ts:15", "src/components/Header.tsx:26"]
+    },
+    {
+      "id": 13,
+      "problem": "the agent console can show two input boxes after a run settles",
+      "severity": "low",
+      "source": ["src/features/agent/console/AgentConsole.tsx:261"]
+    },
+    {
+      "id": 14,
+      "problem": "the pre-filled WhatsApp message shows raw brief keys (size:, full-colour) — the one place the buyer sees un-humanised data",
+      "severity": "low",
+      "source": ["src/features/quotes/order-message.ts"]
+    },
+    {
+      "id": 15,
+      "problem": "OperatorRouteCard StatusPill shows route.status.replace(/_/g,' ') (near-raw) where every other surface has a plain label",
+      "severity": "low",
+      "source": ["src/features/operator/OperatorConsole.tsx:262"]
+    },
+    {
+      "id": 16,
+      "problem": "no seeded, clearly-labelled demo path — RequestForm shows 'No printers are live yet' as the likely first-run state",
+      "severity": "medium",
+      "source": ["src/features/tasks/RequestForm.tsx:113", "docs/UX_ARCHITECTURE.md F9"]
+    },
+    {
+      "id": 17,
+      "problem": "handover attestation requires window.ethereum — a non-crypto merchant cannot use the feature at all",
+      "severity": "medium",
+      "source": ["src/features/attestation/HandoverAttestPanel.tsx:57"]
+    }
+  ],
+
+  "uxStrengths": [
+    {
+      "strength": "the trust-copy discipline — ~20 verbatim phrases that front-load every money/consent/verification fear at exactly the right moment",
+      "source": "07-TRUST-MONEY-BLOCKCHAIN-UX.md §13"
+    },
+    {
+      "strength": "the semantic progress spine + 'who did what' narrative — the best copy in the app ('Printers answer as people, not APIs — this part is genuinely asynchronous')",
+      "source": "src/features/agent/run/stages.ts, activity.ts"
+    },
+    {
+      "strength": "the approval gate — the full offer on the surface, never behind a disclosure; a consequence-named button",
+      "source": "src/features/agent/console/ApprovalPanel.tsx"
+    },
+    {
+      "strength": "describeTaskException — every failure answers the same 3 questions in plain language, and never invents a financial outcome",
+      "source": "src/features/tasks/exceptions.ts"
+    },
+    {
+      "strength": "MiniPay abstraction — 'network fee', a locked+sourced FX rate, a shortened recipient, CONFIRMED only on a real receipt; no ABI/contract/chain-id on the default view",
+      "source": "src/features/payments/minipay/PayPanel.tsx"
+    },
+    {
+      "strength": "the 5-bucket work list — no internal status name ever shown; a plain headline + a verb-first action pill per task",
+      "source": "src/features/tasks/BuyerWorkPanel.tsx, work.ts"
+    },
+    {
+      "strength": "one-read-model-per-surface — getTaskView / getSupplierWorkspace / toAgentRunView / listBuyerWork each return exactly what their page renders",
+      "source": "src/features/*/service.ts, reads.ts"
+    },
+    {
+      "strength": "honest empty/unavailable states — '/evidence: No real activity recorded yet… that is the honest state, not a bug'; the x402 UNAVAILABLE callout",
+      "source": "src/features/metrics/EvidenceView.tsx"
+    },
+    {
+      "strength": "contextual PWA prompts — never nag; only appear with async work; permanent dismissal",
+      "source": "src/features/pwa/InstallPrompt.tsx, PushPrompt.tsx"
+    },
+    {
+      "strength": "quick-start onboarding — 9 plain fields, the value prop in-flow, category→template hidden, the manage link surfaced with 'Keep this link'",
+      "source": "src/features/businesses/QuickStartForm.tsx"
+    },
+    {
+      "strength": "the quote-integrity model — an accepted price is immutable; a change is always a new PROPOSED row the buyer decides on",
+      "source": "src/features/quotes/revision.ts"
+    },
+    {
+      "strength": "accessibility baseline — real <label>s, aria-invalid/aria-describedby, focus-visible rings, role=alert/status, status-by-word-and-icon, prefers-reduced-motion guards throughout",
+      "source": "src/components/ui/*, src/styles/globals.css"
+    }
+  ],
+
+  "unknowns": [
+    "whether /request is intentionally retired or accidentally orphaned — it is not linked from any nav (both landing CTAs + the PWA start_url point at /agent), yet /request + RequestForm + its tests are live, maintained, non-deprecated code",
+    "whether the conversation is meant to feel like AI — classifyMessage is deterministic; the copy reads as an assistant",
+    "whether /supplier/onboard/full is supported or vestigial — linked, rendered, tested, persists nothing",
+    "how a merchant receives their ?t= link in production — quickStartBusiness returns a manageUrl shown once; no email/SMS delivery in code",
+    "whether the themeColor mismatch is intentional (brand green for OS chrome) or an ADR-022 oversight",
+    "the intended relationship between the agent-run RecommendationPanel view (with alternatives/ruled-out) and the /tasks/:id RecommendationCard view (one quote's normalisation)",
+    "how many providers a real deployment expects — multi-provider fan-out is agent-run-only; /request is single-route; UX_ARCHITECTURE.md F7 flags fan-out as NEEDS-ID",
+    "whether the operator surfaces are meant to be judge-facing polished or purely internal — they leak enums; /evidence (also judge-facing) is polished",
+    "the target device split — everything is mobile-first, but the operator console reads desktop-oriented",
+    "whether /activity is a primary destination or a fallback — only linked from the /agent 'Activity' pill and its own back-link"
+  ],
+
+  "reportSummary": {
+    "filesInThisPack": [
+      "00-MASTER-XRAY.md",
+      "01-USER-JOURNEYS.md",
+      "02-COMPLEXITY-ABSTRACTION.md",
+      "03-COMPONENT-INVENTORY.md",
+      "04-SCREEN-SPEC.md",
+      "05-INTERACTION-STATE-MODEL.md",
+      "06-COPY-INFORMATION-ARCHITECTURE.md",
+      "07-TRUST-MONEY-BLOCKCHAIN-UX.md",
+      "08-MOBILE-PWA-AUDIT.md",
+      "09-TASK-COMPLEXITY-AUDIT.md",
+      "10-REDESIGN-INPUT-PACK.md",
+      "PRODUCT-FRONTEND-MODEL.json"
+    ],
+    "routesDiscovered": {
+      "appPages": 14,
+      "specialFiles": 6,
+      "internalApiRouteFiles": 41,
+      "v1Handlers": 2
+    },
+    "workflowsDiscovered": 15,
+    "screensDiscovered": {
+      "routedScreens": 20,
+      "conditionalPanelStates": "12 inside /tasks/:id, 5 inside the agent run"
+    },
+    "majorComponentsDiscovered": {
+      "uiPrimitives": 9,
+      "layout": 4,
+      "featureComponents": "~55 across agent/tasks/payments/proofline/attestation/quotes/supplier/businesses/operator/metrics/notifications/pwa/analytics",
+      "clientComponents": 37,
+      "rscPages": 4
+    },
+    "majorUserDecisions": 15,
+    "majorHiddenSystemComplexity": [
+      "the 13-state agent machine → 7-stage spine",
+      "intent classification (deterministic)",
+      "provider discovery + scoring",
+      "idempotency + session headers + the envelope",
+      "keccak256 commit-reveal + salt",
+      "USDC atomic units + ERC-20 ABI + chain switch (MiniPay)",
+      "the x402 failure taxonomy",
+      "notify()/specsForEvent/dedupe/push",
+      "FX rate fetch + lock",
+      "after() background execution",
+      "route freshness math",
+      "evidence aggregation SQL"
+    ],
+    "majorFrontendWeaknesses": [
+      "device-bound identity with no recovery",
+      "the full-onboarding dead end",
+      "7-8 stacked panels on /tasks/:id",
+      "x402 PaymentReceipt chain-field leaks",
+      "QuoteResponseForm mobile friction",
+      "two identical code boxes",
+      "the misleading 'demo' label",
+      "no persistent buyer navigation",
+      "handover-sign requires a wallet",
+      "stale theme colour",
+      "operator TraceView raw enums"
+    ],
+    "majorFrontendStrengths": [
+      "the trust-copy discipline (~20 verbatim phrases)",
+      "the semantic progress spine + narrative",
+      "the approval gate exposes the full offer",
+      "describeTaskException",
+      "MiniPay abstraction at the boundary",
+      "the 5-bucket work list",
+      "one-read-model-per-surface",
+      "honest empty/unavailable states",
+      "contextual PWA prompts",
+      "quick-start onboarding",
+      "quote-integrity model",
+      "the a11y baseline"
+    ],
+    "unresolvedUnknowns": 10
+  }
+}

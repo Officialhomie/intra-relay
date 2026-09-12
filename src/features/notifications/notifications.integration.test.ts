@@ -129,7 +129,7 @@ describe("acceptance notifies both sides", () => {
 describe("an agent-only order has no buyer to notify", () => {
   it("skips the buyer notification when no human session owns the task", async () => {
     const { business, route } = await createActiveRoute(db);
-    const agentSession = "agent:intra-demo-buyer-abc";
+    const agentSession = "agent:intra-buyer-agent-abc";
     const task = await createTask(db, agentSession, {
       structuredInput: COMPLETE_FLYER_BRIEF,
       route: { routeId: route.id },

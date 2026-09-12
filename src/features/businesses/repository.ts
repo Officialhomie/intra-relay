@@ -18,6 +18,19 @@ export async function findBusinessById(db: Database, id: string): Promise<Busine
   return row ?? null;
 }
 
+/** Duplicate-detection signal for remote onboarding (M10.1) — same order contact, different name. */
+export async function findBusinessByContactChannelValue(
+  db: Database,
+  contactChannelValue: string,
+): Promise<BusinessRow | null> {
+  const [row] = await db
+    .select()
+    .from(businesses)
+    .where(eq(businesses.contactChannelValue, contactChannelValue))
+    .limit(1);
+  return row ?? null;
+}
+
 export async function updateBusiness(
   db: Database,
   id: string,

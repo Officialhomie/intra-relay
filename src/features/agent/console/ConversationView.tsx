@@ -2,16 +2,16 @@
 
 import { useRef, useState } from "react";
 
-import { ArrowUp, RotateCcw } from "lucide-react";
+import { ArrowUp, Info, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
-import { Callout } from "@/components/ui/Callout";
 import { useAnalytics } from "@/features/analytics/useAnalytics";
 import { isCommercialIntent, type ConversationIntent } from "@/features/intent/types";
 import { ApiError, apiRequest } from "@/lib/api";
 import { getSessionId } from "@/lib/session";
 
 import { AgentConsole } from "./AgentConsole";
+import { StructuredRequestForm } from "./StructuredRequestForm";
 import type { AgentRun } from "./types";
 
 /**
@@ -83,14 +83,15 @@ export function ConversationView() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [understood, setUnderstood] = useState<Understood>({});
+  const [formMode, setFormMode] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const analytics = useAnalytics("buyer");
   const turnCount = useRef(0);
   const clarifications = useRef(0);
   const commercialSeen = useRef(false);
 
-  async function send() {
-    const text = draft.trim();
+  async function send(override?: string) {
+    const text = (override ?? draft).trim();
     if (!text || pending) return;
     setDraft("");
     setError(null);
@@ -198,11 +199,8 @@ export function ConversationView() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <Callout tone="info" className="flex-1">
-          Demo only — nothing here is saved.
-        </Callout>
-        {started ? (
+      {started ? (
+        <div className="flex justify-end">
           <button
             type="button"
             onClick={() => void startOver()}
@@ -212,8 +210,8 @@ export function ConversationView() {
             <RotateCcw aria-hidden className="size-3.5" />
             Start a new request
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       <div className="space-y-4" aria-live="polite">
         {messages.map((message) => (
@@ -255,35 +253,69 @@ export function ConversationView() {
         </p>
       ) : null}
 
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          void send();
-        }}
-        className="flex items-end gap-2"
-      >
-        <label htmlFor="conversation-input" className="sr-only">
-          Message
-        </label>
-        <textarea
-          id="conversation-input"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              void send();
-            }
+      {formMode ? (
+        <StructuredRequestForm
+          pending={pending}
+          onCancel={() => setFormMode(false)}
+          onSubmitSentence={(sentence) => {
+            setFormMode(false);
+            void send(sentence);
           }}
-          rows={2}
-          maxLength={2000}
-          placeholder="e.g. I need 500 flyers by Friday in Yaba"
-          className="min-h-11 w-full resize-none rounded-md border border-border bg-bg px-3 py-2.5 text-base outline-none focus-visible:border-foreground"
         />
-        <Button type="submit" pending={pending} aria-label="Send" className="w-auto shrink-0 px-4">
-          <ArrowUp aria-hidden className="size-4" />
-        </Button>
-      </form>
+      ) : (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void send();
+          }}
+          className="flex items-end gap-2"
+        >
+          <label htmlFor="conversation-input" className="sr-only">
+            Message
+          </label>
+          <textarea
+            id="conversation-input"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void send();
+              }
+            }}
+            rows={2}
+            maxLength={2000}
+            placeholder="e.g. I need 500 flyers by Friday in Yaba"
+            className="min-h-11 w-full resize-none rounded-md border border-border bg-bg px-3 py-2.5 text-base outline-none focus-visible:border-foreground"
+          />
+          <Button
+            type="submit"
+            pending={pending}
+            aria-label="Send"
+            className="w-auto shrink-0 px-4"
+          >
+            <ArrowUp aria-hidden className="size-4" />
+          </Button>
+        </form>
+      )}
+
+      {!started && !formMode ? (
+        <button
+          type="button"
+          onClick={() => setFormMode(true)}
+          className="text-sm text-muted underline underline-offset-2 hover:text-foreground"
+        >
+          Prefer a form?
+        </button>
+      ) : null}
+
+      <p className="flex items-start gap-1.5 text-sm text-subtle">
+        <Info aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+        <span>
+          This conversation isn&apos;t saved, but any request you send is — find it anytime under
+          Your requests.
+        </span>
+      </p>
     </div>
   );
 }

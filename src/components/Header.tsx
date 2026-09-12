@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { ArrowUpRight } from "lucide-react";
 
+import { Mark } from "@/components/brand/Mark";
 import { primaryNav, site } from "@/lib/site";
 
 export function Header() {
@@ -12,12 +13,7 @@ export function Header() {
           href="/"
           className="group flex items-center gap-2 text-lg font-semibold tracking-tight"
         >
-          <span
-            aria-hidden
-            className="flex size-7 items-center justify-center rounded-full bg-primary font-serif text-sm text-primary-contrast transition-transform group-hover:rotate-12"
-          >
-            I
-          </span>
+          <Mark size={26} className="transition-transform group-hover:scale-110" />
           {site.name}
         </Link>
         <nav aria-label="Primary">

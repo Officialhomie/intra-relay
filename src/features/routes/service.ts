@@ -11,6 +11,7 @@ import {
   findBusinessBySlug,
   updateBusiness,
 } from "@/features/businesses/repository";
+import { findOnboardingSubmissionByRouteId } from "@/features/onboarding/repository";
 
 import {
   ACTIVATION_CHECK_LABELS,
@@ -189,6 +190,20 @@ export async function changeRouteStatus(
       props: { pricing_model: updated.pricingModel },
       insertId: `business_ready:${route.id}:${now.toISOString().slice(0, 10)}`,
     });
+
+    // A route born from Tally onboarding just went live for the first time —
+    // that is the M10.1 pipeline's own success signal (§10), distinct from
+    // `business_ready` (which fires for every route, Tally or not).
+    const onboardingSubmission = await findOnboardingSubmissionByRouteId(db, route.id);
+    if (onboardingSubmission) {
+      forwardServerAnalyticsEvent({
+        event: "onboarding_pilot_ready",
+        actorKey: onboardingSubmission.id,
+        role: "business",
+        props: {},
+        insertId: `onboarding_pilot_ready:${route.id}`,
+      });
+    }
   }
 
   return updated;

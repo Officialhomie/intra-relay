@@ -142,7 +142,7 @@ const REQUEST_ERRORS: Record<string, RequestErrorCopy> = {
   },
   SESSION_REQUIRED: {
     title: "We could not identify this browser",
-    body: "Your browser is blocking the local storage this demo uses to keep your request separate from other people's.",
+    body: "Your browser is blocking the local storage Intra uses to keep your request separate from other people's.",
     offerRestart: false,
   },
   NETWORK: {

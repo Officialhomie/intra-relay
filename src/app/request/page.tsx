@@ -1,21 +1,12 @@
-import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
-import { RequestForm } from "@/features/tasks/RequestForm";
-
-export const metadata: Metadata = { title: "Request" };
-
+/**
+ * Retired (frontend audit D6, Priority 4). The structured-input capability
+ * this page offered now lives inside `/agent` as "Prefer a form?", feeding
+ * the same conversation → agent-run pipeline — not a second, single-provider
+ * path with no multi-provider comparison. `/request` was never linked from
+ * any nav or CTA, so this affects only a direct/bookmarked visit.
+ */
 export default function RequestPage() {
-  return (
-    <div className="page-enter mx-auto max-w-xl space-y-6">
-      <header className="space-y-2">
-        <p className="eyebrow">Request a quote</p>
-        <h1 className="text-3xl sm:text-4xl">Get a printing quote without the back-and-forth.</h1>
-        <p className="text-sm leading-relaxed text-muted">
-          Give us the important details once. A real printer reviews the brief, then you decide
-          whether to send the final order.
-        </p>
-      </header>
-      <RequestForm />
-    </div>
-  );
+  redirect("/agent");
 }

@@ -7,8 +7,8 @@ export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
 /**
- * Generated Open Graph / Twitter card. Uses the "calm clinic" palette from
- * src/styles/tokens.css so link previews match the product.
+ * Generated Open Graph / Twitter card. Uses the current ink-on-ivory palette
+ * from src/styles/tokens.css so link previews match the product (ADR-022).
  */
 export default function OpengraphImage() {
   return new ImageResponse(
@@ -19,21 +19,18 @@ export default function OpengraphImage() {
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
-        backgroundColor: "#fffefc",
+        backgroundColor: "#faf9f5",
         padding: "80px",
         fontFamily: "sans-serif",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-        <div
-          style={{
-            width: "44px",
-            height: "44px",
-            borderRadius: "12px",
-            backgroundColor: "#0f3e17",
-          }}
-        />
-        <div style={{ fontSize: "34px", fontWeight: 700, color: "#17201a" }}>{site.name}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: "18px" }}>
+        <svg width="44" height="44" viewBox="0 0 32 32">
+          <circle cx="9.5" cy="16" r="4.8" fill="#1f1e1d" />
+          <circle cx="22.5" cy="16" r="4.8" fill="none" stroke="#1f1e1d" strokeWidth="2.6" />
+          <line x1="14" y1="16" x2="18" y2="16" stroke="#1f1e1d" strokeWidth="2.6" />
+        </svg>
+        <div style={{ fontSize: "34px", fontWeight: 700, color: "#141413" }}>{site.name}</div>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
@@ -42,25 +39,25 @@ export default function OpengraphImage() {
             fontSize: "62px",
             fontWeight: 700,
             lineHeight: 1.1,
-            color: "#17201a",
+            color: "#141413",
             maxWidth: "1000px",
           }}
         >
-          {site.tagline}
+          Tell Intra what you need. Get a real price. Keep the final say.
         </div>
-        <div style={{ fontSize: "28px", color: "#55605a", maxWidth: "940px", lineHeight: 1.4 }}>
+        <div style={{ fontSize: "28px", color: "#3d3d3a", maxWidth: "940px", lineHeight: 1.4 }}>
           A structured brief in, a genuine printer quote out, a human-approved WhatsApp handoff.
         </div>
       </div>
 
       <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-        {["No fund custody", "Human-approved orders", "Celo x402 query fees"].map((chip) => (
+        {["No fund custody", "Human-approved orders", "Nothing fabricated"].map((chip) => (
           <div
             key={chip}
             style={{
               fontSize: "22px",
-              color: "#0f3e17",
-              backgroundColor: "#e1f4df",
+              color: "#1f1e1d",
+              backgroundColor: "#dfe9df",
               padding: "10px 20px",
               borderRadius: "999px",
             }}

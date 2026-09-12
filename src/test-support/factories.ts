@@ -5,6 +5,9 @@ import {
   createRoute,
   type ActivationChecklist,
 } from "@/features/routes/service";
+import { findCommitmentByTaskId } from "@/features/commitments/repository";
+import { submitQuote } from "@/features/quotes/service";
+import { createTask, decideOnQuote, submitTask } from "@/features/tasks/service";
 import type { Operator } from "@/lib/http/operator";
 
 export const TEST_OPERATOR: Operator = { label: "test-op" };
@@ -64,4 +67,49 @@ export async function createActiveRoute(
     FULL_CHECKLIST,
   );
   return { business, route };
+}
+
+/**
+ * Drive a task all the way to `HANDOFF_READY` with an accepted commitment —
+ * the state a buyer can pay for (M10.5). The commitment is created but NOT
+ * EAS-attested (that is a separate, retryable step and the order payment does
+ * not depend on it).
+ */
+export async function createHandoffReadyOrder(
+  db: Database,
+  opts: {
+    session?: string;
+    amountMin?: number;
+    deliveryCharge?: number;
+    /** Pass `null` to force the default commitment window (no quote expiry). */
+    expiresAt?: Date | null;
+    payoutAddress?: string;
+    /** Distinct name when a test creates more than one order/business. */
+    businessName?: string;
+  } = {},
+) {
+  const session = opts.session ?? "buyer-session-m105-0001";
+  const routeOverrides: Partial<CreateBusinessRequest> = {};
+  if (opts.payoutAddress) routeOverrides.payoutAddress = opts.payoutAddress;
+  if (opts.businessName) routeOverrides.businessName = opts.businessName;
+  const { business, route } = await createActiveRoute(db, routeOverrides);
+  const task = await createTask(db, session, {
+    structuredInput: COMPLETE_FLYER_BRIEF,
+    route: { routeId: route.id },
+  });
+  await submitTask(db, task.id, session);
+  await submitQuote(db, route.id, {
+    taskId: task.id,
+    amountMin: opts.amountMin ?? 45000,
+    turnaround: "24 hours",
+    fixed: true,
+    confidence: "high",
+    ...(opts.deliveryCharge !== undefined ? { deliveryCharge: opts.deliveryCharge } : {}),
+    ...(opts.expiresAt === null
+      ? {}
+      : { expiresAt: opts.expiresAt ?? new Date(Date.now() + 6 * 60 * 60 * 1000) }),
+  });
+  await decideOnQuote(db, task.id, session, { decision: "ACCEPT" });
+  const commitment = (await findCommitmentByTaskId(db, task.id))!;
+  return { business, route, task, commitment, session };
 }

@@ -5,6 +5,7 @@ import type { TaskRow } from "@/lib/db/schema";
 import { HttpError } from "@/lib/http/response";
 import { appendAuditEvent } from "@/features/audit/repository";
 import { notify } from "@/features/notifications/service";
+import { invalidateOrderPaymentsForTask } from "@/features/payments/order/intent";
 import { findRouteById } from "@/features/routes/repository";
 import { listTaskQuotes } from "@/features/tasks/repository";
 import { updateQuote } from "@/features/quotes/repository";
@@ -22,7 +23,9 @@ import { findTaskById, updateTask } from "./repository";
  *    (`exceptions.ts` turns it into what-happened / do-you-act / what-next);
  *  - closes any live quote as WITHDRAWN — never edits its terms (§15, §16);
  *  - writes an audit event;
- *  - never touches a payment row and never invents a financial outcome (§4.1).
+ *  - expires any live MiniPay payment intent (housekeeping — a dead order can't
+ *    be paid) but never invents a financial outcome: no refund, no settlement,
+ *    no receipt (§4.1). A confirmed on-chain payment is left exactly as it is.
  */
 
 const ACTIVE_BEFORE_AGREEMENT: readonly TaskRow["status"][] = ["AWAITING_QUOTE", "RECOMMENDED"];
@@ -92,6 +95,7 @@ export async function withdrawAsProvider(
     data: { reason, note: input.reason },
   });
   await notify(db, { event: "task.failed", taskId: task.id });
+  await invalidateOrderPaymentsForTask(db, task.id);
   return { task: failed, reason };
 }
 
@@ -123,6 +127,7 @@ export async function providerCannotFulfil(
     data: { reason: "PROVIDER_CANNOT_FULFILL", note: input.reason },
   });
   await notify(db, { event: "task.failed", taskId: task.id });
+  await invalidateOrderPaymentsForTask(db, task.id);
   return { task: failed, reason: "PROVIDER_CANNOT_FULFILL" };
 }
 
@@ -170,6 +175,7 @@ export async function buyerCancelsAfterAgreement(
     data: { reason: "BUYER_CANCELLED_AFTER_AGREEMENT", hasReason: input.reason != null },
   });
   await notify(db, { event: "task.buyer_declined", taskId: task.id });
+  await invalidateOrderPaymentsForTask(db, task.id);
   return { task: cancelled, reason: "BUYER_CANCELLED_AFTER_AGREEMENT" };
 }
 
@@ -210,5 +216,6 @@ export async function reportHandoverFailure(
     data: { reason: "HANDOVER_FAILED", hasDetail: input.detail != null },
   });
   await notify(db, { event: "task.failed", taskId: task.id });
+  await invalidateOrderPaymentsForTask(db, task.id);
   return { task: failed, reason: "HANDOVER_FAILED" };
 }

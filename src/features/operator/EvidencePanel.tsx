@@ -7,9 +7,12 @@ import { ExternalLink, Search } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Callout } from "@/components/ui/Callout";
 import { DataList, DataRow } from "@/components/ui/DataList";
+import { Disclosure } from "@/components/ui/Disclosure";
 import { Card, CardTitle } from "@/components/ui/Section";
+import { StatusPill, taskStatusLabel, taskStatusTone } from "@/components/ui/StatusPill";
 import { ApiError, apiRequest } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { attestationModeLabel, consistencyLabel } from "@/features/evidence/labels";
 import type { TransactionTrace } from "@/features/evidence/trace";
 
 /**
@@ -102,154 +105,211 @@ function Ref({
   );
 }
 
-function TraceView({ trace }: { trace: TransactionTrace }) {
+/**
+ * The plain-language read of the trace — what happened, and whether the
+ * evidence is real or simulated. Every line traces to a field also shown,
+ * verbatim, in the technical detail below (frontend audit Priority 5).
+ */
+function evidenceSummaryLines(trace: TransactionTrace): string[] {
+  const lines: string[] = [];
+
+  if (trace.commitment) {
+    lines.push(
+      trace.commitment.attestationMode === "mock"
+        ? "The order commitment has a demo attestation — simulated, not written on-chain."
+        : "The order commitment was attested on-chain.",
+    );
+  } else {
+    lines.push("No commitment attestation has been recorded for this request yet.");
+  }
+
+  if (trace.handover) {
+    lines.push(
+      trace.handover.signedByProvider
+        ? "The handover was signed by the business and relayed on-chain."
+        : trace.handover.attestationMode === "mock"
+          ? "The handover has a demo attestation — simulated, not written on-chain."
+          : "The handover has not been signed yet.",
+    );
+    if (trace.consistency.handoverReferencesCommitment === false) {
+      lines.push(
+        "The handover record does not reference the commitment above — this trace is inconsistent.",
+      );
+    }
+  } else {
+    lines.push("No handover attestation has been recorded for this request yet.");
+  }
+
+  return lines;
+}
+
+export function TraceView({ trace }: { trace: TransactionTrace }) {
   const c = trace.consistency;
   return (
     <div className="space-y-4">
+      <Card className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle>Evidence summary</CardTitle>
+          <StatusPill tone={taskStatusTone(trace.task.status)}>
+            {taskStatusLabel(trace.task.status)}
+          </StatusPill>
+        </div>
+        <ul className="list-disc space-y-1 pl-5 text-sm text-foreground">
+          {evidenceSummaryLines(trace).map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      </Card>
+
       {c.anySimulated ? (
         <Callout tone="warning" title="Contains simulated records">
           At least one attestation on this transaction is a local mock, not a real on-chain record.
         </Callout>
       ) : null}
 
-      <Card className="space-y-3">
-        <CardTitle>Transaction</CardTitle>
-        <DataList>
-          <Ref label="Task id" value={trace.task.id} />
-          <DataRow label="Status">{trace.task.status}</DataRow>
-          <DataRow label="Conversation">{trace.task.buyerSessionPrefix ?? "—"}</DataRow>
-          <DataRow label="Buyer decision">
-            {trace.task.buyerDecision ?? "—"}
-            {trace.task.buyerDecidedAt ? ` · ${formatDateTime(trace.task.buyerDecidedAt)}` : ""}
-          </DataRow>
-          <DataRow label="Handoff confirmed">
-            {trace.task.handoffConfirmedAt ? formatDateTime(trace.task.handoffConfirmedAt) : "—"}
-          </DataRow>
-        </DataList>
-      </Card>
-
-      {trace.provider ? (
-        <Card className="space-y-3">
-          <CardTitle>Provider</CardTitle>
-          <DataList>
-            <DataRow label="Business">{trace.provider.businessName}</DataRow>
-            <DataRow label="Route">{trace.provider.routeName ?? "—"}</DataRow>
-            <Ref
-              label="Payout address"
-              value={trace.provider.payoutAddress}
-              href={trace.provider.payoutAddressExplorer}
-            />
-            <DataRow label="Agent id (ERC-8004)">{trace.provider.providerAgentId}</DataRow>
-          </DataList>
-        </Card>
-      ) : null}
-
-      {trace.commitment ? (
-        <Card className="space-y-3">
-          <CardTitle>Commitment attestation (signed by Intra)</CardTitle>
-          <DataList>
-            <DataRow label="Status">{trace.commitment.status}</DataRow>
-            <Ref label="Job ref" value={trace.commitment.jobRef} />
-            <Ref label="Buyer address" value={trace.commitment.buyerAddress} />
-            <DataRow label="Amount">
-              {trace.commitment.amountMinor} ({trace.commitment.currency})
-            </DataRow>
-            <Ref label="Schema UID" value={trace.commitment.schemaUid} />
-            <Ref
-              label="Attestation UID"
-              value={trace.commitment.attestationUid}
-              href={trace.commitment.attestationUidExplorer}
-            />
-            <Ref
-              label="Transaction"
-              value={trace.commitment.attestationTxHash}
-              href={trace.commitment.attestationTxExplorer}
-            />
-            <DataRow label="Mode">{trace.commitment.attestationMode ?? "—"}</DataRow>
-            <DataRow label="Attested at">
-              {trace.commitment.attestedAt ? formatDateTime(trace.commitment.attestedAt) : "—"}
-            </DataRow>
-          </DataList>
-        </Card>
-      ) : null}
-
-      {trace.handover ? (
-        <Card className="space-y-3">
-          <CardTitle>Handover attestation (signed by the provider)</CardTitle>
-          <DataList>
-            <DataRow label="Status">{trace.handover.status}</DataRow>
-            <DataRow label="Provider signature">
-              {trace.handover.signedByProvider
-                ? "verified merchant signature, relayed on-chain"
-                : trace.handover.attestationMode === "mock"
-                  ? "simulated (mock)"
-                  : "not yet signed"}
-            </DataRow>
-            <DataRow label="Outcome">{trace.handover.outcome ?? "—"}</DataRow>
-            <DataRow label="Fulfilled at">
-              {trace.handover.fulfilledAt ? formatDateTime(trace.handover.fulfilledAt) : "—"}
-            </DataRow>
-            <Ref label="Attester address" value={trace.handover.attesterAddress} />
-            <Ref label="Schema UID" value={trace.handover.schemaUid} />
-            <Ref label="Refers to (commitment UID)" value={trace.handover.refUid} />
-            <Ref
-              label="Attestation UID"
-              value={trace.handover.attestationUid}
-              href={trace.handover.attestationUidExplorer}
-            />
-            <Ref
-              label="Transaction"
-              value={trace.handover.attestationTxHash}
-              href={trace.handover.attestationTxExplorer}
-            />
-          </DataList>
-        </Card>
-      ) : null}
-
-      {trace.payments.length > 0 ? (
-        <Card className="space-y-3">
-          <CardTitle>Service payments</CardTitle>
-          {trace.payments.map((p, i) => (
-            <DataList key={i}>
-              <DataRow label="Status">{p.status}</DataRow>
-              <DataRow label="Amount">
-                {p.amountAtomic ?? "—"} {p.asset ?? ""}
+      <Disclosure summary="Technical details">
+        <div className="space-y-4">
+          <Card className="space-y-3">
+            <CardTitle>Transaction</CardTitle>
+            <DataList>
+              <Ref label="Task id" value={trace.task.id} />
+              <DataRow label="Status">{taskStatusLabel(trace.task.status)}</DataRow>
+              <DataRow label="Conversation">{trace.task.buyerSessionPrefix ?? "—"}</DataRow>
+              <DataRow label="Buyer decision">
+                {trace.task.buyerDecision ?? "—"}
+                {trace.task.buyerDecidedAt ? ` · ${formatDateTime(trace.task.buyerDecidedAt)}` : ""}
               </DataRow>
-              <Ref label="Payee" value={p.payee} />
-              <Ref label="Transaction" value={p.txHash} href={p.txExplorer} />
+              <DataRow label="Handoff confirmed">
+                {trace.task.handoffConfirmedAt
+                  ? formatDateTime(trace.task.handoffConfirmedAt)
+                  : "—"}
+              </DataRow>
             </DataList>
-          ))}
-        </Card>
-      ) : null}
+          </Card>
 
-      <Card className="space-y-3">
-        <CardTitle>Consistency cross-check</CardTitle>
-        <DataList>
-          <DataRow label="Commitment attested">{c.commitmentAttested ? "yes" : "no"}</DataRow>
-          <DataRow label="Handover attested">{c.handoverAttested ? "yes" : "no"}</DataRow>
-          <DataRow label="Handover links to commitment">
-            {c.handoverReferencesCommitment === null
-              ? "n/a"
-              : c.handoverReferencesCommitment
-                ? "yes"
-                : "MISMATCH"}
-          </DataRow>
-          <DataRow label="Any simulated record">{c.anySimulated ? "yes" : "no"}</DataRow>
-        </DataList>
-      </Card>
+          {trace.provider ? (
+            <Card className="space-y-3">
+              <CardTitle>Provider</CardTitle>
+              <DataList>
+                <DataRow label="Business">{trace.provider.businessName}</DataRow>
+                <DataRow label="Route">{trace.provider.routeName ?? "—"}</DataRow>
+                <Ref
+                  label="Payout address"
+                  value={trace.provider.payoutAddress}
+                  href={trace.provider.payoutAddressExplorer}
+                />
+                <DataRow label="Agent id (ERC-8004)">{trace.provider.providerAgentId}</DataRow>
+              </DataList>
+            </Card>
+          ) : null}
 
-      {trace.timeline.length > 0 ? (
-        <Card className="space-y-2">
-          <CardTitle>Timeline</CardTitle>
-          <ol className="space-y-1 text-xs text-muted">
-            {trace.timeline.map((event, i) => (
-              <li key={i} className="font-mono">
-                {event.at} · {event.type}
-              </li>
-            ))}
-          </ol>
-        </Card>
-      ) : null}
+          {trace.commitment ? (
+            <Card className="space-y-3">
+              <CardTitle>Commitment attestation (signed by Intra)</CardTitle>
+              <DataList>
+                <DataRow label="Status">{trace.commitment.status}</DataRow>
+                <Ref label="Job ref" value={trace.commitment.jobRef} />
+                <Ref label="Buyer address" value={trace.commitment.buyerAddress} />
+                <DataRow label="Amount">
+                  {trace.commitment.amountMinor} ({trace.commitment.currency})
+                </DataRow>
+                <Ref label="Schema UID" value={trace.commitment.schemaUid} />
+                <Ref
+                  label="Attestation UID"
+                  value={trace.commitment.attestationUid}
+                  href={trace.commitment.attestationUidExplorer}
+                />
+                <Ref
+                  label="Transaction"
+                  value={trace.commitment.attestationTxHash}
+                  href={trace.commitment.attestationTxExplorer}
+                />
+                <DataRow label="Mode">
+                  {attestationModeLabel(trace.commitment.attestationMode)}
+                </DataRow>
+                <DataRow label="Attested at">
+                  {trace.commitment.attestedAt ? formatDateTime(trace.commitment.attestedAt) : "—"}
+                </DataRow>
+              </DataList>
+            </Card>
+          ) : null}
+
+          {trace.handover ? (
+            <Card className="space-y-3">
+              <CardTitle>Handover attestation (signed by the provider)</CardTitle>
+              <DataList>
+                <DataRow label="Status">{trace.handover.status}</DataRow>
+                <DataRow label="Provider signature">
+                  {trace.handover.signedByProvider
+                    ? "Verified merchant signature, relayed on-chain"
+                    : attestationModeLabel(trace.handover.attestationMode)}
+                </DataRow>
+                <DataRow label="Outcome">{trace.handover.outcome ?? "—"}</DataRow>
+                <DataRow label="Fulfilled at">
+                  {trace.handover.fulfilledAt ? formatDateTime(trace.handover.fulfilledAt) : "—"}
+                </DataRow>
+                <Ref label="Attester address" value={trace.handover.attesterAddress} />
+                <Ref label="Schema UID" value={trace.handover.schemaUid} />
+                <Ref label="Refers to (commitment UID)" value={trace.handover.refUid} />
+                <Ref
+                  label="Attestation UID"
+                  value={trace.handover.attestationUid}
+                  href={trace.handover.attestationUidExplorer}
+                />
+                <Ref
+                  label="Transaction"
+                  value={trace.handover.attestationTxHash}
+                  href={trace.handover.attestationTxExplorer}
+                />
+              </DataList>
+            </Card>
+          ) : null}
+
+          {trace.payments.length > 0 ? (
+            <Card className="space-y-3">
+              <CardTitle>Service payments</CardTitle>
+              {trace.payments.map((p, i) => (
+                <DataList key={i}>
+                  <DataRow label="Status">{p.status}</DataRow>
+                  <DataRow label="Amount">
+                    {p.amountAtomic ?? "—"} {p.asset ?? ""}
+                  </DataRow>
+                  <Ref label="Payee" value={p.payee} />
+                  <Ref label="Transaction" value={p.txHash} href={p.txExplorer} />
+                </DataList>
+              ))}
+            </Card>
+          ) : null}
+
+          <Card className="space-y-3">
+            <CardTitle>Consistency cross-check</CardTitle>
+            <DataList>
+              <DataRow label="Commitment attested">{c.commitmentAttested ? "Yes" : "No"}</DataRow>
+              <DataRow label="Handover attested">{c.handoverAttested ? "Yes" : "No"}</DataRow>
+              <DataRow label="Handover links to commitment">
+                {consistencyLabel(
+                  c.handoverReferencesCommitment,
+                  "No — does not reference the commitment shown above",
+                )}
+              </DataRow>
+              <DataRow label="Any simulated record">{c.anySimulated ? "Yes" : "No"}</DataRow>
+            </DataList>
+          </Card>
+
+          {trace.timeline.length > 0 ? (
+            <Card className="space-y-2">
+              <CardTitle>Timeline</CardTitle>
+              <ol className="space-y-1 text-xs text-muted">
+                {trace.timeline.map((event, i) => (
+                  <li key={i} className="font-mono">
+                    {event.at} · {event.type}
+                  </li>
+                ))}
+              </ol>
+            </Card>
+          ) : null}
+        </div>
+      </Disclosure>
 
       <Callout tone="unavailable">{trace.disclaimer}</Callout>
     </div>

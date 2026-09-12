@@ -57,26 +57,27 @@ shape is `AnalyticsEventMap`.
 
 ### Buyer
 
-| Event                            | Trigger                                                 | Key properties                                                                                                                 |
-| -------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `app_opened`                     | `AnalyticsProvider` mounts (once per load)              | `role`, `platform`, `pwa_installed`, `returning`                                                                               |
-| `conversation_started`           | first turn of a conversation                            | —                                                                                                                              |
-| `message_sent`                   | buyer sends a chat message                              | `turn_count`                                                                                                                   |
-| `intent_detected`                | first commercial intent in the conversation             | `intent_type`, `category`, `turn_count`                                                                                        |
-| `intent_clarification_requested` | the turn asks for a missing field                       | `intent_field_missing`, `clarification_count`, `turn_count`                                                                    |
-| `intent_ready`                   | complete intent → a run starts                          | `intent_type`, `category`, `optimization`, `has_quantity`, `has_location`, `has_deadline`, `has_budget`, `clarification_count` |
-| `discovery_started`              | agent run begins looking for providers                  | `category`                                                                                                                     |
-| `results_shown`                  | run reaches a recommendation / options / no-offer state | `option_count`, `has_recommendation`                                                                                           |
-| `result_selected`                | buyer selects a specific option                         | `option_rank`                                                                                                                  |
-| `approval_viewed`                | the decision becomes actionable                         | `quote_expired`                                                                                                                |
-| `approval_accepted`              | buyer confirms the order                                | `pricing_model`, `quote_expired`                                                                                               |
-| `approval_declined`              | buyer declines                                          | `reason_given`                                                                                                                 |
-| `workflow_waiting`               | task enters a waiting state                             | `workflow_stage`                                                                                                               |
-| `workflow_resumed`               | arrived from a notification                             | `notification_channel`                                                                                                         |
-| `workflow_completed`             | task reaches a successful terminal state                | `via_notification`                                                                                                             |
-| `workflow_cancelled`             | run/task ends without an offer or is cancelled          | `reason_code`                                                                                                                  |
-| `exception_viewed`               | buyer views a failure / exception panel                 | `reason_code`                                                                                                                  |
-| `feedback_submitted`             | buyer submits "was this useful"                         | `useful`, `has_comment`                                                                                                        |
+| Event                            | Trigger                                                 | Key properties                                                                                                                                                |
+| -------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app_opened`                     | `AnalyticsProvider` mounts (once per load)              | `role`, `platform`, `pwa_installed`, `returning`                                                                                                              |
+| `conversation_started`           | first turn of a conversation                            | —                                                                                                                                                             |
+| `message_sent`                   | buyer sends a chat message                              | `turn_count`                                                                                                                                                  |
+| `intent_detected`                | first commercial intent in the conversation             | `intent_type`, `category`, `turn_count`                                                                                                                       |
+| `intent_clarification_requested` | the turn asks for a missing field                       | `intent_field_missing`, `clarification_count`, `turn_count`                                                                                                   |
+| `intent_ready`                   | complete intent → a run starts                          | `intent_type`, `category`, `optimization`, `has_quantity`, `has_location`, `has_deadline`, `has_budget`, `clarification_count`                                |
+| `discovery_started`              | agent run begins looking for providers                  | `category`                                                                                                                                                    |
+| `results_shown`                  | run reaches a recommendation / options / no-offer state | `option_count`, `has_recommendation`                                                                                                                          |
+| `result_selected`                | buyer selects a specific option                         | `option_rank`                                                                                                                                                 |
+| `approval_viewed`                | the decision becomes actionable                         | `quote_expired`                                                                                                                                               |
+| `approval_accepted`              | buyer confirms the order                                | `pricing_model`, `quote_expired`                                                                                                                              |
+| `approval_declined`              | buyer declines                                          | `reason_given`                                                                                                                                                |
+| `workflow_waiting`               | task enters a waiting state                             | `workflow_stage`                                                                                                                                              |
+| `workflow_resumed`               | arrived from a notification                             | `notification_channel`                                                                                                                                        |
+| `workflow_completed`             | task reaches a successful terminal state                | `via_notification`                                                                                                                                            |
+| `workflow_cancelled`             | run/task ends without an offer or is cancelled          | `reason_code`                                                                                                                                                 |
+| `exception_viewed`               | buyer views a failure / exception panel                 | `reason_code`                                                                                                                                                 |
+| `feedback_submitted`             | buyer submits "was this useful"                         | `useful`, `has_comment`                                                                                                                                       |
+| `fulfilment_completed`           | buyer confirms they received the order (Proofline, M10) | `confirmation_method` (`buyer_session` \| `one_time_code`) — the buyer-side symmetric event `business_job_completed` (below) was missing until this milestone |
 
 ### Business
 
@@ -114,6 +115,34 @@ shape is `AnalyticsEventMap`.
 `push_permission_prompted`, `push_permission_granted`, `push_permission_denied`,
 `push_subscribed`, `push_unsubscribed`, `pwa_install_prompted`,
 `pwa_install_accepted`, `pwa_install_dismissed`. No properties.
+
+### Buyer order payment — MiniPay (M10.5, ADR-023)
+
+The buyer paying the **business** on-chain via MiniPay — distinct from the x402
+_agent query fee_. All go through `sanitizeProps`; a signature, key, or raw
+wallet payload is **never** a property. `network` is the numeric chain id
+(`42220`), `asset` is `"USDC"`.
+
+| Event                    | Trigger                                                                                            | Key properties                          |
+| ------------------------ | -------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `payment_method_viewed`  | the "Pay for your order" panel renders after an accepted quote                                     | `minipay_available`, `wallet_available` |
+| `minipay_available`      | the panel renders inside the MiniPay in-app browser                                                | `minipay_available`, `wallet_available` |
+| `minipay_selected`       | buyer taps "Pay with MiniPay" / "Pay from your wallet"                                             | `payment_method`                        |
+| `payment_intent_created` | the server minted the intent (recipient/amount/asset resolved), before the wallet is invoked (M10) | `payment_method`, `network`, `asset`    |
+| `wallet_request_started` | the wallet transaction is about to be requested                                                    | `payment_method`, `network`, `asset`    |
+| `wallet_approved`        | the wallet returned a tx hash                                                                      | `payment_method`, `network`, `asset`    |
+| `wallet_rejected`        | the buyer dismissed the wallet (→ intent `CANCELLED`, order fine)                                  | `payment_method`                        |
+| `payment_submitted`ˢ     | the tx hash is recorded server-side, verification scheduled                                        | `payment_method`, `network`, `asset`    |
+| `payment_confirmed`ˢ     | `verifyOrderPayment` read a matching Celo receipt                                                  | `payment_method`, `network`, `asset`    |
+| `payment_failed`ˢ        | the receipt did not match the intent, or the tx reverted                                           | `payment_method`, `network`, `asset`    |
+| `payment_resumed`        | an in-flight payment is picked up again on page load (§22)                                         | `payment_method`                        |
+| `payment_receipt_viewed` | the confirmed-payment receipt card is shown                                                        | `payment_method`                        |
+
+`payment_submitted` / `payment_confirmed` / `payment_failed` are **also**
+forwarded from the server (`SERVER_FORWARDED_EVENTS`) because the buyer often
+closes the tab before the network confirms — the funnel stays complete either
+way. A throwing analytics arm cannot fail settlement (`safeForward` in
+`verify.ts` / a `try/catch` in `controller.ts`).
 
 ---
 
@@ -374,16 +403,16 @@ did they complete another workflow.
 
 Verified against the deployed app + the Amplitude MCP.
 
-|                                  |                                                                                                                                                                   |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Org / project                    | `late-wildflower-209746` / **`Intra`** (`appId 860617`)                                                                                                           |
-| Dashboard URL                    | `https://app.amplitude.com/analytics/late-wildflower-209746/dashboard/j0dkb6do` — "M10 · Intra Controlled Pilot"                                                  |
-| Browser key                      | live, inlined into the client bundle, `environment: production`                                                                                                   |
-| Server key (`AMPLITUDE_API_KEY`) | set in Vercel, armed by the 2026-09-06 redeploy; first-verified at Checkpoint 3                                                                                   |
-| Governed tracking plan           | **47 events** (5 categories), **30 event properties**, **3 user properties** (`role`, `environment`, `is_test`) — pushed via MCP, branch `main`, not protected    |
-| Data to date                     | `app_opened` × 4, `session_start` × 2 — **all `is_test = true`** (M9.5 verification). Zero real (non-test) production events.                                     |
-| Identity                         | verified: `user_id` = opaque buyer session id, `role`, `is_test`, `environment` all correct; **no** message text / contact / token / secret in any event property |
-| Amplitude autocapture            | IP address + city/region/country ON (kept — campus-pilot geo). Attribution + sessions ON. Element / form / page-view capture OFF.                                 |
+|                                  |                                                                                                                                                                                                                                     |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Org / project                    | `late-wildflower-209746` / **`Intra`** (`appId 860617`)                                                                                                                                                                             |
+| Dashboard URL                    | `https://app.amplitude.com/analytics/late-wildflower-209746/dashboard/j0dkb6do` — "M10 · Intra Controlled Pilot"                                                                                                                    |
+| Browser key                      | live, inlined into the client bundle, `environment: production`                                                                                                                                                                     |
+| Server key (`AMPLITUDE_API_KEY`) | set in Vercel, armed by the 2026-09-06 redeploy; first-verified at Checkpoint 3                                                                                                                                                     |
+| Governed tracking plan           | **58 events** (6 categories — M10.5 added the 11-event "Buyer order payment" category 2026-09-07), **30 event properties**, **3 user properties** (`role`, `environment`, `is_test`) — pushed via MCP, branch `main`, not protected |
+| Data to date                     | `app_opened` × 4, `session_start` × 2 — **all `is_test = true`** (M9.5 verification). Zero real (non-test) production events.                                                                                                       |
+| Identity                         | verified: `user_id` = opaque buyer session id, `role`, `is_test`, `environment` all correct; **no** message text / contact / token / secret in any event property                                                                   |
+| Amplitude autocapture            | IP address + city/region/country ON (kept — campus-pilot geo). Attribution + sessions ON. Element / form / page-view capture OFF.                                                                                                   |
 
 **The 6 core funnels and 2 cohorts are NOT yet built** — Amplitude rejects a
 funnel built on an event with zero data (`"Invalid intent_ready"`). They are
@@ -392,14 +421,15 @@ fire. Exact definitions:
 
 ### Funnels (filter each to `environment = production` AND `is_test ≠ true`)
 
-| #   | Name                       | Steps                                                                                                                         | Window                |
-| --- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| 1   | Buyer activation           | `app_opened → intent_ready → results_shown`                                                                                   | 7 days                |
-| 2   | Buyer conversion           | `intent_ready → results_shown → approval_viewed → approval_accepted → workflow_completed`                                     | 7 days                |
-| 3   | Business conversion        | `business_onboarding_completed → business_ready → request_received → quote_sent → approval_accepted → business_job_completed` | 30 days               |
-| 4   | Notification effectiveness | `attention_required → notification_opened → workflow_resumed → workflow_completed`                                            | 3 days                |
-| 5   | First → second workflow    | `workflow_completed` (retention, n ≥ 2), start `_new`, return `workflow_completed`                                            | 1 / 7 / 30 d brackets |
-| 6   | Clarification friction     | histogram of `clarification_count` on `intent_ready`, group by `category`                                                     | —                     |
+| #   | Name                       | Steps                                                                                                                           | Window                |
+| --- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| 1   | Buyer activation           | `app_opened → intent_ready → results_shown`                                                                                     | 7 days                |
+| 2   | Buyer conversion           | `intent_ready → results_shown → approval_viewed → approval_accepted → workflow_completed`                                       | 7 days                |
+| 3   | Business conversion        | `business_onboarding_completed → business_ready → request_received → quote_sent → approval_accepted → business_job_completed`   | 30 days               |
+| 4   | Notification effectiveness | `attention_required → notification_opened → workflow_resumed → workflow_completed`                                              | 3 days                |
+| 5   | First → second workflow    | `workflow_completed` (retention, n ≥ 2), start `_new`, return `workflow_completed`                                              | 1 / 7 / 30 d brackets |
+| 6   | Clarification friction     | histogram of `clarification_count` on `intent_ready`, group by `category`                                                       | —                     |
+| 7   | MiniPay payment (M10.5)    | `approval_accepted → payment_method_viewed → minipay_selected → wallet_request_started → payment_submitted → payment_confirmed` | 1 day                 |
 
 ### Cohorts
 
@@ -414,3 +444,71 @@ Every pilot analysis excludes test traffic. The cleanest way: save a segment
 **"Pilot (prod, not test)"** = `environment = production` (event) AND user
 property `is_test` `is not` `true`, and apply it to every chart. Operator smoke
 tests must set `?intra_test=1` first (sets `is_test = true` for that browser).
+
+---
+
+## 20. M10 Live Commerce Pilot — the one end-to-end funnel (2026-09-11)
+
+The single funnel `docs/M10-LIVE-COMMERCE-PILOT.md` measures: one real
+transaction from a buyer's first message through a completed handover. Built
+by reviewing the existing tracking plan first (§4, §8, §19) — **13 of 15
+required steps already exist under a different name**; only two are new
+events. No duplicate was created.
+
+| Required funnel step     | Fires as (existing event, unless marked NEW)    | Note                                                                                                                                                                                                                                                                                     |
+| ------------------------ | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `buyer_request_started`  | `conversation_started`                          | The `/agent` conversational entry — the pilot's only instrumented buyer path (see §16).                                                                                                                                                                                                  |
+| `intent_ready`           | `intent_ready`                                  | Exact match.                                                                                                                                                                                                                                                                             |
+| `discovery_started`      | `discovery_started`                             | Exact match.                                                                                                                                                                                                                                                                             |
+| `results_shown`          | `results_shown`                                 | Exact match.                                                                                                                                                                                                                                                                             |
+| `quote_received`         | `results_shown` where `has_recommendation=true` | A quote is what turns discovery into a recommendation — same event, filtered, not a new one.                                                                                                                                                                                             |
+| `quote_viewed`           | `approval_viewed`                               | "The decision becomes actionable" is the buyer viewing the quote.                                                                                                                                                                                                                        |
+| `quote_accepted`         | `approval_accepted`                             | Exact semantic match, existing name.                                                                                                                                                                                                                                                     |
+| `payment_intent_created` | **`payment_intent_created`** (NEW)              | The server minted a MiniPay intent (recipient/amount/asset resolved) — before the wallet opens. Fired from `useOrderPayment.ts`.                                                                                                                                                         |
+| `payment_started`        | `wallet_request_started`                        | "The wallet transaction is about to be requested" — same moment.                                                                                                                                                                                                                         |
+| `payment_confirmed`      | `payment_confirmed`                             | Exact match. Also server-forwarded (§12) — survives the buyer closing the tab.                                                                                                                                                                                                           |
+| `fulfilment_started`     | `fulfillment_started`                           | Same event, inherited American spelling from M7/M9.5 — kept as-is; a tracked event name is never renamed (§3).                                                                                                                                                                           |
+| `fulfilment_completed`   | **`fulfilment_completed`** (NEW)                | The buyer's own Proofline pickup confirmation had no client event at all until this milestone — fired from `BuyerPickupPanel.tsx`, mirroring `MerchantFulfilmentPanel`'s existing `business_job_completed` pattern. Property `confirmation_method` (`buyer_session` \| `one_time_code`). |
+| `handover_started`       | `handover_started`                              | Exact match.                                                                                                                                                                                                                                                                             |
+| `handover_completed`     | `handover_completed`                            | Exact match.                                                                                                                                                                                                                                                                             |
+| `workflow_completed`     | `workflow_completed`                            | Exact match — fires the moment the buyer confirms the WhatsApp handoff was sent.                                                                                                                                                                                                         |
+
+**Amplitude funnel definition** (filter `environment = production` AND
+`is_test ≠ true`; window 3 days — the pilot's transactions are meant to
+complete same-day):
+
+```
+conversation_started → intent_ready → discovery_started → results_shown
+  → approval_viewed → approval_accepted → payment_intent_created
+  → wallet_request_started → payment_confirmed → fulfillment_started
+  → fulfilment_completed → handover_started → handover_completed
+  → workflow_completed
+```
+
+Built at the same checkpoint as the existing 6 core funnels (§19) — Amplitude
+rejects a funnel on a zero-data event, so this is created once the first real
+buyer reaches `conversation_started` (Checkpoint 3 in `docs/PILOT.md`), not
+before.
+
+Two things this funnel deliberately does **not** claim:
+
+- **MiniPay is optional.** A completed pilot transaction can skip
+  `payment_intent_created` → `payment_confirmed` entirely and go straight from
+  `approval_accepted` to `handover_started` via the WhatsApp-handoff cash/
+  transfer path — that is a **successful** transaction, not a drop-off. Read
+  the MiniPay steps as a sub-funnel (funnel #7, §19), not a required gate.
+- **Proofline is optional** (`FR-PROOF`, PRD §6). `fulfilment_started` /
+  `fulfilment_completed` can also legitimately be absent from a completed
+  transaction — `workflow_completed` (the buyer confirmed the handoff) is the
+  one non-optional terminal event every successful transaction has.
+
+### Known gap — the `/request` entry point is not instrumented (§16)
+
+`src/features/tasks/RequestForm.tsx` (the structured-form buyer entry, PRD
+S-002, still routed at `/request` but dropped from primary nav since M7 Phase
+B) fires **zero** analytics events. A pilot buyer who lands there instead of
+`/agent` is invisible to this funnel from the first step. Not fixed this
+milestone — `/agent` is the pilot's primary, recruited path (`docs/PILOT.md`
+§4) and instrumenting a legacy secondary entry point is not required to prove
+the thesis. If a real pilot buyer is ever routed to `/request`, the operator
+log (§8 in `docs/PILOT.md`) is the only record of what happened.

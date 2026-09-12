@@ -27,6 +27,8 @@ import {
   PROOFLINE_EVIDENCE_STATUSES,
 } from "@/features/proofline/status";
 import { COMMITMENT_EXPIRY_SOURCES, COMMITMENT_STATUSES } from "@/features/commitments/status";
+import { ORDER_PAYMENT_STATUSES } from "@/features/payments/order/status";
+import { ONBOARDING_STATUSES } from "@/features/onboarding/status";
 import { HANDOVER_ATTESTATION_STATUSES } from "@/features/attestation/handover-status";
 import { ATTESTATION_OUTCOMES } from "@/features/attestation/schema";
 import { ATTENTION_LEVELS, NOTIFICATION_AUDIENCES } from "@/features/notifications/attention";
@@ -64,6 +66,8 @@ export const quoteConfidenceEnum = pgEnum("quote_confidence", QUOTE_CONFIDENCE);
 export const buyerDecisionEnum = pgEnum("buyer_decision", BUYER_DECISIONS);
 export const paymentStatusEnum = pgEnum("payment_status", PAYMENT_STATUSES);
 export const commitmentStatusEnum = pgEnum("commitment_status", COMMITMENT_STATUSES);
+export const orderPaymentStatusEnum = pgEnum("order_payment_status", ORDER_PAYMENT_STATUSES);
+export const onboardingStatusEnum = pgEnum("onboarding_status", ONBOARDING_STATUSES);
 export const handoverAttestationStatusEnum = pgEnum(
   "handover_attestation_status",
   HANDOVER_ATTESTATION_STATUSES,
@@ -433,6 +437,70 @@ export const handoverAttestations = pgTable("handover_attestations", {
 });
 
 /**
+ * Buyer order payment via MiniPay (M10.5, ADR-023).
+ *
+ * The buyer paying the BUSINESS for the order, on-chain, non-custodially —
+ * Intra never touches the funds. One live intent per accepted commitment; the
+ * recipient, amount, asset and locked FX rate are frozen at creation and never
+ * mutated (a terms change invalidates the intent and needs a fresh approval).
+ * `status` reaches CONFIRMED only after `payments/order/verify.ts` reads a real
+ * Celo receipt. No column stores a signature, key, or authorisation payload —
+ * `tx_hash` and public addresses only (NFR-SEC-001).
+ */
+export const orderPayments = pgTable(
+  "order_payments",
+  {
+    id: id(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    quoteId: text("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    commitmentId: text("commitment_id")
+      .notNull()
+      .references(() => commitments.id, { onDelete: "cascade" }),
+    /** The buyer session that owns the task — the only actor allowed to drive this intent. */
+    buyerSession: text("buyer_session").notNull(),
+    businessId: text("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    /** Business payout address, copied from the commitment at creation. Immutable. */
+    recipientAddress: text("recipient_address").notNull(),
+    chainId: integer("chain_id").notNull(),
+    /** Settlement asset symbol — "USDC" for the M10.5 pilot. */
+    asset: text("asset").notNull(),
+    assetAddress: text("asset_address").notNull(),
+    /** Atomic settlement amount (USDC minor units, 6 decimals). Immutable. */
+    amountAtomic: text("amount_atomic").notNull(),
+    /** The NGN quote total in minor units, for display + audit. */
+    amountNgnMinor: text("amount_ngn_minor").notNull(),
+    /** NGN→USD reference rate used, and where it came from (M10.5 §16). */
+    ngnUsdRate: text("ngn_usd_rate").notNull(),
+    rateSource: text("rate_source").notNull(),
+    rateLockedAt: timestamp("rate_locked_at", { withTimezone: true }).notNull(),
+    status: orderPaymentStatusEnum("status").notNull().default("CREATED"),
+    /** Reported by the buyer's wallet; verified against the chain before CONFIRMED. */
+    txHash: text("tx_hash").unique(),
+    /** Recorded from the on-chain Transfer `from` — never claimed by the client. */
+    payerAddress: text("payer_address"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    error: text("error"),
+    verifyAttempts: integer("verify_attempts").notNull().default(0),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    index("order_payments_task_idx").on(table.taskId),
+    /** At most one non-terminal intent per commitment (enforced in the repo + this partial index). */
+    uniqueIndex("order_payments_live_commitment_uq")
+      .on(table.commitmentId)
+      .where(sql`status in ('CREATED','AWAITING_WALLET','SUBMITTED','CONFIRMING')`),
+  ],
+);
+
+/**
  * Human-attention notifications (milestone 7 §13–§15).
  *
  * A notification is a *current* attention item, not a log line — the audit
@@ -534,6 +602,37 @@ export const idempotencyKeys = pgTable(
   (table) => [uniqueIndex("idempotency_scope_key_uq").on(table.scope, table.key)],
 );
 
+/**
+ * Remote business onboarding via Tally (M10.1, ADR-024).
+ *
+ * Tracks ONLY whether a webhook delivery was successfully turned into a real
+ * business — never the business's own commercial lifecycle, which stays on
+ * `businesses.status` / `quote_routes.status` (see `status.ts`'s own doc
+ * comment). `tallySubmissionId` is UNIQUE so a re-delivered webhook can never
+ * create a second business.
+ */
+export const onboardingSubmissions = pgTable(
+  "onboarding_submissions",
+  {
+    id: id(),
+    tallyFormId: text("tally_form_id").notNull(),
+    tallySubmissionId: text("tally_submission_id").notNull().unique(),
+    tallyEventId: text("tally_event_id").notNull(),
+    tallySubmissionPreviewUrl: text("tally_submission_preview_url"),
+    status: onboardingStatusEnum("status").notNull().default("RECEIVED"),
+    /** The normalized (not raw Tally) submission shape — see `normalize.ts`. */
+    normalizedData: jsonb("normalized_data").$type<unknown>().notNull(),
+    /** Field-level problems found while normalizing/validating, if any. */
+    issues: jsonb("issues").$type<{ field: string; message: string }[]>(),
+    businessId: text("business_id").references(() => businesses.id),
+    routeId: text("route_id").references(() => quoteRoutes.id),
+    receivedAt: createdAt(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    updatedAt: updatedAt(),
+  },
+  (table) => [index("onboarding_submissions_status_idx").on(table.status)],
+);
+
 export const businessesRelations = relations(businesses, ({ many }) => ({
   routes: many(quoteRoutes),
 }));
@@ -573,6 +672,16 @@ export const handoverAttestationsRelations = relations(handoverAttestations, ({ 
   }),
 }));
 
+export const orderPaymentsRelations = relations(orderPayments, ({ one }) => ({
+  task: one(tasks, { fields: [orderPayments.taskId], references: [tasks.id] }),
+  quote: one(quotes, { fields: [orderPayments.quoteId], references: [quotes.id] }),
+  commitment: one(commitments, {
+    fields: [orderPayments.commitmentId],
+    references: [commitments.id],
+  }),
+  business: one(businesses, { fields: [orderPayments.businessId], references: [businesses.id] }),
+}));
+
 export const quotesRelations = relations(quotes, ({ one }) => ({
   task: one(tasks, { fields: [quotes.taskId], references: [tasks.id] }),
   route: one(quoteRoutes, { fields: [quotes.routeId], references: [quoteRoutes.id] }),
@@ -581,6 +690,17 @@ export const quotesRelations = relations(quotes, ({ one }) => ({
 export const recommendationsRelations = relations(recommendations, ({ one }) => ({
   task: one(tasks, { fields: [recommendations.taskId], references: [tasks.id] }),
   quote: one(quotes, { fields: [recommendations.quoteId], references: [quotes.id] }),
+}));
+
+export const onboardingSubmissionsRelations = relations(onboardingSubmissions, ({ one }) => ({
+  business: one(businesses, {
+    fields: [onboardingSubmissions.businessId],
+    references: [businesses.id],
+  }),
+  route: one(quoteRoutes, {
+    fields: [onboardingSubmissions.routeId],
+    references: [quoteRoutes.id],
+  }),
 }));
 
 export const servicePaymentsRelations = relations(servicePayments, ({ one }) => ({
@@ -602,6 +722,8 @@ export type CommitmentRow = typeof commitments.$inferSelect;
 export type NewCommitmentRow = typeof commitments.$inferInsert;
 export type HandoverAttestationRow = typeof handoverAttestations.$inferSelect;
 export type NewHandoverAttestationRow = typeof handoverAttestations.$inferInsert;
+export type OrderPaymentRow = typeof orderPayments.$inferSelect;
+export type NewOrderPaymentRow = typeof orderPayments.$inferInsert;
 export type ProoflineEventRow = typeof prooflineEvents.$inferSelect;
 export type NewProoflineEventRow = typeof prooflineEvents.$inferInsert;
 export type NotificationRow = typeof notifications.$inferSelect;
@@ -610,3 +732,5 @@ export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type NewPushSubscriptionRow = typeof pushSubscriptions.$inferInsert;
 export type NotificationPreferenceRow = typeof notificationPreferences.$inferSelect;
 export type NewNotificationPreferenceRow = typeof notificationPreferences.$inferInsert;
+export type OnboardingSubmissionRow = typeof onboardingSubmissions.$inferSelect;
+export type NewOnboardingSubmissionRow = typeof onboardingSubmissions.$inferInsert;

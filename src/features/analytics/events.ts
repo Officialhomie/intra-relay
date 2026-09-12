@@ -91,6 +91,10 @@ export interface AnalyticsEventMap {
   handover_completed: { mode: "onchain" | "mock" };
   business_job_completed: Empty;
 
+  // --- buyer: fulfilment (Proofline, M10 pilot funnel) --------------------
+  /** The buyer's own confirmation they received the order — the missing symmetric half of `fulfillment_started`. */
+  fulfilment_completed: { confirmation_method: string };
+
   // --- notifications ------------------------------------------------------
   attention_required: { domain_event: string; level: string; audience: string };
   notification_created: {
@@ -115,6 +119,30 @@ export interface AnalyticsEventMap {
   pwa_install_prompted: Empty;
   pwa_install_accepted: Empty;
   pwa_install_dismissed: Empty;
+
+  // --- buyer order payment (MiniPay, M10.5) -----------------------------
+  minipay_available: { minipay_available: boolean; wallet_available: boolean };
+  payment_method_viewed: { minipay_available: boolean; wallet_available: boolean };
+  minipay_selected: { payment_method: string };
+  /** The server minted a payment intent (recipient/amount/asset resolved) — before the wallet is invoked. */
+  payment_intent_created: { payment_method: string; network: number; asset: string };
+  wallet_request_started: { payment_method: string; network: number; asset: string };
+  wallet_approved: { payment_method: string; network: number; asset: string };
+  wallet_rejected: { payment_method: string };
+  payment_submitted: { payment_method: string; network: number; asset: string };
+  payment_confirmed: { payment_method: string; network: number; asset: string };
+  payment_failed: { payment_method: string; network: number; asset: string };
+  payment_resumed: { payment_method: string };
+  payment_receipt_viewed: { payment_method: string };
+
+  // --- remote business onboarding via Tally (M10.1) -----------------------
+  /** No PII/raw form content — see `sanitizeProps` and M10.1's observability note. */
+  onboarding_received: Empty;
+  onboarding_validated: { service_count: number; warning_count: number };
+  onboarding_needs_review: { issue_count: number };
+  onboarding_created: { warning_count: number };
+  onboarding_pilot_ready: Empty;
+  onboarding_failed: { reason_code: string };
 }
 
 export type AnalyticsEventName = keyof AnalyticsEventMap;
@@ -155,6 +183,7 @@ export const EVENT_NAMES = [
   "handover_started",
   "handover_completed",
   "business_job_completed",
+  "fulfilment_completed",
   "attention_required",
   "notification_created",
   "push_sent",
@@ -168,6 +197,24 @@ export const EVENT_NAMES = [
   "pwa_install_prompted",
   "pwa_install_accepted",
   "pwa_install_dismissed",
+  "minipay_available",
+  "payment_method_viewed",
+  "minipay_selected",
+  "payment_intent_created",
+  "wallet_request_started",
+  "wallet_approved",
+  "wallet_rejected",
+  "payment_submitted",
+  "payment_confirmed",
+  "payment_failed",
+  "payment_resumed",
+  "payment_receipt_viewed",
+  "onboarding_received",
+  "onboarding_validated",
+  "onboarding_needs_review",
+  "onboarding_created",
+  "onboarding_pilot_ready",
+  "onboarding_failed",
 ] as const satisfies readonly AnalyticsEventName[];
 
 /** Events forwarded from the server because they have no browser actor. */
@@ -177,4 +224,15 @@ export const SERVER_FORWARDED_EVENTS = [
   "notification_created",
   "push_sent",
   "business_ready",
+  // The buyer often closes the tab before the network confirms (M10.5 §22, §37).
+  "payment_submitted",
+  "payment_confirmed",
+  "payment_failed",
+  // A Tally webhook has no browser actor at all (M10.1).
+  "onboarding_received",
+  "onboarding_validated",
+  "onboarding_needs_review",
+  "onboarding_created",
+  "onboarding_pilot_ready",
+  "onboarding_failed",
 ] as const satisfies readonly AnalyticsEventName[];

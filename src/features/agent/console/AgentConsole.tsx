@@ -402,7 +402,7 @@ function IntentInput({
       </Button>
 
       <p className="text-xs text-subtle">
-        Demo — this conversation is not saved. Nothing is ordered without your approval.
+        This conversation isn&apos;t saved. Nothing is ordered without your approval.
       </p>
     </Card>
   );

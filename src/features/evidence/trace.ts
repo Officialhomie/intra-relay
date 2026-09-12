@@ -5,6 +5,7 @@ import { findBusinessById } from "@/features/businesses/repository";
 import { listTaskAuditEvents } from "@/features/audit/repository";
 import { findCommitmentByTaskId } from "@/features/commitments/repository";
 import { findHandoverAttestationByTaskId } from "@/features/attestation/handover-repository";
+import { listTaskOrderPayments } from "@/features/payments/order/repository";
 import {
   CELOSCAN_ADDRESS_BASE,
   CELOSCAN_TX_BASE,
@@ -102,12 +103,35 @@ export interface TransactionTrace {
     txExplorer: string | null;
     createdAt: string;
   }[];
+  /** The buyer's on-chain order payment via MiniPay (M10.5). */
+  orderPayment: {
+    status: string;
+    asset: string;
+    amountAtomic: string;
+    amountNgnMinor: string;
+    ngnUsdRate: string;
+    rateSource: string;
+    rateLockedAt: string;
+    recipient: string;
+    recipientExplorer: string | null;
+    payer: string | null;
+    payerExplorer: string | null;
+    txHash: string | null;
+    txExplorer: string | null;
+    settledAt: string | null;
+    /** True once the server read a matching Celo receipt. */
+    verified: boolean;
+    createdAt: string;
+  } | null;
   timeline: { type: string; at: string }[];
   /** Cross-check summary: do the DB and the on-chain records describe one event? (M9 §13) */
   consistency: {
     commitmentAttested: boolean;
     handoverAttested: boolean;
     handoverReferencesCommitment: boolean | null;
+    /** The confirmed payment went to the business's on-file payout address. */
+    paymentRecipientMatchesPayout: boolean | null;
+    orderPaymentConfirmed: boolean;
     anySimulated: boolean;
   };
   disclaimer: string;
@@ -131,7 +155,10 @@ export async function buildTransactionTrace(
   const payments = await listTaskPayments(db, taskId);
   const commitment = await findCommitmentByTaskId(db, taskId);
   const handover = await findHandoverAttestationByTaskId(db, taskId);
+  const orderPayments = await listTaskOrderPayments(db, taskId);
   const events = await listTaskAuditEvents(db, taskId);
+
+  const orderPay = orderPayments.find((p) => p.status === "CONFIRMED") ?? orderPayments[0] ?? null;
 
   const buyerSession = task.buyerClaimSession ?? null;
 
@@ -213,6 +240,26 @@ export async function buildTransactionTrace(
       txExplorer: explorerTx(p.txHash),
       createdAt: p.createdAt.toISOString(),
     })),
+    orderPayment: orderPay
+      ? {
+          status: orderPay.status,
+          asset: orderPay.asset,
+          amountAtomic: orderPay.amountAtomic,
+          amountNgnMinor: orderPay.amountNgnMinor,
+          ngnUsdRate: orderPay.ngnUsdRate,
+          rateSource: orderPay.rateSource,
+          rateLockedAt: orderPay.rateLockedAt.toISOString(),
+          recipient: orderPay.recipientAddress,
+          recipientExplorer: explorerAddress(orderPay.recipientAddress),
+          payer: orderPay.payerAddress,
+          payerExplorer: explorerAddress(orderPay.payerAddress),
+          txHash: orderPay.txHash,
+          txExplorer: explorerTx(orderPay.txHash),
+          settledAt: orderPay.settledAt?.toISOString() ?? null,
+          verified: orderPay.status === "CONFIRMED",
+          createdAt: orderPay.createdAt.toISOString(),
+        }
+      : null,
     timeline: events.map((e) => ({ type: e.type, at: e.createdAt.toISOString() })),
     consistency: {
       commitmentAttested: commitment?.status === "ATTESTED",
@@ -221,6 +268,11 @@ export async function buildTransactionTrace(
         handover && commitment?.attestationUid
           ? handover.refUid === commitment.attestationUid
           : null,
+      paymentRecipientMatchesPayout:
+        orderPay && orderPay.status === "CONFIRMED" && business
+          ? orderPay.recipientAddress.toLowerCase() === business.payoutAddress.toLowerCase()
+          : null,
+      orderPaymentConfirmed: orderPay?.status === "CONFIRMED",
       anySimulated: commitment?.attestationMode === "mock" || handover?.attestationMode === "mock",
     },
     disclaimer: DISCLAIMER,
