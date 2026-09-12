@@ -47,6 +47,7 @@ const CONFIG: OrderPaymentConfig = {
   assetDecimals: 6,
   rpcUrl: "https://rpc.test",
   rateUrl: "https://rate.test/USD",
+  attributionTag: null,
   reason: "test: enabled",
 };
 const RATE: NgnUsdRate = {

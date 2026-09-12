@@ -83,6 +83,29 @@ describe("payOrder — the happy path", () => {
     expect(BigInt(`0x${tx.data.slice(-64)}`)).toBe(30_000_000n);
   });
 
+  it("appends the ERC-8021 attribution suffix to calldata when a tag is supplied", async () => {
+    const request = installProvider();
+    await payOrder({ ...INPUT, attributionTag: "celo_b7k3p9da" });
+
+    const send = request.mock.calls.find((c) => c[0].method === "eth_sendTransaction");
+    const [tx] = send![0].params as [{ to: string; data: string }];
+    // The selector + args are unchanged — only bytes are appended after them.
+    expect(tx.data.startsWith("0xa9059cbb")).toBe(true);
+    expect(tx.data.toLowerCase()).toContain("b".repeat(40));
+    // ERC-8021 Schema 0 marker, present when a tag is appended.
+    expect(tx.data.toLowerCase()).toContain("8021802180218021802180218021");
+  });
+
+  it("sends the plain transfer with no suffix when there is no tag yet (pre-registration)", async () => {
+    const request = installProvider();
+    await payOrder({ ...INPUT, attributionTag: null });
+
+    const send = request.mock.calls.find((c) => c[0].method === "eth_sendTransaction");
+    const [tx] = send![0].params as [{ data: string }];
+    expect(BigInt(`0x${tx.data.slice(-64)}`)).toBe(30_000_000n);
+    expect(tx.data.toLowerCase()).not.toContain("8021802180218021802180218021");
+  });
+
   it("switches the wallet to Celo when it is on another network", async () => {
     let chain = "0x1";
     const request = installProvider({

@@ -173,6 +173,7 @@ export function useOrderPayment(taskId: string, initial: PublicOrderPayment | nu
         recipientAddress: intent.recipientAddress,
         amountAtomic: intent.amountAtomic,
         chainId: intent.chainId,
+        attributionTag: intent.attributionTag,
       }));
       analytics.track("wallet_approved", {
         payment_method: method,

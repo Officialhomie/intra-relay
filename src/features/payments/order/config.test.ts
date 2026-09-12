@@ -61,4 +61,23 @@ describe("readOrderPaymentConfig", () => {
     expect(serialized).not.toContain("secret");
     expect(serialized).not.toContain("private");
   });
+
+  it("attributionTag is null before hackathon registration (X402_ATTRIBUTION_TAG unset)", () => {
+    const config = readOrderPaymentConfig(env({ NETWORK_ENV: "production" }));
+    expect(config.attributionTag).toBeNull();
+  });
+
+  it("picks up a valid ERC-8021 tag once registered", () => {
+    const config = readOrderPaymentConfig(
+      env({ NETWORK_ENV: "production", X402_ATTRIBUTION_TAG: "celo_b7k3p9da" }),
+    );
+    expect(config.attributionTag).toBe("celo_b7k3p9da");
+  });
+
+  it("drops a malformed tag rather than recording a typo on-chain (BR-007)", () => {
+    const config = readOrderPaymentConfig(
+      env({ NETWORK_ENV: "production", X402_ATTRIBUTION_TAG: "not-a-valid-tag!" }),
+    );
+    expect(config.attributionTag).toBeNull();
+  });
 });

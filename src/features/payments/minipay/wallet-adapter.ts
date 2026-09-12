@@ -20,6 +20,15 @@ export interface WalletPayInput {
   /** USDC atomic units (6 decimals), as a decimal string. */
   amountAtomic: string;
   chainId: number;
+  /**
+   * ERC-8021 attribution tag from hackathon registration (server-supplied via
+   * the intent — never entered or derived client-side). When present it is
+   * appended to the transfer's calldata; a contract's `transfer(address,uint256)`
+   * only reads its first 68 bytes, so the trailing tag never changes what the
+   * transaction does. Omit or pass null before registration — the transfer
+   * still sends, just untagged.
+   */
+  attributionTag?: string | null;
 }
 
 export type WalletPayErrorCode =
@@ -52,8 +61,11 @@ export async function payOrder(input: WalletPayInput): Promise<{ txHash: string 
   }
   const provider = window.ethereum;
 
-  const [{ createWalletClient, custom, encodeFunctionData, erc20Abi, getAddress }, { celo }] =
-    await Promise.all([import("viem"), import("viem/chains")]);
+  const [
+    { createWalletClient, custom, encodeFunctionData, erc20Abi, getAddress, concat },
+    { celo },
+    { toDataSuffix },
+  ] = await Promise.all([import("viem"), import("viem/chains"), import("@celo/attribution-tags")]);
 
   if (input.chainId !== celo.id) {
     throw new WalletPayError("WRONG_CHAIN", `Expected Celo (${celo.id}).`);
@@ -93,11 +105,17 @@ export async function payOrder(input: WalletPayInput): Promise<{ txHash: string 
     throw new WalletPayError("WALLET_UNAVAILABLE", "Your wallet did not share an address.");
   }
 
-  const data = encodeFunctionData({
+  const transferData = encodeFunctionData({
     abi: erc20Abi,
     functionName: "transfer",
     args: [getAddress(input.recipientAddress), BigInt(input.amountAtomic)],
   });
+  // Append the ERC-8021 attribution suffix, when we have one. The tag cannot
+  // be added after the transaction is sent, so this is the one place it must
+  // happen (hackathon registration rules).
+  const data = input.attributionTag
+    ? concat([transferData, toDataSuffix(input.attributionTag)])
+    : transferData;
 
   try {
     const txHash = await wallet.sendTransaction({

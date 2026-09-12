@@ -36,6 +36,12 @@ export interface PublicOrderPayment {
   recipientAddress: string | null;
   /** e.g. "0x1234…abcd" for display. */
   recipientShort: string | null;
+  /**
+   * ERC-8021 attribution tag (hackathon registration), or null before
+   * registration / if unset. The client appends it to the MiniPay transfer's
+   * calldata — never derived or guessed client-side (BR-007).
+   */
+  attributionTag: string | null;
   amountAtomic: string | null;
   amountUsdcDisplay: string | null;
   amountNgnMinor: string | null;
@@ -70,6 +76,7 @@ export function toPublicOrderPayment(
     assetAddress: row.assetAddress,
     recipientAddress: row.recipientAddress,
     recipientShort: shorten(row.recipientAddress),
+    attributionTag: config.attributionTag,
     amountAtomic: row.amountAtomic,
     amountUsdcDisplay: formatUsdcAtomic(BigInt(row.amountAtomic)),
     amountNgnMinor: row.amountNgnMinor,
@@ -123,6 +130,7 @@ export async function getOrderPaymentForTask(
     assetAddress: config.assetAddress,
     recipientAddress: commitment.providerAddress,
     recipientShort: shorten(commitment.providerAddress),
+    attributionTag: config.attributionTag,
     amountAtomic: null,
     amountUsdcDisplay: null,
     amountNgnMinor: commitment.amountMinor,

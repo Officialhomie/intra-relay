@@ -64,6 +64,7 @@ const base: PublicOrderPayment = {
   assetAddress: "0xcEBA9300f2b948710d2653dD7B07f33A8B32118C",
   recipientAddress: `0x${"b".repeat(40)}`,
   recipientShort: "0xbbbb…bbbb",
+  attributionTag: null,
   amountAtomic: null,
   amountUsdcDisplay: null,
   amountNgnMinor: "4500000",

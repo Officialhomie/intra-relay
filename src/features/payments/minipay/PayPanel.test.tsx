@@ -61,6 +61,7 @@ const base: PublicOrderPayment = {
   assetAddress: USDC,
   recipientAddress: RECIPIENT,
   recipientShort: "0xbbbb…bbbb",
+  attributionTag: null,
   amountAtomic: null,
   amountUsdcDisplay: null,
   amountNgnMinor: "4500000",
