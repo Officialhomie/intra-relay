@@ -60,7 +60,7 @@ describe("agent run store + service (the /api/agent surface)", () => {
     expect(view.recommendation).not.toBeNull();
     expect(view.requestedQuotes).toHaveLength(2);
     // The internal agent session must never leak into the view.
-    expect(JSON.stringify(view)).not.toContain("agent:intra-demo-buyer");
+    expect(JSON.stringify(view)).not.toContain("agent:intra-buyer-agent");
   });
 
   it("only the browser session that started a run can read it", async () => {

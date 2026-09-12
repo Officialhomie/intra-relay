@@ -145,7 +145,7 @@ async function executeRun(runId: string, options: AgentRunOptions): Promise<void
 
 export function startAgentRun(input: StartAgentRunInput): StoredAgentRun {
   const runId = randomUUID();
-  const agentId = `intra-demo-buyer-${randomUUID().replace(/-/g, "").slice(0, 10)}`;
+  const agentId = `intra-buyer-agent-${randomUUID().replace(/-/g, "").slice(0, 10)}`;
   const now = Date.now();
 
   const run: StoredAgentRun = {

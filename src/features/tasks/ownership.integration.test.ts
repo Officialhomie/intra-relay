@@ -36,7 +36,7 @@ afterEach(async () => {
 });
 
 const HUMAN = "browser-session-victor";
-const AGENT_REQUESTER = "intra-demo-buyer-abc123";
+const AGENT_REQUESTER = "intra-buyer-agent-abc123";
 const STRANGER = "browser-session-someone-else";
 
 const CTX = { xPaymentHeader: null, resourceUrl: "http://localhost/v1/x/y/quote" };

@@ -5,4 +5,4 @@
  * `src/features/<name>` folder.
  */
 
-export type Route = "/" | "/request" | "/supplier/onboard" | "/operator" | "/docs";
+export type Route = "/" | "/supplier/onboard" | "/operator" | "/docs";
