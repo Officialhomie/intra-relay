@@ -16,6 +16,7 @@ import { describePricingForBusiness } from "@/features/pricing/model";
 import { PushPrompt } from "@/features/pwa/PushPrompt";
 import { getSupplierWorkspace } from "@/features/routes/reads";
 import { EditPublishedPriceForm } from "@/features/supplier/EditPublishedPriceForm";
+import { SupplierNav } from "@/features/supplier/SupplierNav";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,6 +65,8 @@ export default async function BusinessOverviewPage({
         title={business.name}
         description={`${business.city}, ${business.country}`}
       />
+
+      <SupplierNav slug={slug} active="overview" manageToken={t} />
 
       {canManage && t ? (
         <>

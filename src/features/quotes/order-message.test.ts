@@ -24,8 +24,17 @@ describe("buildOrderMessage (FR-REC-002)", () => {
 
   it("addresses the business and includes the brief and the quoted range", () => {
     expect(message).toContain("Campus Prints NG");
-    expect(message).toContain("size: A5");
     expect(message).toContain("NGN 15000.00–18000.00");
+  });
+
+  it("renders the brief in plain language, never raw keys or hyphenated values", () => {
+    expect(message).toContain("Paper size: A5");
+    expect(message).toContain("How many: 200");
+    expect(message).toContain("Colour: Full colour");
+    expect(message).toContain("Needed by: Friday 3pm");
+    expect(message).not.toContain("- size:");
+    expect(message).not.toContain("- deliveryArea:");
+    expect(message).not.toContain("full-colour");
   });
 
   it("asks the buyer to confirm before approving — it is never auto-sent", () => {

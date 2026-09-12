@@ -1,10 +1,13 @@
 import type { BusinessRow, QuoteRow, TaskRow } from "@/lib/db/schema";
+import { briefFieldLabel, briefFieldValue } from "@/features/tasks/brief-format";
 
 /**
  * Build the pre-filled WhatsApp order message (FR-REC-002).
  *
  * This text is only ever shown to the buyer to copy. Intra never sends it and
- * never places the order (BR-001, FR-REC-004).
+ * never places the order (BR-001, FR-REC-004). Brief lines go through the same
+ * plain-language helpers as the buyer's own task page (§22, frontend audit
+ * Priority 5) — a business reads "Paper size: A5", never "size: A5".
  */
 export function buildOrderMessage(
   business: BusinessRow,
@@ -15,7 +18,7 @@ export function buildOrderMessage(
   const input = (task.structuredInput ?? {}) as Record<string, unknown>;
   const briefLines = Object.entries(input)
     .filter(([, value]) => value !== null && value !== undefined && value !== "")
-    .map(([key, value]) => `- ${key}: ${String(value)}`);
+    .map(([key, value]) => `- ${briefFieldLabel(key)}: ${briefFieldValue(key, value)}`);
 
   const price =
     quote.amountMax && quote.amountMax !== quote.amountMin

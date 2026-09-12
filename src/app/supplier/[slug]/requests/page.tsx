@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { Inbox } from "lucide-react";
@@ -16,42 +15,22 @@ import { MerchantFulfilmentPanel } from "@/features/proofline/MerchantFulfilment
 import { HandoverAttestPanel } from "@/features/attestation/HandoverAttestPanel";
 import { ResumeSignal } from "@/features/pwa/ResumeSignal";
 import { getSupplierWorkspace } from "@/features/routes/reads";
+import { briefFieldLabel, briefFieldValue } from "@/features/tasks/brief-format";
 import { ChangePriceForm } from "@/features/supplier/ChangePriceForm";
 import { QuoteResponseForm } from "@/features/supplier/QuoteResponseForm";
+import { SupplierNav } from "@/features/supplier/SupplierNav";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Incoming requests" };
 
-/** Human labels for the structured brief keys the buyer flow captures. */
-const BRIEF_LABEL: Record<string, string> = {
-  size: "Paper size",
-  quantity: "Quantity",
-  colour: "Colour",
-  deadline: "Needed by",
-  deliveryArea: "Delivery / pick-up",
-  pages: "Pages",
-  copies: "Copies",
-  device: "Device",
-  fault: "Fault",
-};
-
-/** Present a brief value the way a person would say it, not the raw enum. */
-function briefValue(key: string, value: unknown): string {
-  const raw = String(value).trim();
-  if (key === "colour") {
-    const v = raw.toLowerCase().replace(/-/g, " ");
-    return v.charAt(0).toUpperCase() + v.slice(1);
-  }
-  return raw;
-}
-
+/** Same plain-language brief convention the buyer's own task page uses (§22). */
 function briefRows(brief: Record<string, unknown>) {
   return Object.entries(brief)
     .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== "")
     .map(([key, value]) => ({
-      label: BRIEF_LABEL[key] ?? key,
-      value: briefValue(key, value),
+      label: briefFieldLabel(key),
+      value: briefFieldValue(key, value),
     }));
 }
 
@@ -75,7 +54,6 @@ export default async function SupplierRequestsPage({
   if (!workspace) notFound();
 
   const { business, incoming, quoted, handedOff } = workspace;
-  const suffix = t ? `?t=${t}` : "";
 
   // §8 — a notification may point at a request that has since moved on. Say so
   // rather than silently showing nothing.
@@ -96,15 +74,9 @@ export default async function SupplierRequestsPage({
         eyebrow="Incoming requests"
         title={business.name}
         description="What customers have asked for, and what needs your response."
-        actions={
-          <Link
-            href={`/supplier/${slug}${suffix}`}
-            className="inline-flex min-h-9 items-center rounded-md border border-border-strong px-3 text-sm font-medium hover:bg-surface"
-          >
-            Back to workspace
-          </Link>
-        }
       />
+
+      <SupplierNav slug={slug} active="requests" manageToken={t} />
 
       {!canManage ? (
         <Callout tone="info" title="Read-only view">

@@ -9,7 +9,7 @@ import { Callout } from "@/components/ui/Callout";
 import { DataList, DataRow } from "@/components/ui/DataList";
 import { EmptyState, ErrorState, LoadingPanel } from "@/components/ui/States";
 import { Card, CardTitle } from "@/components/ui/Section";
-import { StatusPill, routeStatusTone } from "@/components/ui/StatusPill";
+import { StatusPill, routeStatusLabel, routeStatusTone } from "@/components/ui/StatusPill";
 import { ApiError, apiRequest } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
 import { ACTIVATION_CHECKS, ACTIVATION_CHECK_LABELS } from "@/features/routes/activation";
@@ -211,7 +211,7 @@ export function OperatorConsole() {
   );
 }
 
-function OperatorRouteCard({
+export function OperatorRouteCard({
   item,
   operatorKey,
   onChanged,
@@ -259,7 +259,7 @@ function OperatorRouteCard({
           </p>
         </div>
         <StatusPill tone={routeStatusTone(route.status)}>
-          {route.status.replace(/_/g, " ")}
+          {routeStatusLabel(route.status)}
         </StatusPill>
       </div>
 

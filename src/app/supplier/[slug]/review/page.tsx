@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { BadgeCheck, Clock3, ShieldQuestion } from "lucide-react";
@@ -15,6 +14,7 @@ import { manageTokenMatchesBusinessSlug } from "@/features/businesses/access";
 import { PRICE_FRESHNESS_MAX_AGE_DAYS, routeFreshness } from "@/features/routes/freshness";
 import { getSupplierWorkspace } from "@/features/routes/reads";
 import { PauseRouteButton } from "@/features/supplier/PauseRouteButton";
+import { SupplierNav } from "@/features/supplier/SupplierNav";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,17 +54,9 @@ export default async function SupplierReviewPage({
         eyebrow="Supplier review"
         title={business.name}
         description={`${business.city}, ${business.country} · ${business.category}`}
-        actions={
-          canManage ? (
-            <Link
-              href={`/supplier/${slug}/requests?t=${t}`}
-              className="inline-flex min-h-9 items-center rounded-md border border-border-strong px-3 text-sm font-medium hover:bg-surface"
-            >
-              Incoming requests
-            </Link>
-          ) : undefined
-        }
       />
+
+      <SupplierNav slug={slug} active="review" manageToken={t} />
 
       {canManage ? (
         <Callout tone="success" title="You can manage this business">
