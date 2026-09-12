@@ -95,6 +95,21 @@ export class AnthropicModelProvider implements ModelProvider {
     }
 
     const checked = request.schema.safeParse(parsed);
+    // TEMPORARY DIAGNOSTIC — root-causing the production SCHEMA_MISMATCH fallback
+    // on understand_intent. Logs only the model's own JSON reply and the Zod
+    // issue list (both already free of secrets/PII); never the API key, headers,
+    // or the buyer's request text. Remove once the fix is verified live.
+    console.log(
+      "[model-diagnostic]",
+      JSON.stringify({
+        purpose: request.purpose,
+        model: this.info.model,
+        schemaName: request.schemaName,
+        rawText: text.slice(0, 2000),
+        zodOk: checked.success,
+        zodIssues: checked.success ? undefined : checked.error.issues,
+      }),
+    );
     if (!checked.success) {
       throw new ModelUnavailableError(
         "SCHEMA_MISMATCH",
