@@ -28,6 +28,7 @@ import {
 } from "@/features/proofline/status";
 import { COMMITMENT_EXPIRY_SOURCES, COMMITMENT_STATUSES } from "@/features/commitments/status";
 import { ORDER_PAYMENT_STATUSES } from "@/features/payments/order/status";
+import { ONBOARDING_STATUSES } from "@/features/onboarding/status";
 import { HANDOVER_ATTESTATION_STATUSES } from "@/features/attestation/handover-status";
 import { ATTESTATION_OUTCOMES } from "@/features/attestation/schema";
 import { ATTENTION_LEVELS, NOTIFICATION_AUDIENCES } from "@/features/notifications/attention";
@@ -66,6 +67,7 @@ export const buyerDecisionEnum = pgEnum("buyer_decision", BUYER_DECISIONS);
 export const paymentStatusEnum = pgEnum("payment_status", PAYMENT_STATUSES);
 export const commitmentStatusEnum = pgEnum("commitment_status", COMMITMENT_STATUSES);
 export const orderPaymentStatusEnum = pgEnum("order_payment_status", ORDER_PAYMENT_STATUSES);
+export const onboardingStatusEnum = pgEnum("onboarding_status", ONBOARDING_STATUSES);
 export const handoverAttestationStatusEnum = pgEnum(
   "handover_attestation_status",
   HANDOVER_ATTESTATION_STATUSES,
@@ -600,6 +602,37 @@ export const idempotencyKeys = pgTable(
   (table) => [uniqueIndex("idempotency_scope_key_uq").on(table.scope, table.key)],
 );
 
+/**
+ * Remote business onboarding via Tally (M10.1, ADR-024).
+ *
+ * Tracks ONLY whether a webhook delivery was successfully turned into a real
+ * business — never the business's own commercial lifecycle, which stays on
+ * `businesses.status` / `quote_routes.status` (see `status.ts`'s own doc
+ * comment). `tallySubmissionId` is UNIQUE so a re-delivered webhook can never
+ * create a second business.
+ */
+export const onboardingSubmissions = pgTable(
+  "onboarding_submissions",
+  {
+    id: id(),
+    tallyFormId: text("tally_form_id").notNull(),
+    tallySubmissionId: text("tally_submission_id").notNull().unique(),
+    tallyEventId: text("tally_event_id").notNull(),
+    tallySubmissionPreviewUrl: text("tally_submission_preview_url"),
+    status: onboardingStatusEnum("status").notNull().default("RECEIVED"),
+    /** The normalized (not raw Tally) submission shape — see `normalize.ts`. */
+    normalizedData: jsonb("normalized_data").$type<unknown>().notNull(),
+    /** Field-level problems found while normalizing/validating, if any. */
+    issues: jsonb("issues").$type<{ field: string; message: string }[]>(),
+    businessId: text("business_id").references(() => businesses.id),
+    routeId: text("route_id").references(() => quoteRoutes.id),
+    receivedAt: createdAt(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    updatedAt: updatedAt(),
+  },
+  (table) => [index("onboarding_submissions_status_idx").on(table.status)],
+);
+
 export const businessesRelations = relations(businesses, ({ many }) => ({
   routes: many(quoteRoutes),
 }));
@@ -659,6 +692,17 @@ export const recommendationsRelations = relations(recommendations, ({ one }) => 
   quote: one(quotes, { fields: [recommendations.quoteId], references: [quotes.id] }),
 }));
 
+export const onboardingSubmissionsRelations = relations(onboardingSubmissions, ({ one }) => ({
+  business: one(businesses, {
+    fields: [onboardingSubmissions.businessId],
+    references: [businesses.id],
+  }),
+  route: one(quoteRoutes, {
+    fields: [onboardingSubmissions.routeId],
+    references: [quoteRoutes.id],
+  }),
+}));
+
 export const servicePaymentsRelations = relations(servicePayments, ({ one }) => ({
   task: one(tasks, { fields: [servicePayments.taskId], references: [tasks.id] }),
 }));
@@ -688,3 +732,5 @@ export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type NewPushSubscriptionRow = typeof pushSubscriptions.$inferInsert;
 export type NotificationPreferenceRow = typeof notificationPreferences.$inferSelect;
 export type NewNotificationPreferenceRow = typeof notificationPreferences.$inferInsert;
+export type OnboardingSubmissionRow = typeof onboardingSubmissions.$inferSelect;
+export type NewOnboardingSubmissionRow = typeof onboardingSubmissions.$inferInsert;

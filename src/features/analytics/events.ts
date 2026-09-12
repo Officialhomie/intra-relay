@@ -134,6 +134,15 @@ export interface AnalyticsEventMap {
   payment_failed: { payment_method: string; network: number; asset: string };
   payment_resumed: { payment_method: string };
   payment_receipt_viewed: { payment_method: string };
+
+  // --- remote business onboarding via Tally (M10.1) -----------------------
+  /** No PII/raw form content — see `sanitizeProps` and M10.1's observability note. */
+  onboarding_received: Empty;
+  onboarding_validated: { service_count: number; warning_count: number };
+  onboarding_needs_review: { issue_count: number };
+  onboarding_created: { warning_count: number };
+  onboarding_pilot_ready: Empty;
+  onboarding_failed: { reason_code: string };
 }
 
 export type AnalyticsEventName = keyof AnalyticsEventMap;
@@ -200,6 +209,12 @@ export const EVENT_NAMES = [
   "payment_failed",
   "payment_resumed",
   "payment_receipt_viewed",
+  "onboarding_received",
+  "onboarding_validated",
+  "onboarding_needs_review",
+  "onboarding_created",
+  "onboarding_pilot_ready",
+  "onboarding_failed",
 ] as const satisfies readonly AnalyticsEventName[];
 
 /** Events forwarded from the server because they have no browser actor. */
@@ -213,4 +228,11 @@ export const SERVER_FORWARDED_EVENTS = [
   "payment_submitted",
   "payment_confirmed",
   "payment_failed",
+  // A Tally webhook has no browser actor at all (M10.1).
+  "onboarding_received",
+  "onboarding_validated",
+  "onboarding_needs_review",
+  "onboarding_created",
+  "onboarding_pilot_ready",
+  "onboarding_failed",
 ] as const satisfies readonly AnalyticsEventName[];
