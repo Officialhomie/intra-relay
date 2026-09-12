@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { extractJsonObject } from "./prompt";
 import {
   ModelUnavailableError,
@@ -12,10 +14,11 @@ import {
  * Anthropic-backed model provider.
  *
  * Server-only: the key comes from `ANTHROPIC_API_KEY` and never reaches the
- * browser. One `messages.create` per call, bounded by `limits`. The reply must
- * be a single JSON object matching the request schema; anything else raises
- * `ModelUnavailableError` and the assisted loop falls back to the deterministic
- * path for that step.
+ * browser. One `messages.create` per call, bounded by `limits`, using a
+ * FORCED tool call rather than a prose "reply with JSON" instruction — see
+ * `toolInputSchema`. The reply must match the request schema; anything else
+ * raises `ModelUnavailableError` and the assisted loop falls back to the
+ * deterministic path for that step.
  */
 
 export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
@@ -23,6 +26,33 @@ export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
 interface AnthropicOptions {
   apiKey: string;
   model?: string;
+}
+
+interface AnthropicContentBlock {
+  type: string;
+  text?: string;
+  name?: string;
+  input?: unknown;
+}
+
+/**
+ * Derive the tool's `input_schema` from the same Zod schema the reply is
+ * validated against, so the model is structurally constrained to the exact
+ * shape `safeParse` expects — not just asked for it in prose.
+ *
+ * Previously the prompt said "Return ONLY the JSON object named
+ * ${schemaName}" and the model replied with plain text, which Claude
+ * sometimes read as an instruction to NAME the object rather than describe
+ * its shape — producing `{"IntentInterpretation": {...actual fields...}}`
+ * instead of the flat object, and failing every field's validation at once
+ * (confirmed live via temporary diagnostic logging, 2026-09-12). Forced tool
+ * use removes both the naming ambiguity and free-text/markdown parsing
+ * entirely: `tool_use.input` is already a parsed object.
+ */
+function toolInputSchema(schema: z.ZodType): Record<string, unknown> {
+  const jsonSchema = z.toJSONSchema(schema) as Record<string, unknown>;
+  delete jsonSchema.$schema;
+  return jsonSchema;
 }
 
 export class AnthropicModelProvider implements ModelProvider {
@@ -44,7 +74,7 @@ export class AnthropicModelProvider implements ModelProvider {
         body: unknown,
         options?: { timeout?: number },
       ): Promise<{
-        content: Array<{ type: string; text?: string }>;
+        content: AnthropicContentBlock[];
         usage?: { input_tokens?: number; output_tokens?: number };
       }>;
     };
@@ -68,8 +98,16 @@ export class AnthropicModelProvider implements ModelProvider {
         {
           model: this.info.model,
           max_tokens: limits.maxOutputTokens,
-          system: `${request.system}\n\nReturn ONLY the JSON object named ${request.schemaName}.`,
+          system: request.system,
           messages: [{ role: "user", content: request.user }],
+          tools: [
+            {
+              name: request.schemaName,
+              description: `Report the ${request.schemaName} result for this task. Call this tool exactly once with your result.`,
+              input_schema: toolInputSchema(request.schema),
+            },
+          ],
+          tool_choice: { type: "tool", name: request.schemaName },
         },
         { timeout: limits.timeoutMs },
       );
@@ -77,35 +115,50 @@ export class AnthropicModelProvider implements ModelProvider {
       throw classify(error);
     }
 
-    const text = (response.content ?? [])
-      .filter((block) => block.type === "text" && typeof block.text === "string")
-      .map((block) => block.text as string)
-      .join("")
-      .trim();
+    const content = response.content ?? [];
+    const toolUse = content.find(
+      (block) => block.type === "tool_use" && block.name === request.schemaName,
+    );
 
-    if (!text) {
-      throw new ModelUnavailableError("EMPTY_RESPONSE", "The model returned no text.");
-    }
-
+    // Defensive fallback: a model can decline a forced tool call in rare cases
+    // (e.g. a safety refusal) and reply with plain text instead. Try to salvage
+    // that before giving up, rather than failing a call that actually carried a
+    // usable answer.
     let parsed: unknown;
-    try {
-      parsed = extractJsonObject(text);
-    } catch {
-      throw new ModelUnavailableError("INVALID_JSON", "The model reply was not valid JSON.");
+    if (toolUse) {
+      parsed = toolUse.input;
+    } else {
+      const text = content
+        .filter((block) => block.type === "text" && typeof block.text === "string")
+        .map((block) => block.text as string)
+        .join("")
+        .trim();
+      if (!text) {
+        throw new ModelUnavailableError(
+          "EMPTY_RESPONSE",
+          "The model returned no tool call and no text.",
+        );
+      }
+      try {
+        parsed = extractJsonObject(text);
+      } catch {
+        throw new ModelUnavailableError("INVALID_JSON", "The model reply was not valid JSON.");
+      }
     }
 
     const checked = request.schema.safeParse(parsed);
-    // TEMPORARY DIAGNOSTIC — root-causing the production SCHEMA_MISMATCH fallback
-    // on understand_intent. Logs only the model's own JSON reply and the Zod
-    // issue list (both already free of secrets/PII); never the API key, headers,
-    // or the buyer's request text. Remove once the fix is verified live.
+    // TEMPORARY DIAGNOSTIC — verifying the forced-tool-use fix against the live
+    // SCHEMA_MISMATCH fallback on understand_intent. Logs only the model's own
+    // reply and the Zod issue list (already free of secrets/PII); never the API
+    // key, headers, or the buyer's request text. Remove once verified live.
     console.log(
       "[model-diagnostic]",
       JSON.stringify({
         purpose: request.purpose,
         model: this.info.model,
         schemaName: request.schemaName,
-        rawText: text.slice(0, 2000),
+        usedToolCall: Boolean(toolUse),
+        reply: JSON.stringify(parsed).slice(0, 2000),
         zodOk: checked.success,
         zodIssues: checked.success ? undefined : checked.error.issues,
       }),

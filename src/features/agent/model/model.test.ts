@@ -237,6 +237,29 @@ describe("prompt helpers", () => {
   });
 });
 
+// --- schema contract: nullable means "present as null", not "may be omitted" -
+
+describe("intentInterpretationSchema — nullable fields must be explicit null, not omitted", () => {
+  const complete = interp({ colour: "full-colour" });
+
+  it("rejects an object where a nullable key is entirely omitted", () => {
+    const withoutColour: Partial<typeof complete> = { ...complete };
+    delete withoutColour.colour;
+    expect(intentInterpretationSchema.safeParse(withoutColour).success).toBe(false);
+  });
+
+  it("accepts the same object with the key present and explicitly null", () => {
+    expect(intentInterpretationSchema.safeParse({ ...complete, colour: null }).success).toBe(true);
+  });
+
+  it("rejects a numeric confidence — must be the low/medium/high enum, not a probability", () => {
+    // Exactly the shape the live model returned before the tool-use fix.
+    expect(intentInterpretationSchema.safeParse({ ...complete, confidence: 0.95 }).success).toBe(
+      false,
+    );
+  });
+});
+
 function interp(
   over: Partial<import("./schema").IntentInterpretation>,
 ): import("./schema").IntentInterpretation {

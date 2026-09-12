@@ -36,7 +36,7 @@ Required fields: quantity, size (A3/A4/A5/A6), colour (full-colour/black-and-whi
 - "service": "print_flyers" if this is a flyer/poster/leaflet printing request, otherwise "other".
 - "missing": names of the required fields still absent.
 - If anything required is missing, set clarificationNeeded=true and write ONE plain-language clarificationQuestion asking for exactly those.
-- "confidence": your confidence in the extraction.`;
+- "confidence": one of "low", "medium", or "high" — your confidence in the extraction.`;
 }
 
 export function intentUserPrompt(request: string): string {
