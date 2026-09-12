@@ -5,15 +5,16 @@
  *
  * Output PNGs are committed, so the build has no image-tooling dependency.
  * The mark: Intra Relay — two nodes and the line between them (a request
- * handed from one party to the other), in the "calm clinic" forest green.
+ * handed from one party to the other), on the current ink-on-ivory palette
+ * (ADR-022; src/components/brand/Mark.tsx is the same mark for in-app use).
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import sharp from "sharp";
 
-const BG = "#0f3e17"; // forest ink
-const FG = "#fffefc"; // linen white
+const BG = "#1f1e1d"; // ink
+const FG = "#faf9f5"; // ivory
 
 /** `pad` is the fraction of the canvas kept clear on each edge (maskable safe zone). */
 function markSvg({ pad = 0.16, rounded = true } = {}) {
