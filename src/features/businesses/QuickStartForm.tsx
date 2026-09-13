@@ -14,6 +14,7 @@ import { TextField } from "@/components/ui/TextField";
 import { useAnalytics } from "@/features/analytics/useAnalytics";
 import { ApiError, apiRequest } from "@/lib/api";
 import { PRICING_MODELS, PRICING_MODEL_COPY, type PricingModel } from "@/features/pricing/model";
+import { ManageLinkCard } from "./ManageLinkCard";
 import { BUSINESS_CATEGORIES } from "./schema";
 
 /**
@@ -40,12 +41,23 @@ interface Created {
   nextStep: string;
 }
 
+/**
+ * The API deliberately returns a minimal business shape, so the WhatsApp number
+ * for the "send it to myself" action is kept from what the merchant just typed
+ * rather than widening the response to carry contact details back.
+ */
+interface CreatedView extends Created {
+  contactChannelValue: string;
+  /** Absolute manage link. Read from `window` after submit, never during SSR. */
+  absoluteManageUrl: string;
+}
+
 export function QuickStartForm() {
   const [pricingModel, setPricingModel] = useState<PricingModel>("STARTING_FROM");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [created, setCreated] = useState<Created | null>(null);
+  const [created, setCreated] = useState<CreatedView | null>(null);
   const analytics = useAnalytics("business");
   const startedRef = useRef(false);
 
@@ -87,7 +99,11 @@ export function QuickStartForm() {
         category: value("category") || undefined,
         pricing_model: pricingModel,
       });
-      setCreated(data);
+      setCreated({
+        ...data,
+        contactChannelValue: value("contactChannelValue"),
+        absoluteManageUrl: `${window.location.origin}${data.manageUrl}`,
+      });
     } catch (err) {
       if (err instanceof ApiError && err.code === "INVALID_BODY") {
         const details = err.details as { fieldErrors?: Record<string, string[]> } | undefined;
@@ -123,10 +139,15 @@ export function QuickStartForm() {
           Open your workspace
           <ArrowRight aria-hidden className="size-4" />
         </Link>
-        <Callout tone="info" title="Keep this link">
-          That link is how you get back in and manage your prices. It is not a wallet key and holds
-          no money — but treat it as private.
-        </Callout>
+        {/* Save-it-now actions: this screen is the only place a quick-start
+            merchant is ever shown their link (M10.2A). */}
+        <ManageLinkCard
+          businessName={created.business.name}
+          manageUrl={created.absoluteManageUrl}
+          contactPhone={created.contactChannelValue}
+          title="Save your private link now"
+          description="This is the only time we show it. Copy it or send it to yourself before you close this page."
+        />
       </Card>
     );
   }

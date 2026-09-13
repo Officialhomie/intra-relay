@@ -2,6 +2,7 @@ import { desc, eq } from "drizzle-orm";
 
 import type { Database } from "@/lib/db/client";
 import {
+  businesses,
   onboardingSubmissions,
   type NewOnboardingSubmissionRow,
   type OnboardingSubmissionRow,
@@ -80,4 +81,40 @@ export async function listOnboardingSubmissions(
     .from(onboardingSubmissions)
     .orderBy(desc(onboardingSubmissions.receivedAt))
     .limit(limit);
+}
+
+export interface OnboardingSubmissionWithBusiness {
+  submission: OnboardingSubmissionRow;
+  /** Public identity of the business this submission created, if it created one. */
+  business: { slug: string; name: string } | null;
+}
+
+/**
+ * The operator's list, with each processed submission's business identity
+ * attached (M10.2D).
+ *
+ * The slug is what makes the manage-link recovery endpoint reachable: without
+ * it an operator looking at a Tally submission has no way to name the business
+ * they need to send a link to. Only the slug and name are joined — never the
+ * manage token, which is retrieved one business at a time, deliberately.
+ */
+export async function listOnboardingSubmissionsWithBusiness(
+  db: Database,
+  limit = 50,
+): Promise<OnboardingSubmissionWithBusiness[]> {
+  const rows = await db
+    .select({
+      submission: onboardingSubmissions,
+      slug: businesses.slug,
+      name: businesses.name,
+    })
+    .from(onboardingSubmissions)
+    .leftJoin(businesses, eq(onboardingSubmissions.businessId, businesses.id))
+    .orderBy(desc(onboardingSubmissions.receivedAt))
+    .limit(limit);
+
+  return rows.map((row) => ({
+    submission: row.submission,
+    business: row.slug && row.name ? { slug: row.slug, name: row.name } : null,
+  }));
 }

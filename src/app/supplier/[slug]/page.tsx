@@ -9,6 +9,8 @@ import { Card, CardTitle, SectionHeader } from "@/components/ui/Section";
 import { getDb } from "@/lib/db/client";
 import { AnalyticsBusinessIdentity } from "@/features/analytics/AnalyticsBusinessIdentity";
 import { manageTokenMatchesBusinessSlug } from "@/features/businesses/access";
+import { ManageLinkCard } from "@/features/businesses/ManageLinkCard";
+import { manageLinkUrl } from "@/features/businesses/manage-link";
 import { getBusinessValueSummary } from "@/features/businesses/value";
 import { ActionCentre } from "@/features/notifications/ActionCentre";
 import { NotificationSettings } from "@/features/notifications/NotificationSettings";
@@ -237,6 +239,18 @@ export default async function BusinessOverviewPage({
           </ul>
         )}
       </section>
+
+      {/* The merchant's way back in. Built from the token they already
+          presented — never re-read from the database (M10.2A). */}
+      {canManage && t ? (
+        <ManageLinkCard
+          businessName={business.name}
+          manageUrl={manageLinkUrl(slug, t)}
+          contactPhone={
+            business.contactChannelType === "whatsapp" ? business.contactChannelValue : null
+          }
+        />
+      ) : null}
 
       {canManage && t ? <NotificationSettings authQuery={`businessSlug=${slug}&t=${t}`} /> : null}
     </div>

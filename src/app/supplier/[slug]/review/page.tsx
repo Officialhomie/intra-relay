@@ -11,8 +11,11 @@ import { getDb } from "@/lib/db/client";
 import { shortenEvmAddress } from "@/lib/address";
 import { formatDateTime, relativeTime } from "@/lib/format";
 import { manageTokenMatchesBusinessSlug } from "@/features/businesses/access";
+import { buildBusinessCapabilities } from "@/features/routes/capability";
 import { PRICE_FRESHNESS_MAX_AGE_DAYS, routeFreshness } from "@/features/routes/freshness";
 import { getSupplierWorkspace } from "@/features/routes/reads";
+import { AgentProfilePreview } from "@/features/supplier/AgentProfilePreview";
+import { EditBusinessDetailsForm } from "@/features/supplier/EditBusinessDetailsForm";
 import { PauseRouteButton } from "@/features/supplier/PauseRouteButton";
 import { SupplierNav } from "@/features/supplier/SupplierNav";
 
@@ -37,16 +40,21 @@ export default async function SupplierReviewPage({
   const { t } = await searchParams;
 
   const db = await getDb();
-  const canManage = t ? await manageTokenMatchesBusinessSlug(db, slug, t) : false;
   // Contact details and payout address are private to the business owner — a
   // wrong or missing manage token must fail closed, not render a "read-only"
-  // view of someone else's business details.
+  // view of someone else's business details. Checking the token's presence
+  // first also narrows it for the edit form, which cannot work without one.
+  if (!t) notFound();
+  const canManage = await manageTokenMatchesBusinessSlug(db, slug, t);
   if (!canManage) notFound();
   const workspace = await getSupplierWorkspace(db, slug);
   if (!workspace) notFound();
 
   const { business, routes } = workspace;
   const addressVerified = business.verifiedByOperatorAt !== null;
+  // The same document `/v1/<slug>/capabilities` serves to agents — the
+  // merchant preview is a rewording of it, never a second construction of it.
+  const capabilities = await buildBusinessCapabilities(db, slug);
 
   return (
     <div className="space-y-8">
@@ -71,12 +79,24 @@ export default async function SupplierReviewPage({
 
       <Card>
         <CardTitle>Business details</CardTitle>
+        {/* The four fields a merchant may correct themselves (M10.2B). */}
+        <EditBusinessDetailsForm
+          slug={slug}
+          manageToken={t}
+          channelLabel={CHANNEL_LABEL[business.contactChannelType] ?? business.contactChannelType}
+          businessName={business.name}
+          contactName={business.contactName}
+          contactChannelValue={business.contactChannelValue}
+          city={business.city}
+        />
+      </Card>
+
+      <Card>
+        <CardTitle>Checked by your operator</CardTitle>
+        <p className="mt-1 text-sm text-muted">
+          These are recorded by Intra and cannot be changed from here.
+        </p>
         <DataList className="mt-4">
-          <DataRow label="Authorised contact">{business.contactName}</DataRow>
-          <DataRow label="Order channel">
-            {CHANNEL_LABEL[business.contactChannelType] ?? business.contactChannelType} ·{" "}
-            {business.contactChannelValue}
-          </DataRow>
           <DataRow label="Quote currency">{business.quoteCurrency}</DataRow>
           <DataRow
             label="Public payout address"
@@ -182,13 +202,12 @@ export default async function SupplierReviewPage({
                 </DataList>
 
                 <div>
+                  {/* What a buyer's agent must send to get a quote. The wider
+                      "how buyers find you" view is derived from the capability
+                      document itself, below (M10.2C). */}
                   <p className="text-xs font-medium uppercase tracking-wide text-subtle">
-                    What agents can see when this route is Active
+                    What a customer has to tell you
                   </p>
-                  <ul className="mt-2 space-y-1 text-xs text-muted">
-                    <li>Your business name, category, and city/country.</li>
-                    <li>This service, its description, and the details an agent must send:</li>
-                  </ul>
                   <ul className="mt-1.5 flex flex-wrap gap-2">
                     {fields.map((field) => (
                       <li
@@ -199,14 +218,6 @@ export default async function SupplierReviewPage({
                         {field.required ? "" : " (optional)"}
                       </li>
                     ))}
-                  </ul>
-                  <ul className="mt-2 space-y-1 text-xs text-muted">
-                    <li>Response SLA and whether a query fee applies.</li>
-                    <li>
-                      Your{" "}
-                      {CHANNEL_LABEL[business.contactChannelType] ?? business.contactChannelType}{" "}
-                      order contact — only while the route is Active, verified, and fresh.
-                    </li>
                   </ul>
                 </div>
 
@@ -225,6 +236,13 @@ export default async function SupplierReviewPage({
           })
         )}
       </section>
+
+      {capabilities ? (
+        <AgentProfilePreview
+          capabilities={capabilities}
+          capabilitiesHref={`/v1/${slug}/capabilities`}
+        />
+      ) : null}
     </div>
   );
 }

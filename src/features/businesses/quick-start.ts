@@ -9,6 +9,7 @@ import { pricingModelSchema } from "@/features/pricing/model";
 import { quoteCurrencySchema } from "@/features/routes/schema";
 import { getTemplateForCategory } from "@/features/routes/templates";
 
+import { manageLinkPath } from "./manage-link";
 import { findBusinessBySlug, insertBusiness } from "./repository";
 import { businessCategorySchema } from "./schema";
 
@@ -164,7 +165,7 @@ export async function quickStartBusiness(
   return {
     business,
     route,
-    manageUrl: `/supplier/${slug}?t=${business.manageToken}`,
+    manageUrl: manageLinkPath(slug, business.manageToken),
     nextStep:
       "An Intra operator checks your details before customers can reach you. You can add your opening hours, service area and payout details from your workspace in the meantime.",
   };

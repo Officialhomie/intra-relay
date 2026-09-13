@@ -2,7 +2,7 @@ import { getDb } from "@/lib/db/client";
 import { route } from "@/lib/http/handler";
 import { requireOperator } from "@/lib/http/operator";
 import { ok } from "@/lib/http/response";
-import { listOnboardingSubmissions } from "@/features/onboarding/repository";
+import { listOnboardingSubmissionsWithBusiness } from "@/features/onboarding/repository";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,9 +18,9 @@ export const dynamic = "force-dynamic";
 export const GET = route(async (request) => {
   requireOperator(request);
   const db = await getDb();
-  const submissions = await listOnboardingSubmissions(db);
+  const submissions = await listOnboardingSubmissionsWithBusiness(db);
   return ok({
-    submissions: submissions.map((s) => ({
+    submissions: submissions.map(({ submission: s, business }) => ({
       id: s.id,
       status: s.status,
       tallySubmissionId: s.tallySubmissionId,
@@ -29,6 +29,10 @@ export const GET = route(async (request) => {
       issues: s.issues ?? [],
       businessId: s.businessId,
       routeId: s.routeId,
+      /** Public identity only. The manage token is never listed — an operator
+       *  fetches one business's link at a time from the manage-link endpoint. */
+      business,
+      manageLinkEndpoint: business ? `/api/operator/businesses/${business.slug}/manage-link` : null,
       receivedAt: s.receivedAt.toISOString(),
       processedAt: s.processedAt?.toISOString() ?? null,
     })),
