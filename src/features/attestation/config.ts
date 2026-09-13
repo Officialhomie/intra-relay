@@ -17,6 +17,8 @@
  *
  * Never present mock output as a real attestation (CLAUDE.md §4.1).
  */
+import { ATTRIBUTION_TAG_RE } from "@/features/payments/adapter/config";
+
 import {
   CELO_MAINNET_CAIP2,
   CELO_MAINNET_CHAIN_ID,
@@ -50,6 +52,14 @@ export interface AttestationConfig {
   erc8004Reputation: string;
   /** True only for `celo-mainnet`. Gate every "this is real" claim on it. */
   onChain: boolean;
+  /**
+   * ERC-8021 attribution tag from official hackathon registration (the same
+   * `X402_ATTRIBUTION_TAG` the x402 and MiniPay paths read), or null when unset
+   * or malformed. Appended to the EAS call's calldata so mainnet attestation
+   * transactions are attributed. A tag cannot be added after a transaction is
+   * sent, so it must be applied at build time or not at all.
+   */
+  attributionTag: string | null;
   /** Why the mode is what it is — surfaced in the UI and the agent trace. */
   reason: string;
 }
@@ -71,6 +81,8 @@ function readNetworkEnv(env: NodeJS.ProcessEnv): NetworkEnv {
 export function readAttestationConfig(env: NodeJS.ProcessEnv = process.env): AttestationConfig {
   const networkEnv = readNetworkEnv(env);
   const hasSigner = Boolean(env.ATTESTATION_SIGNER_KEY?.trim());
+  const rawTag = env.X402_ATTRIBUTION_TAG?.trim();
+  const attributionTag = rawTag && ATTRIBUTION_TAG_RE.test(rawTag) ? rawTag : null;
 
   const mock = (reason: string): AttestationConfig => ({
     networkEnv,
@@ -83,6 +95,7 @@ export function readAttestationConfig(env: NodeJS.ProcessEnv = process.env): Att
     erc8004Identity: "",
     erc8004Reputation: "",
     onChain: false,
+    attributionTag,
     reason,
   });
 
@@ -110,6 +123,7 @@ export function readAttestationConfig(env: NodeJS.ProcessEnv = process.env): Att
     erc8004Identity: env.ERC8004_IDENTITY?.trim() || ERC8004_CONTRACTS.identity,
     erc8004Reputation: env.ERC8004_REPUTATION?.trim() || ERC8004_CONTRACTS.reputation,
     onChain: true,
+    attributionTag,
     reason: "NETWORK_ENV is production with a signer configured. Attestations are real.",
   };
 }

@@ -1,4 +1,5 @@
-import { keccak256, encodePacked, type Hex } from "viem";
+import { toDataSuffix } from "@celo/attribution-tags";
+import { concat, keccak256, encodePacked, type Hex } from "viem";
 
 import { readAttestationConfig, type AttestationConfig } from "./config";
 import {
@@ -129,6 +130,19 @@ export class MockEasWriter implements EasWriter {
   }
 }
 
+/**
+ * Appends the ERC-8021 attribution suffix to an encoded call, or returns the
+ * call unchanged when no tag is configured.
+ *
+ * Pure and exported so the suffix rule can be tested without a chain: the tag
+ * must be a strict suffix, the original calldata must survive byte-for-byte,
+ * and an absent tag must change nothing at all.
+ */
+export function appendAttributionSuffix(callData: Hex, tag: string | null): Hex {
+  if (!tag) return callData;
+  return concat([callData, toDataSuffix(tag)]);
+}
+
 /** Minimal EAS ABI — only `attest`. We deploy and modify nothing (ADR-018). */
 export const EAS_ATTEST_ABI = [
   {
@@ -239,7 +253,7 @@ export class RealEasWriter implements EasWriter {
    */
   private async clients() {
     const [
-      { createWalletClient, createPublicClient, http, getAddress },
+      { createWalletClient, createPublicClient, http, getAddress, encodeFunctionData },
       { privateKeyToAccount },
       { celo },
     ] = await Promise.all([import("viem"), import("viem/accounts"), import("viem/chains")]);
@@ -250,10 +264,34 @@ export class RealEasWriter implements EasWriter {
     const transport = http(this.config.rpcUrl);
     return {
       getAddress,
+      encodeFunctionData,
       account,
       wallet: createWalletClient({ account, chain: celo, transport }),
       publicClient: createPublicClient({ chain: celo, transport }),
     };
+  }
+
+  /**
+   * Sends pre-encoded EAS calldata, appending the ERC-8021 attribution suffix
+   * when one is configured.
+   *
+   * This exists instead of `writeContract` for exactly one reason: `writeContract`
+   * owns the calldata it builds and offers no way to append to it. The suffix has
+   * to be present when the transaction is signed — a tag cannot be added to a
+   * transaction after it is sent — so callers encode the call themselves (with
+   * their own `as const` ABI, so viem still type-checks the arguments) and hand
+   * the bytes here.
+   *
+   * Appending is safe because the ABI decoder reads only the arguments it was
+   * told to expect and ignores trailing bytes, so the EAS call does exactly what
+   * it did untagged. If that ever ceased to hold, gas estimation inside
+   * `sendTransaction` would revert and this would throw rather than broadcast a
+   * malformed attestation.
+   */
+  private async sendTagged(to: Hex, callData: Hex): Promise<Hex> {
+    const { wallet } = await this.clients();
+    const data = appendAttributionSuffix(callData, this.config.attributionTag);
+    return wallet.sendTransaction({ to, data, value: 0n });
   }
 
   /** Extracts the returned `bytes32` UID from an `attest`/`attestByDelegation` receipt. */
@@ -279,26 +317,28 @@ export class RealEasWriter implements EasWriter {
 
   async attestCommitment(input: CommitmentAttestationInput): Promise<AttestationWriteResult> {
     const encodedData = encodeCommitmentData(input.data);
-    const { getAddress, wallet, publicClient } = await this.clients();
+    const { getAddress, encodeFunctionData, publicClient } = await this.clients();
 
-    const txHash = await wallet.writeContract({
-      address: getAddress(this.config.eas) as Hex,
-      abi: EAS_ATTEST_ABI,
-      functionName: "attest",
-      args: [
-        {
-          schema: COMMITMENT_SCHEMA_UID,
-          data: {
-            recipient: getAddress(input.recipient) as Hex,
-            expirationTime: input.expirationTime,
-            revocable: true,
-            refUID: `0x${"0".repeat(64)}` as Hex,
-            data: encodedData,
-            value: 0n,
+    const txHash = await this.sendTagged(
+      getAddress(this.config.eas) as Hex,
+      encodeFunctionData({
+        abi: EAS_ATTEST_ABI,
+        functionName: "attest",
+        args: [
+          {
+            schema: COMMITMENT_SCHEMA_UID,
+            data: {
+              recipient: getAddress(input.recipient) as Hex,
+              expirationTime: input.expirationTime,
+              revocable: true,
+              refUID: `0x${"0".repeat(64)}` as Hex,
+              data: encodedData,
+              value: 0n,
+            },
           },
-        },
-      ],
-    });
+        ],
+      }),
+    );
 
     // The UID is the attest() return value; read it back from the receipt
     // rather than guessing, so a stored UID is always one the chain agrees with.
@@ -329,30 +369,32 @@ export class RealEasWriter implements EasWriter {
    * with `attestCommitment`, never the attester.
    */
   async attestHandoverDelegated(input: DelegatedAttestationInput): Promise<AttestationWriteResult> {
-    const { getAddress, wallet, publicClient } = await this.clients();
+    const { getAddress, encodeFunctionData, publicClient } = await this.clients();
     const { message, signature } = input;
 
-    const txHash = await wallet.writeContract({
-      address: getAddress(this.config.eas) as Hex,
-      abi: EAS_ATTEST_BY_DELEGATION_ABI,
-      functionName: "attestByDelegation",
-      args: [
-        {
-          schema: message.schema,
-          data: {
-            recipient: getAddress(message.recipient) as Hex,
-            expirationTime: message.expirationTime,
-            revocable: message.revocable,
-            refUID: message.refUID,
-            data: message.data,
-            value: message.value,
+    const txHash = await this.sendTagged(
+      getAddress(this.config.eas) as Hex,
+      encodeFunctionData({
+        abi: EAS_ATTEST_BY_DELEGATION_ABI,
+        functionName: "attestByDelegation",
+        args: [
+          {
+            schema: message.schema,
+            data: {
+              recipient: getAddress(message.recipient) as Hex,
+              expirationTime: message.expirationTime,
+              revocable: message.revocable,
+              refUID: message.refUID,
+              data: message.data,
+              value: message.value,
+            },
+            signature: { v: signature.v, r: signature.r, s: signature.s },
+            attester: getAddress(message.attester) as Hex,
+            deadline: message.deadline,
           },
-          signature: { v: signature.v, r: signature.r, s: signature.s },
-          attester: getAddress(message.attester) as Hex,
-          deadline: message.deadline,
-        },
-      ],
-    });
+        ],
+      }),
+    );
 
     const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
     const uid = this.readUidFromReceipt(txHash, receipt);

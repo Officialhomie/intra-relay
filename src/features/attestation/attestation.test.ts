@@ -1,7 +1,9 @@
+import { toDataSuffix } from "@celo/attribution-tags";
 import { decodeAbiParameters, parseAbiParameters, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it } from "vitest";
 
+import { readAttestationConfig } from "./config";
 import {
   computeHandoverCommit,
   handoverCodeMatches,
@@ -10,6 +12,7 @@ import {
   normalizeHandoverCode,
   verifyHandoverReveal,
 } from "./handover";
+import { appendAttributionSuffix } from "./writer";
 import {
   ATTESTATION_OUTCOMES,
   buildDelegatedAttestTypedData,
@@ -264,5 +267,56 @@ describe("delegated attestation signing (M9 §2, §19) — pure local crypto, no
     expect(await verifyDelegatedAttestSignature(message, signature, CHAIN_ID, otherContract)).toBe(
       false,
     );
+  });
+});
+
+describe("ERC-8021 attribution on mainnet attestations (hackathon registration)", () => {
+  const TAG = "celo_c237d3b3be9f";
+  // A real encoded EAS `attest` call is irrelevant to the suffix rule — what
+  // matters is that arbitrary calldata survives untouched with the tag behind it.
+  const CALLDATA = "0xdeadbeef" as const;
+
+  it("leaves calldata byte-for-byte unchanged when no tag is configured", () => {
+    expect(appendAttributionSuffix(CALLDATA, null)).toBe(CALLDATA);
+  });
+
+  it("appends the tag as a strict suffix, preserving the original call", () => {
+    const tagged = appendAttributionSuffix(CALLDATA, TAG);
+    expect(tagged.startsWith(CALLDATA)).toBe(true);
+    expect(tagged.length).toBeGreaterThan(CALLDATA.length);
+    expect(tagged.slice(0, CALLDATA.length)).toBe(CALLDATA);
+  });
+
+  it("produces a suffix that decodes back to the same tag", () => {
+    const tagged = appendAttributionSuffix(CALLDATA, TAG);
+    const suffix = `0x${tagged.slice(CALLDATA.length)}`;
+    expect(suffix).toBe(toDataSuffix(TAG));
+  });
+
+  it("reads a valid tag from the environment into the attestation config", () => {
+    const cfg = readAttestationConfig({
+      NETWORK_ENV: "production",
+      ATTESTATION_SIGNER_KEY: `0x${"1".repeat(64)}`,
+      X402_ATTRIBUTION_TAG: TAG,
+    } as NodeJS.ProcessEnv);
+    expect(cfg.attributionTag).toBe(TAG);
+    expect(cfg.onChain).toBe(true);
+  });
+
+  it("ignores a malformed tag rather than sending a bad suffix", () => {
+    const cfg = readAttestationConfig({
+      NETWORK_ENV: "production",
+      ATTESTATION_SIGNER_KEY: `0x${"1".repeat(64)}`,
+      X402_ATTRIBUTION_TAG: "not-a-celo-tag",
+    } as NodeJS.ProcessEnv);
+    expect(cfg.attributionTag).toBeNull();
+  });
+
+  it("carries no tag when the environment has none", () => {
+    const cfg = readAttestationConfig({
+      NETWORK_ENV: "production",
+      ATTESTATION_SIGNER_KEY: `0x${"1".repeat(64)}`,
+    } as NodeJS.ProcessEnv);
+    expect(cfg.attributionTag).toBeNull();
   });
 });
