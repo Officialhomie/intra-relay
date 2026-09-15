@@ -99,6 +99,19 @@ function parseDeliveryArea(text: string): string | null {
   return match ? match[1].trim() : null;
 }
 
+/**
+ * Mirrors `intent/extract.ts`'s private `readFulfillment` regex exactly
+ * (M10.9). Duplicated rather than imported: `agent/` and `intent/` are
+ * deliberately independent layers (M10.7 §16.1) — `BuyerIntent`'s parser must
+ * keep working standalone, with no model key and no conversation layer, per
+ * ADR-019. This is a 2-line pure classifier, not a second intent system.
+ */
+function parseFulfillmentPreference(text: string): "pickup" | "delivery" | null {
+  if (/\b(deliver(?:ed|y)?|bring it|send it|dispatch)\b/i.test(text)) return "delivery";
+  if (/\b(pick\s?up|collect|come and get|i'?ll come)\b/i.test(text)) return "pickup";
+  return null;
+}
+
 export function parseBuyerIntent(
   raw: string,
   options: { now?: Date; maxQueryFeeUsd?: number } = {},
@@ -113,6 +126,7 @@ export function parseBuyerIntent(
     size: parseSize(raw),
     colour: parseColour(raw),
     deliveryArea: parseDeliveryArea(raw),
+    fulfillmentPreference: parseFulfillmentPreference(raw),
     // A caller can lower the budget but never raise it past the hard product cap.
     maxQueryFeeUsd: Math.min(requestedBudget, PAYMENT_MAX_FEE_USD),
   };
@@ -132,6 +146,7 @@ export interface BriefCorrection {
   /** A calendar date (`YYYY-MM-DD`) from a date input, not a phrase. */
   deadline?: string | null;
   deliveryArea?: string | null;
+  fulfillmentPreference?: "pickup" | "delivery" | null;
 }
 
 /** End of the given calendar day, in the server's local zone (as `parseDeadline` does). */
@@ -177,6 +192,9 @@ export function applyBriefCorrection(
   }
   if (correction.deadline !== undefined) {
     set("deadline", correction.deadline ? endOfDay(correction.deadline) : null, "deadline");
+  }
+  if (correction.fulfillmentPreference !== undefined) {
+    set("fulfillmentPreference", correction.fulfillmentPreference ?? null, "fulfilment preference");
   }
 
   return { intent: next, changed };

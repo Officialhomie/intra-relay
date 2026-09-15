@@ -134,6 +134,11 @@ describe("other categories are still classified (marketplace not built)", () => 
     expect(r.optimization).toBe("CHEAPEST");
   });
 
+  it("bakery words ('pastries', 'cakes') also read as the food category", () => {
+    expect(read("Pastries for an event").extracted.category).toBe("food");
+    expect(read("cakes").extracted.category).toBe("food");
+  });
+
   it("'looking for a clean used iPhone 12 under 200k' reads condition + budget", () => {
     const r = read("looking for a clean used iPhone 12 under 200k");
     expect(r.commercial).toBe(true);

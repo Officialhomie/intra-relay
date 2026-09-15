@@ -143,6 +143,25 @@ export const quoteRoutes = pgTable(
     priceAmount: numeric("price_amount", { precision: 14, scale: 2 }),
     /** What the published amount buys, e.g. "per page". Null for a flat job price. */
     priceUnit: text("price_unit"),
+    /**
+     * Discovery-relevant fulfilment/location facts (M10.8), promoted from Tally
+     * onboarding (`onboarding/normalize.ts`) instead of being discarded into
+     * `onboarding_submissions.normalizedData` (M10.3 G4). Free text / tri-state
+     * booleans, deliberately not geocoded or normalised into an enum — null
+     * always means "never declared", never coerced to false or a guessed area
+     * (M10.7 §2, §9). `serviceArea` is areas served, e.g. "Yaba, Akoka".
+     */
+    serviceArea: text("service_area"),
+    pickupAvailable: boolean("pickup_available"),
+    deliveryAvailable: boolean("delivery_available"),
+    /**
+     * How long this business typically takes to COMPLETE a job once accepted —
+     * NOT the same fact as `responseSlaMinutes` below, which is how fast they
+     * reply WITH a quote (M10.7 §11 explicitly warns against conflating the
+     * two). Free text, e.g. "2 working days"; parsed on read via
+     * `quotes/normalize.ts`'s `normalizeTurnaround`, never stored pre-parsed.
+     */
+    typicalTurnaround: text("typical_turnaround"),
     payoutAddress: text("payout_address").notNull(),
     endpoint: text("endpoint").notNull(),
     status: routeStatusEnum("status").notNull().default("DRAFT"),
@@ -632,6 +651,29 @@ export const onboardingSubmissions = pgTable(
   },
   (table) => [index("onboarding_submissions_status_idx").on(table.status)],
 );
+
+/**
+ * Stateful buyer conversation (M10.4, ADR-025).
+ *
+ * Durable replacement for the earlier in-memory `globalThis` store — a
+ * conversation must survive a fresh serverless instance, not just a warm one.
+ * One row per buyer session (`sessionId` doubles as the primary key: a
+ * session has exactly one live conversation). `intent` is the canonical,
+ * accumulated `UserIntent`; `turns` is capped to the most recent few dozen by
+ * the application before every write, never grown unbounded. No separate
+ * "summary" column: a compact summary is derived on read from `intent` via
+ * the existing `summariseIntent()`, so there is nothing duplicated to persist.
+ */
+export const conversationSessions = pgTable("conversation_sessions", {
+  sessionId: text("session_id").primaryKey(),
+  intent: jsonb("intent").$type<Record<string, unknown>>().notNull(),
+  lastIntentKind: text("last_intent_kind"),
+  turns: jsonb("turns")
+    .$type<{ role: "user" | "assistant"; text: string; at: string }[]>()
+    .notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
 
 export const businessesRelations = relations(businesses, ({ many }) => ({
   routes: many(quoteRoutes),

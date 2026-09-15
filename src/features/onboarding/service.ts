@@ -5,11 +5,13 @@ import { appendAuditEvent } from "@/features/audit/repository";
 import { normalizeEvmAddress, EVM_ADDRESS_REGEX } from "@/lib/address";
 import { OFF_CHAIN_ASSET } from "@/features/commitments/status";
 import { insertBusiness, findBusinessById } from "@/features/businesses/repository";
+import { FLYER_PRINTING_INPUT_FIELDS } from "@/features/routes/flyer-printing";
 import { createRoute } from "@/features/routes/service";
-import { findRouteById } from "@/features/routes/repository";
+import { findRouteById, updateRoute } from "@/features/routes/repository";
 import { forwardServerAnalyticsEvent } from "@/features/analytics/server";
 
 import { normalizeTallySubmission, type NormalizedOnboarding } from "./normalize";
+import { mapServicesToProductTypes, resolvePricingModel } from "./printing-mapping";
 import { insertOrGetOnboardingSubmission, updateOnboardingSubmission } from "./repository";
 import type { TallyWebhookPayload } from "./tally-schema";
 import { validateNormalizedOnboarding } from "./validate";
@@ -55,6 +57,10 @@ async function createBusinessFromOnboarding(
     contactName: data.ownerContactName!.trim(),
     contactChannelType: "whatsapp",
     contactChannelValue: data.whatsappNumber!.trim(),
+    // Not a limitation to remove — the Tally form itself is printing-only
+    // (M10.3/M10.6 audit) and asks nothing that could tell us a different
+    // category, so there is no "correct" value to derive here. This stays a
+    // literal until a form for another category exists to derive it from.
     category: "printing",
     city: data.city!.trim(),
     country: "Nigeria",
@@ -76,6 +82,87 @@ async function createBusinessFromOnboarding(
   });
 
   return business;
+}
+
+/**
+ * Fold the submitted printing services into the route this business just got
+ * (M10.6, items 6–8). The route stays the single, existing `flyer-printing`
+ * template/slug — still one parameterised printing route, never one per
+ * product, and still discoverable exactly the way it always was. This only
+ * enriches what it declares it can take:
+ *
+ * - `productType` is added to the route's declarative `inputSchema` with
+ *   `options` set to the business's own submitted product types — the
+ *   existing generic descriptor already round-trips an `options` array
+ *   (`routes/schema.ts`), and the actual buyer-facing validator
+ *   (`flyerPrintingInputSchema`) already accepts `productType` as optional
+ *   (M10.6), so this is never a decorative field an agent could be misled by.
+ * - `pricingModel` is set to the one the business actually stated, when every
+ *   submitted service agreed on it; otherwise it stays the conservative
+ *   `QUOTE_REQUIRED` and the disagreement is flagged as a warning for an
+ *   operator — never a guess at which price was the "real" one.
+ * - A service label that is not one of the 14 known products (the free-text
+ *   "Other" answer) is never silently dropped: it is excluded from
+ *   `productType`'s options and flagged as a warning, exactly like an
+ *   ambiguous price already was before this milestone.
+ * - `serviceArea`, `pickupAvailable`, `deliveryAvailable`, and `turnaround`
+ *   (M10.8) are promoted onto the route as-is — a direct passthrough of what
+ *   `normalize.ts` already read from Tally, never re-derived or guessed. Each
+ *   is `null` when the business never answered that question (Tally's own
+ *   boolean questions already normalize a missing/unrecognized answer to
+ *   `null`, not `false` — see `normalize.ts`'s `pickupText ? ... : null`), and
+ *   that `null` is promoted unchanged so a missing answer reads as UNKNOWN,
+ *   never as a fabricated "no" (M10.7 §2, §9; M10.8 Part E). This is what
+ *   stops the M10.3 G4 data loss: previously these four answers survived only
+ *   inside `onboarding_submissions.normalizedData` jsonb and nothing else ever
+ *   read them.
+ *
+ * The route is still `DRAFT`; nothing here touches activation.
+ */
+async function enrichPrintingRoute(
+  db: Database,
+  route: QuoteRouteRow,
+  data: NormalizedOnboarding,
+): Promise<{ route: QuoteRouteRow; issues: OnboardingIssue[] }> {
+  const issues: OnboardingIssue[] = [];
+
+  const { productTypes, unmapped } = mapServicesToProductTypes(data.services);
+  if (unmapped.length > 0) {
+    issues.push({
+      field: "services",
+      message: `${unmapped.length === 1 ? "This service was" : "These services were"} not recognised as a supported printing product and need an operator to place ${unmapped.length === 1 ? "it" : "them"}: ${unmapped.join(", ")}.`,
+    });
+  }
+
+  const { model: pricingModel, mixed } = resolvePricingModel(data.services);
+  if (mixed) {
+    issues.push({
+      field: "services",
+      message:
+        'The submitted services use different pricing models, so the route was set to "priced per job" rather than guessing one. An operator should review the individual prices in the submission.',
+    });
+  }
+
+  const inputSchema = [
+    ...FLYER_PRINTING_INPUT_FIELDS,
+    {
+      key: "productType",
+      label: "Which printing product do you need?",
+      example: productTypes[0] ?? "flyers",
+      required: false,
+      options: productTypes,
+    },
+  ];
+
+  const updated = await updateRoute(db, route.id, {
+    inputSchema,
+    pricingModel,
+    serviceArea: data.serviceArea,
+    pickupAvailable: data.pickupAvailable,
+    deliveryAvailable: data.deliveryAvailable,
+    typicalTurnaround: data.turnaround,
+  });
+  return { route: updated, issues };
 }
 
 /**
@@ -175,13 +262,17 @@ export async function processTallySubmission(
   });
 
   const business = await createBusinessFromOnboarding(db, data, slug!);
-  // Printing is the only live category template today (M10.1 audit) — the
-  // route resolves to it via the business's own category, never hardcoded here.
-  const route = await createRoute(db, business.slug, {});
+  // Printing is the only live category template today (M10.1/M10.3 audit) —
+  // the route resolves to it via the business's own category, never
+  // hardcoded here. The route is then enriched with the actual submitted
+  // product types and pricing (M10.6) — still the same single route.
+  const draftRoute = await createRoute(db, business.slug, {});
+  const { route, issues: enrichmentIssues } = await enrichPrintingRoute(db, draftRoute, data);
+  const finalIssues = [...allIssues, ...enrichmentIssues];
 
   await updateOnboardingSubmission(db, submission.id, {
     normalizedData: data,
-    issues: allIssues.length > 0 ? allIssues : null,
+    issues: finalIssues.length > 0 ? finalIssues : null,
     status: "PROCESSED",
     businessId: business.id,
     routeId: route.id,
@@ -192,15 +283,15 @@ export async function processTallySubmission(
     type: "onboarding.created",
     businessId: business.id,
     routeId: route.id,
-    data: { submissionId: submission.id, warningCount: warnings.length },
+    data: { submissionId: submission.id, warningCount: warnings.length + enrichmentIssues.length },
   });
   forwardServerAnalyticsEvent({
     event: "onboarding_created",
     actorKey: submission.id,
     role: "business",
-    props: { warning_count: warnings.length },
+    props: { warning_count: warnings.length + enrichmentIssues.length },
     insertId: `onboarding_created:${submission.id}`,
   });
 
-  return { status: "PROCESSED", submissionId: submission.id, business, route, issues: allIssues };
+  return { status: "PROCESSED", submissionId: submission.id, business, route, issues: finalIssues };
 }
