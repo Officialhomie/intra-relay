@@ -922,3 +922,82 @@ scorecard}`. New `NEXT_PUBLIC_AMPLITUDE_API_KEY` (client) and `AMPLITUDE_API_KEY
   separate and manual), §6.2 (x402 phase already started; `viem` already
   admitted), BR-001 (Intra is evaluator, never custodian — the transfer is
   wallet→business direct).
+
+---
+
+## ADR-025 — Stateful buyer conversation: durable canonical intent, deterministic-first with a bounded Haiku fallback
+
+- **Date:** 2026-09-13
+- **Status:** Accepted (M10.4; extends ADR-019 — no new model provider, no new
+  agent framework)
+- **Context:** A real conversation ("Pastries for an event" → "cakes") looped
+  on a generic reply forever. Root cause was a vocabulary gap in
+  `extract.ts`'s `CATEGORY_KEYWORDS` (fixed directly — bakery words added to
+  the `food` regex), **not** a state-tracking gap: `mergeUserIntent`
+  (`memory.ts`) already accumulated a brief correctly across turns before this
+  milestone. Two real gaps remained: (1) the deterministic keyword lists can
+  never cover every phrasing, and nothing existed to interpret an unrecognised
+  word without inventing a category; (2) conversation state lived in a
+  `globalThis` Map — non-persistent by CLAUDE.md §4.4's original design, but a
+  genuine liability once a request can land on a fresh serverless instance
+  with no memory of the last one (the same class of bug already hit once in
+  `run/service.ts`, phase D).
+- **Decision:**
+  - **`UserIntent` stays the one canonical state.** No competing model was
+    introduced. `mergeUserIntent` keeps its "later explicit value wins,
+    absent field untouched" rule and now additionally returns `corrected` — the
+    strict subset of changed fields that overwrote an already-defined value —
+    so a contradiction is detected and reported, never silently combined,
+    without changing what the merge actually does.
+  - **Conversation state moved into the same Postgres/PGlite database as
+    everything else** (one new table, `conversation_sessions`: `sessionId`
+    primary key, `intent` jsonb, `turns` jsonb capped at 40, timestamps). No
+    Redis, no vector store, no second database. No separate summary column —
+    a compact summary is derived on read from the existing `summariseIntent()`
+    rather than persisting a redundant second copy of the same information.
+    `src/features/intent/repository.ts` is the storage backend;
+    `src/features/intent/memory.ts` keeps the staleness (1h TTL) and turn-cap
+    rules on top of it, unchanged in effect from the in-memory version it
+    replaces.
+  - **Deterministic extraction still runs first, always, unmodified in
+    contract.** `classify.ts` / `extract.ts` keep their pure, synchronous
+    signatures — a decision made explicitly to avoid rewriting 100+ passing
+    unit tests for a component that was never the bug.
+  - **The Haiku fallback is a new, narrow, additive path** —
+    `src/features/intent/assist.ts` + `src/features/intent/model/{schema,prompt}.ts`
+    — reusing ADR-019's existing provider plumbing verbatim
+    (`resolveModelProvider`, `ModelProvider.generate`, `DEFAULT_MODEL_LIMITS`,
+    forced-tool-call JSON validation, the same `claude-haiku-4-5-20251001`
+    default). A new `ModelPurpose` value (`classify_conversation`) was added to
+    the existing closed union; no new env var, no new provider, no agent
+    framework. It is called **only** when the deterministic layer found no
+    category at all — from any of its three distinct "I don't know" shapes
+    (a bare unrecognised word, a request/price phrase naming nothing
+    recognised, or a discovery/comparison phrase `resolveDomain` rejects) —
+    and never once a category is already known, so a brief in progress never
+    reaches the model. On any failure (no provider, timeout, bad JSON, schema
+    mismatch, an "unclear" classification) it returns `null` and the caller's
+    existing deterministic reply is the answer, unchanged from before this
+    milestone.
+  - **The model never decides domain truth.** It returns, at most, a
+    `category` (constrained by a Zod enum built from `domain.ts`'s own
+    registry, never a second hand-written list) and a `service` string.
+    `routeReading` and `resolveDomain` — both untouched — are the only code
+    that decides availability, eligibility, or what happens next. The prompt
+    context is deliberately compact: the accumulated `UserIntent`, its
+    existing one-line `summariseIntent()` summary, and the last 4 turns —
+    never the full transcript, so a long conversation never grows the prompt.
+- **Consequences:** New migration `0013_*` (`conversation_sessions`).
+  `handleConversationTurn` / `resetConversation` / `getConversation` /
+  `recordTurn` / `clearConversation` are now `async` and take `db` as their
+  first argument, matching every other repository-backed feature in the repo;
+  `POST /api/conversation` threads its existing `db` through instead of
+  resolving a second one. `conversation.test.ts` and `memory.test.ts` became
+  integration tests against a fresh embedded PGlite per test (the same
+  pattern every other DB-backed test already uses) rather than unit tests
+  against a `globalThis` map; behaviour asserted is identical plus the new
+  `corrected` field and the assisted-fallback scenarios.
+- **Requirements:** milestone 10.4 §1–§15; CLAUDE.md §4.1 (no invented
+  category, price, or provider), §6.2 (Anthropic-only, no new provider, no
+  agent framework — upheld), ADR-019 (upheld, extended with one new
+  `ModelPurpose`).

@@ -107,6 +107,8 @@ function defaultReply(request: ModelGenerateRequest<unknown>): unknown {
         requoteBusinessSlugs: [],
         reason: "No further providers are worth a fee right now.",
       };
+    case "classify_conversation":
+      return { category: "unclear", service: null, confidence: "low", clarificationQuestion: null };
     default:
       return {};
   }

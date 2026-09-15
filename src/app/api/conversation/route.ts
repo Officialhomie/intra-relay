@@ -51,18 +51,19 @@ export const POST = route(async (request) => {
   const sessionId = requireSessionId(request, url);
   const body = await parseJsonBody(request, bodySchema);
 
+  const db = await getDb();
+
   if (body.reset) {
-    resetConversation(sessionId);
+    await resetConversation(db, sessionId);
     return ok({ reset: true, message: GREETING });
   }
   const message = body.message;
   if (!message) throw new HttpError(422, "MESSAGE_REQUIRED", "Say what you need.");
 
-  const db = await getDb();
   const openTasks = await listSessionTasksInStates(db, sessionId, OPEN_TRANSACTION_STATES);
 
-  const firstTurn = getConversation(sessionId) === null;
-  const reply = handleConversationTurn({
+  const firstTurn = (await getConversation(db, sessionId)) === null;
+  const reply = await handleConversationTurn(db, {
     sessionId,
     message,
     hasOpenTransaction: openTasks.length > 0,

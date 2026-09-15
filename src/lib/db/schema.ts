@@ -633,6 +633,29 @@ export const onboardingSubmissions = pgTable(
   (table) => [index("onboarding_submissions_status_idx").on(table.status)],
 );
 
+/**
+ * Stateful buyer conversation (M10.4, ADR-025).
+ *
+ * Durable replacement for the earlier in-memory `globalThis` store — a
+ * conversation must survive a fresh serverless instance, not just a warm one.
+ * One row per buyer session (`sessionId` doubles as the primary key: a
+ * session has exactly one live conversation). `intent` is the canonical,
+ * accumulated `UserIntent`; `turns` is capped to the most recent few dozen by
+ * the application before every write, never grown unbounded. No separate
+ * "summary" column: a compact summary is derived on read from `intent` via
+ * the existing `summariseIntent()`, so there is nothing duplicated to persist.
+ */
+export const conversationSessions = pgTable("conversation_sessions", {
+  sessionId: text("session_id").primaryKey(),
+  intent: jsonb("intent").$type<Record<string, unknown>>().notNull(),
+  lastIntentKind: text("last_intent_kind"),
+  turns: jsonb("turns")
+    .$type<{ role: "user" | "assistant"; text: string; at: string }[]>()
+    .notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
 export const businessesRelations = relations(businesses, ({ many }) => ({
   routes: many(quoteRoutes),
 }));

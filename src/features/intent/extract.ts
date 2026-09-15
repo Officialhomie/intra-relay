@@ -154,7 +154,10 @@ const CATEGORY_KEYWORDS: ReadonlyArray<{ re: RegExp; category: string; service?:
   },
   { re: /\b(poster|banner|business card)s?\b/i, category: "printing" },
   { re: /\b(design|graphic|logo|artwork)\b/i, category: "design" },
-  { re: /\b(food|dinner|lunch|eat|hungry|restaurant|jollof|catering|meal)\b/i, category: "food" },
+  {
+    re: /\b(food|dinner|lunch|eat|hungry|restaurant|jollof|catering|meal|cake|cakes|pastry|pastries|bakery|baker|bake|small chops|puff\s?puff)\b/i,
+    category: "food",
+  },
   // "deliver to X" / "delivered to X" is a fulfilment instruction on another
   // brief, not a request for a delivery service — match only the service sense.
   {

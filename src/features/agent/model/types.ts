@@ -39,7 +39,8 @@ export const DEFAULT_MODEL_LIMITS: ModelCallLimits = {
   timeoutMs: 12_000,
 };
 
-export type ModelPurpose = "understand_intent" | "plan_quotes" | "select_offer" | "replan";
+export type ModelPurpose =
+  "understand_intent" | "plan_quotes" | "select_offer" | "replan" | "classify_conversation";
 
 export interface ModelGenerateRequest<T> {
   purpose: ModelPurpose;
