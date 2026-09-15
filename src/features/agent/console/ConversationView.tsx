@@ -2,7 +2,9 @@
 
 import { useRef, useState } from "react";
 
-import { ArrowUp, Info, RotateCcw } from "lucide-react";
+import Link from "next/link";
+
+import { ArrowUp, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { useAnalytics } from "@/features/analytics/useAnalytics";
@@ -11,6 +13,7 @@ import { ApiError, apiRequest } from "@/lib/api";
 import { getSessionId } from "@/lib/session";
 
 import { AgentConsole } from "./AgentConsole";
+import { AgentWorkspaceHeader } from "./AgentWorkspaceHeader";
 import { StructuredRequestForm } from "./StructuredRequestForm";
 import type { AgentRun } from "./types";
 
@@ -84,6 +87,11 @@ export function ConversationView() {
   const [error, setError] = useState<string | null>(null);
   const [understood, setUnderstood] = useState<Understood>({});
   const [formMode, setFormMode] = useState(false);
+  // Each embedded AgentConsole polls and owns its own run state; this mirrors
+  // those updates by runId so the persistent header never falls behind what
+  // the thread below it is already showing (it would otherwise be frozen at
+  // whatever the conversation turn originally returned).
+  const [runUpdates, setRunUpdates] = useState<Record<string, AgentRun>>({});
   const endRef = useRef<HTMLDivElement | null>(null);
   const analytics = useAnalytics("buyer");
   const turnCount = useRef(0);
@@ -130,7 +138,7 @@ export function ConversationView() {
       setDraft(text);
     } finally {
       setPending(false);
-      requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "smooth" }));
+      requestAnimationFrame(() => endRef.current?.scrollIntoView?.({ behavior: "smooth" }));
     }
   }
 
@@ -196,9 +204,17 @@ export function ConversationView() {
 
   const chips = summariseUnderstanding(understood);
   const started = messages.some((m) => m.role === "you");
+  // The most recent message carrying a run is "the current work" — if a
+  // buyer starts a second, distinct request later in the same conversation,
+  // the header follows it rather than staying pinned to the first. Prefer
+  // the live-polled copy over the static one this message was created with.
+  const latestRun = [...messages].reverse().find((m) => m.run)?.run ?? null;
+  const activeRun = latestRun ? (runUpdates[latestRun.runId] ?? latestRun) : null;
 
   return (
     <div className="space-y-4">
+      <AgentWorkspaceHeader run={activeRun} />
+
       {started ? (
         <div className="flex justify-end">
           <button
@@ -229,7 +245,16 @@ export function ConversationView() {
               ) : null}
             </div>
             {message.run ? (
-              <AgentConsole key={message.run.runId} initialRun={message.run} embedded />
+              <AgentConsole
+                key={message.run.runId}
+                initialRun={message.run}
+                embedded
+                onRunChange={(updated) =>
+                  setRunUpdates((prev) =>
+                    prev[updated.runId] === updated ? prev : { ...prev, [updated.runId]: updated },
+                  )
+                }
+              />
             ) : null}
           </div>
         ))}
@@ -300,22 +325,24 @@ export function ConversationView() {
       )}
 
       {!started && !formMode ? (
-        <button
-          type="button"
-          onClick={() => setFormMode(true)}
-          className="text-sm text-muted underline underline-offset-2 hover:text-foreground"
-        >
-          Prefer a form?
-        </button>
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          <button
+            type="button"
+            onClick={() => setFormMode(true)}
+            className="text-sm text-muted underline underline-offset-2 hover:text-foreground"
+          >
+            Prefer a form?
+          </button>
+          <Link
+            href="/requests"
+            className="text-sm text-muted underline underline-offset-2 hover:text-foreground"
+          >
+            View your requests →
+          </Link>
+        </div>
       ) : null}
 
-      <p className="flex items-start gap-1.5 text-sm text-subtle">
-        <Info aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-        <span>
-          This conversation isn&apos;t saved, but any request you send is — find it anytime under
-          Your requests.
-        </span>
-      </p>
+      <p className="text-xs text-subtle">This conversation isn&apos;t saved.</p>
     </div>
   );
 }

@@ -104,6 +104,14 @@ const providerCandidateSchema = z.object({
   availability: availabilitySchema,
   freshness: freshnessSchema,
   payment: paymentSchema,
+  serviceArea: z.string().nullable(),
+  fulfillment: z
+    .object({
+      pickupAvailable: z.boolean().nullable(),
+      deliveryAvailable: z.boolean().nullable(),
+    })
+    .nullable(),
+  typicalTurnaround: z.string().nullable(),
 }) satisfies z.ZodType<ProviderCandidate>;
 
 const providerOfferSchema = z.object({
@@ -174,6 +182,11 @@ export const discoverProviders: AgentTool<z.infer<typeof discoverInput>, Provide
         availability: null,
         freshness: null,
         payment: null,
+        // Not yet read — only the capability document (getBusinessCapabilities)
+        // carries these (M10.8), same convention as availability/freshness above.
+        serviceArea: null,
+        fulfillment: null,
+        typicalTurnaround: null,
       })),
     );
   },
@@ -209,6 +222,9 @@ interface CapabilityDoc {
       stale: boolean;
     };
     payment?: { queryFeeUsd: number; available: boolean; state: string };
+    serviceArea?: string | null;
+    fulfillment?: { pickupAvailable: boolean | null; deliveryAvailable: boolean | null } | null;
+    typicalTurnaround?: string | null;
   }>;
 }
 
@@ -264,6 +280,9 @@ export const getBusinessCapabilities: AgentTool<
             state: route.payment.state,
           }
         : null,
+      serviceArea: route.serviceArea ?? null,
+      fulfillment: route.fulfillment ?? null,
+      typicalTurnaround: route.typicalTurnaround ?? null,
     });
   },
 };

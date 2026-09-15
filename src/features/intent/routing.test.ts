@@ -64,18 +64,26 @@ describe("progressive collection — ask only for what's needed", () => {
 });
 
 describe("categories with no provider network are honest, not faked", () => {
-  it("a food request explains there are no food businesses yet", () => {
+  it("a food request explains there are no food businesses yet, reported under the real marketplace category (catering, M10.6)", () => {
     const a = route("I'm hungry, find me somewhere cheap to eat in Yaba");
     expect(a.kind).toBe("EXPLAIN_UNAVAILABLE");
     if (a.kind === "EXPLAIN_UNAVAILABLE") {
-      expect(a.category).toBe("food");
+      // "food" is the buyer-facing trigger; the canonical marketplace category
+      // behind it is "catering" — the real BusinessCategory/template that
+      // exists — not a fabricated "food" category (M10.6 shared vocabulary).
+      expect(a.category).toBe("catering");
       expect(a.message).not.toMatch(/₦|\$\d/); // no invented prices
     }
   });
 
-  it("a used-phone request explains there are no electronics sellers yet", () => {
+  it("a used-phone request explains there are no electronics sellers yet, reported under the real marketplace category (other, M10.6)", () => {
     const a = route("looking for a clean used iPhone 12 under 200k");
     expect(a.kind).toBe("EXPLAIN_UNAVAILABLE");
+    if (a.kind === "EXPLAIN_UNAVAILABLE") {
+      // No "electronics" BusinessCategory or template exists — "other" is the
+      // real catch-all bucket, not a fabricated electronics-specific category.
+      expect(a.category).toBe("other");
+    }
   });
 });
 

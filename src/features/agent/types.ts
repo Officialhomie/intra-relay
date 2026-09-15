@@ -16,6 +16,13 @@ export interface BuyerIntent {
   size: string | null;
   colour: string | null;
   deliveryArea: string | null;
+  /**
+   * How the buyer wants to receive it, when they said (M10.9). Feeds the
+   * candidate-evaluation foundation's fulfilment constraint
+   * (`agent/policy/evaluation.ts`) — advisory only, does not affect quote
+   * eligibility yet.
+   */
+  fulfillmentPreference: "pickup" | "delivery" | null;
   /** Hard cap on agent query-fee spend for this run, in USD. */
   maxQueryFeeUsd: number;
 }
@@ -48,6 +55,15 @@ export interface ProviderCandidate {
     available: boolean;
     state: string;
   } | null;
+  /**
+   * Discovery-relevant fulfilment/location facts (M10.8). `null` until the
+   * capability document has been read (same convention as `availability` /
+   * `freshness` / `payment` above) — never inferred, never defaulted.
+   */
+  serviceArea: string | null;
+  fulfillment: { pickupAvailable: boolean | null; deliveryAvailable: boolean | null } | null;
+  /** How fast this business typically COMPLETES a job — not `responseSlaMinutes`. */
+  typicalTurnaround: string | null;
 }
 
 /** A quote that actually came back from a human. Post-quote. */

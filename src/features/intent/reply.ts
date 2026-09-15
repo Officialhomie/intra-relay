@@ -83,7 +83,10 @@ export function informationalReply(intent: UserIntent, serviceable: DomainCapabi
       ? `Right now Intra can get you real quotes for ${list}. You tell me what you need, I ask the businesses, and you decide — I never send an order or pay for you.`
       : "Intra connects you to real businesses for a job, gets you a quote, and leaves the decision and the payment with you.";
   if (intent.category) {
-    const match = serviceable.find((d) => d.category === intent.category);
+    // `intent.category` holds the fine-grained buyer identifier (e.g.
+    // "printing"), which is `DomainCapability.slug` — not the canonical
+    // marketplace `category`, which several entries can share (M10.6).
+    const match = serviceable.find((d) => d.slug === intent.category);
     if (match) {
       return `Yes — ${match.label} is on Intra. Tell me the details and I'll get you a price.`;
     }

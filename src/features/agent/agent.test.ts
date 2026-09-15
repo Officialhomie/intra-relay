@@ -30,6 +30,13 @@ interface FakeProvider {
   quote?: Partial<ProviderOffer> | null;
   quoteAcceptError?: { status: number; code: string };
   capabilitiesError?: boolean;
+  // M10.9 — discovery-relevant fulfilment/location facts (M10.8), for the
+  // candidate-evaluation foundation. Undefined means "never declared" (null
+  // on the wire), matching the real capability document exactly.
+  serviceArea?: string | null;
+  pickupAvailable?: boolean | null;
+  deliveryAvailable?: boolean | null;
+  typicalTurnaround?: string | null;
 }
 
 function fakeIntra(
@@ -112,6 +119,12 @@ function fakeIntra(
               available: p.paymentAvailable !== false,
               state: p.paymentAvailable === false ? "PAYMENT_SERVICE_UNAVAILABLE" : "AVAILABLE",
             },
+            serviceArea: p.serviceArea ?? null,
+            fulfillment: {
+              pickupAvailable: p.pickupAvailable ?? null,
+              deliveryAvailable: p.deliveryAvailable ?? null,
+            },
+            typicalTurnaround: p.typicalTurnaround ?? null,
           },
         ],
       });
@@ -273,6 +286,9 @@ function candidate(over: Partial<ProviderCandidate> = {}): ProviderCandidate {
       stale: false,
     },
     payment: { queryFeeUsd: 0, available: true, state: "AVAILABLE" },
+    serviceArea: null,
+    fulfillment: null,
+    typicalTurnaround: null,
     ...over,
   };
 }
@@ -766,5 +782,149 @@ describe("buyer agent loop (milestone 1)", () => {
     expect(names.filter((n) => AGENT_TOOLS[n as keyof typeof AGENT_TOOLS].mutating).sort()).toEqual(
       ["recordBuyerDecision", "requestQuote"],
     );
+  });
+});
+
+// --- candidate evaluation foundation, wired advisory-only (M10.9) ----------
+
+function evaluationEntries(result: Awaited<ReturnType<typeof runBuyerAgent>>) {
+  return result.trace.entries.filter((e) => e.kind === "candidate_evaluation");
+}
+
+function evaluationFor(result: Awaited<ReturnType<typeof runBuyerAgent>>, businessSlug: string) {
+  const entry = evaluationEntries(result).find((e) => e.label === businessSlug);
+  return entry?.data as
+    | {
+        constraints: Record<string, string>;
+        overall: { status: string; confidence: string };
+        policy: { queryable: boolean; agreesWithPolicy: boolean };
+      }
+    | undefined;
+}
+
+describe("candidate evaluation foundation, wired advisory-only (M10.9)", () => {
+  it("evaluates every discovered candidate and does not change quote eligibility", async () => {
+    const { fetchImpl } = fakeIntra([
+      {
+        slug: "tolu",
+        name: "Tolu Prints",
+        quote: {},
+        serviceArea: "Yaba, Akoka",
+        pickupAvailable: true,
+        deliveryAvailable: true,
+        typicalTurnaround: "1 working day",
+      },
+    ]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), {
+      ...runOpts(),
+      briefCorrection: { fulfillmentPreference: "delivery", deliveryArea: "Yaba" },
+    });
+
+    expect(result.state).toBe("AWAITING_APPROVAL");
+    expect(evaluationEntries(result)).toHaveLength(1);
+    const evaluation = evaluationFor(result, "tolu")!;
+    expect(evaluation.overall.status).toBe("ELIGIBLE");
+    expect(evaluation.constraints.location).toBe("MATCH");
+    expect(evaluation.constraints.fulfillment).toBe("MATCH");
+    expect(evaluation.constraints.turnaround).toBe("MATCH");
+    expect(evaluation.policy.queryable).toBe(true);
+    expect(evaluation.policy.agreesWithPolicy).toBe(true);
+  });
+
+  it("records location as UNKNOWN when the supplier never declared a service area", async () => {
+    const { fetchImpl } = fakeIntra([{ slug: "tolu", name: "Tolu Prints", quote: {} }]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), {
+      ...runOpts(),
+      briefCorrection: { deliveryArea: "Yaba" },
+    });
+    const evaluation = evaluationFor(result, "tolu")!;
+    expect(evaluation.constraints.location).toBe("UNKNOWN");
+  });
+
+  it("excludes (advisory) a pickup-only supplier against a delivery request, but still queries it today", async () => {
+    const { fetchImpl } = fakeIntra([
+      {
+        slug: "tolu",
+        name: "Tolu Prints",
+        quote: {},
+        pickupAvailable: true,
+        deliveryAvailable: false,
+      },
+    ]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), {
+      ...runOpts(),
+      briefCorrection: { fulfillmentPreference: "delivery" },
+    });
+
+    const evaluation = evaluationFor(result, "tolu")!;
+    expect(evaluation.constraints.fulfillment).toBe("NO_MATCH");
+    expect(evaluation.overall.status).toBe("EXCLUDED");
+    // Existing policy has no fulfilment constraint, so it still queries this
+    // candidate — this is a disagreement policy did not know about.
+    expect(evaluation.policy.queryable).toBe(true);
+    expect(evaluation.policy.agreesWithPolicy).toBe(false);
+    expect(result.requestedQuotes.some((q) => q.businessSlug === "tolu")).toBe(true);
+    expect(result.reasons.some((r) => r.code === "EVALUATION_POLICY_DISAGREEMENT")).toBe(true);
+  });
+
+  it("records turnaround MATCH when the typical turnaround clearly fits the deadline", async () => {
+    const { fetchImpl } = fakeIntra([
+      { slug: "tolu", name: "Tolu Prints", quote: {}, typicalTurnaround: "1 hour" },
+    ]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), runOpts());
+    expect(evaluationFor(result, "tolu")!.constraints.turnaround).toBe("MATCH");
+  });
+
+  it("records turnaround NO_MATCH when the typical turnaround clearly cannot fit the deadline", async () => {
+    const { fetchImpl } = fakeIntra([
+      { slug: "tolu", name: "Tolu Prints", quote: {}, typicalTurnaround: "3 weeks" },
+    ]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), runOpts());
+    expect(evaluationFor(result, "tolu")!.constraints.turnaround).toBe("NO_MATCH");
+  });
+
+  it("records turnaround UNKNOWN when no typical turnaround was declared", async () => {
+    const { fetchImpl } = fakeIntra([{ slug: "tolu", name: "Tolu Prints", quote: {} }]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), runOpts());
+    expect(evaluationFor(result, "tolu")!.constraints.turnaround).toBe("UNKNOWN");
+  });
+
+  it("is NEEDS_CONFIRMATION, not EXCLUDED, when several constraints are UNKNOWN", async () => {
+    const { fetchImpl } = fakeIntra([{ slug: "tolu", name: "Tolu Prints", quote: {} }]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), {
+      ...runOpts(),
+      briefCorrection: { fulfillmentPreference: "delivery", deliveryArea: "Yaba" },
+    });
+    const evaluation = evaluationFor(result, "tolu")!;
+    expect(evaluation.constraints.location).toBe("UNKNOWN");
+    expect(evaluation.constraints.fulfillment).toBe("UNKNOWN");
+    expect(evaluation.constraints.turnaround).toBe("UNKNOWN");
+    expect(evaluation.overall.status).toBe("NEEDS_CONFIRMATION");
+    // Still queried — NEEDS_CONFIRMATION is never gating (M10.9 §3, §11).
+    expect(evaluation.policy.agreesWithPolicy).toBe(true);
+    expect(result.requestedQuotes.some((q) => q.businessSlug === "tolu")).toBe(true);
+  });
+
+  it("still excludes a candidate today's policy already excludes, for an unrelated hard reason", async () => {
+    const { fetchImpl } = fakeIntra([{ slug: "stale-one", name: "Stale One", stale: true }]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), runOpts());
+    const evaluation = evaluationFor(result, "stale-one")!;
+    expect(evaluation.overall.status).toBe("EXCLUDED");
+    expect(evaluation.policy.queryable).toBe(false);
+    expect(evaluation.policy.agreesWithPolicy).toBe(true); // both exclude it — no disagreement
+    expect(result.state).toBe("NO_VIABLE_OFFER"); // regression: existing policy behaviour is unchanged
+  });
+
+  it("regression: quote requests and comparison are identical to before wiring evaluation in", async () => {
+    const { fetchImpl } = fakeIntra([
+      { slug: "tolu", name: "Tolu Prints", quote: { amountMin: 48_000, turnaround: "24 hours" } },
+      { slug: "yaba", name: "Yaba Copy", quote: { amountMin: 45_000, turnaround: "48 hours" } },
+    ]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), runOpts());
+    expect(result.state).toBe("AWAITING_APPROVAL");
+    expect(result.offers).toHaveLength(2);
+    expect(result.selection?.selected).not.toBeNull();
+    // The evaluation ran (advisory), but changed nothing about the outcome.
+    expect(evaluationEntries(result)).toHaveLength(2);
   });
 });

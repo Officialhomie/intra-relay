@@ -2,7 +2,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createTestDatabase } from "@/lib/db/testing";
-import { __resetConversations } from "@/features/intent/memory";
 
 import { POST } from "./route";
 
@@ -20,11 +19,9 @@ const SESSION = "session-conv-http-1";
 
 beforeEach(async () => {
   ({ close } = await createTestDatabase());
-  __resetConversations();
 });
 afterEach(async () => {
   await close();
-  __resetConversations();
 });
 
 function turn(message: string, session = SESSION) {

@@ -39,6 +39,24 @@ describe.each([
     expect(data.deliveryAvailable).toBe(false);
   });
 
+  it("leaves pickup, delivery, and turnaround as null (UNKNOWN) when never answered (M10.8)", () => {
+    const { data, issues } = normalizeTallySubmission(
+      buildTallyPayload({
+        useOptionIds,
+        pickupAvailable: null,
+        deliveryAvailable: null,
+        turnaround: null,
+      }),
+    );
+    expect(issues).toHaveLength(0);
+    expect(data.pickupAvailable).toBeNull();
+    expect(data.deliveryAvailable).toBeNull();
+    expect(data.turnaround).toBeNull();
+    // A missing answer must never be coerced into a negative answer.
+    expect(data.pickupAvailable).not.toBe(false);
+    expect(data.deliveryAvailable).not.toBe(false);
+  });
+
   it("normalizes one selected service and its pricing group", () => {
     const { data, issues } = normalizeTallySubmission(
       buildTallyPayload({

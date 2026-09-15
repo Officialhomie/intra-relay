@@ -1,5 +1,6 @@
 import { AGENT_TOOLS, type ToolContext, type ToolResult } from "../tools/registry";
 import { planCandidates, type CandidateAssessment, type CandidatePlan } from "../policy/candidates";
+import { evaluateCandidate, summarizeForTrace, type DiscoveryCriteria } from "../policy/evaluation";
 import { selectOffer, type OfferSelection } from "../policy/offers";
 import {
   approvalReason,
@@ -206,6 +207,24 @@ class Run {
   }
 }
 
+/**
+ * Map the already-parsed `BuyerIntent` onto the evaluation foundation's
+ * criteria shape (M10.9). Every field here already exists on `BuyerIntent` —
+ * nothing is re-parsed from raw text, and nothing is invented for a field the
+ * buyer never stated (an absent criterion is simply omitted, per
+ * `DiscoveryCriteria`'s own contract). Quantity and product/service subtype
+ * are intentionally NOT included: `evaluateCandidate` has no minimum-order or
+ * productType constraint yet (out of scope this milestone), so passing them
+ * would be a value with no consumer.
+ */
+function criteriaFromIntent(intent: BuyerIntent): DiscoveryCriteria {
+  return {
+    location: intent.deliveryArea,
+    fulfillmentPreference: intent.fulfillmentPreference,
+    deadlineIso: intent.deadline,
+  };
+}
+
 async function callTool<I, O>(
   tool: { name: string; run(input: I, ctx: ToolContext): Promise<ToolResult<O>> },
   input: I,
@@ -401,6 +420,36 @@ export async function runBuyerAgent(
   });
   run.reasonAll(plan.notes);
   for (const skipped of plan.skipped) run.reasonAll(skipped.disqualifiers);
+
+  // --- ADVISORY: candidate evaluation foundation (M10.9, design from M10.7) --
+  // Runs against the same enriched candidates `planCandidates` just assessed,
+  // purely for observation: it does NOT change `plan.toQuery`/`plan.skipped`.
+  // `CandidateAssessment`/`planCandidates` remain the sole thing deciding which
+  // candidates actually get queried below.
+  const assessedBySlug = new Map(plan.assessed.map((a) => [a.candidate.businessSlug, a]));
+  const criteria = criteriaFromIntent(intent);
+  for (const candidate of candidates) {
+    const evaluation = evaluateCandidate(candidate, criteria, now());
+    const assessment = assessedBySlug.get(candidate.businessSlug);
+    const queryable = assessment?.queryable ?? false;
+    const evaluationWouldQuery = evaluation.overall.status !== "EXCLUDED";
+    const agreesWithPolicy = queryable === evaluationWouldQuery;
+    trace.candidateEvaluated(summarizeForTrace(evaluation), { queryable, agreesWithPolicy });
+
+    // The one disagreement shape that needs a human's attention: today's
+    // policy would query this candidate, but the new evaluator found a
+    // confirmed hard mismatch (or could not read its capability document at
+    // all) that `CandidateAssessment` does not currently check for. This is
+    // never acted on automatically (M10.9 §7, §11) — only surfaced.
+    if (queryable && !evaluationWouldQuery) {
+      run.reason({
+        code: "EVALUATION_POLICY_DISAGREEMENT",
+        statement:
+          `${candidate.businessName} would be queried under today's policy, but the new ` +
+          `evaluation found a hard mismatch existing policy does not check for.`,
+      });
+    }
+  }
 
   if (plan.toQuery.length === 0) {
     return bail("NO_VIABLE_OFFER", {
