@@ -27,6 +27,14 @@ export const routeInputFieldSchema = z.object({
   label: z.string().min(1),
   example: z.string().min(1),
   required: z.boolean(),
+  /**
+   * The values this specific route actually accepts for this field, when the
+   * field is a closed choice (M10.6) — e.g. which printing products THIS
+   * business supports. Omitted for a free-text field. Never used to validate
+   * a buyer's request on its own; a route with a dedicated hardcoded schema
+   * (like `flyer-printing`) still validates against that schema.
+   */
+  options: z.array(z.string()).optional(),
 });
 export type RouteInputField = z.infer<typeof routeInputFieldSchema>;
 

@@ -1,9 +1,10 @@
 import { z } from "zod";
 
+import { PRINTING_PRODUCT_TYPES } from "./printing-products";
 import type { RouteInputField } from "./schema";
 
 /**
- * The single MVP category: campus flyer printing (ADR-001).
+ * The MVP printing route (ADR-001; extended M10.6 to cover more than flyers).
  * Template mirrors docs/BUSINESS_ONBOARDING.md.
  */
 
@@ -31,6 +32,13 @@ export const FLYER_COLOURS = ["full-colour", "black-and-white"] as const;
  * Buyer-supplied brief inputs for a flyer-printing quote
  * (FR-TASK-002, FR-ROUTE-002). Used by the buyer flow in a later phase; defined
  * now as a shared foundation.
+ *
+ * `productType` (M10.6) is OPTIONAL and additive: a printer whose route now
+ * lists more than flyers (see `onboarding/printing-mapping.ts`) can be asked
+ * for a specific product, but every existing buyer flow, form, and
+ * model-assisted brief that never mentions it keeps working unchanged —
+ * `size`/`quantity`/`colour`/`deadline`/`deliveryArea` remain the only
+ * required fields, exactly as before this milestone.
  */
 export const flyerPrintingInputSchema = z.object({
   size: z.enum(FLYER_SIZES, { message: "Choose a paper size." }),
@@ -42,5 +50,6 @@ export const flyerPrintingInputSchema = z.object({
   colour: z.enum(FLYER_COLOURS, { message: "Choose a colour option." }),
   deadline: z.string().trim().min(1, "Tell the printer when you need them."),
   deliveryArea: z.string().trim().min(1, "Add a delivery or pick-up area."),
+  productType: z.enum(PRINTING_PRODUCT_TYPES).optional(),
 });
 export type FlyerPrintingInput = z.infer<typeof flyerPrintingInputSchema>;
