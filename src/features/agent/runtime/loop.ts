@@ -1,5 +1,11 @@
 import { AGENT_TOOLS, type ToolContext, type ToolResult } from "../tools/registry";
 import { planCandidates, type CandidateAssessment, type CandidatePlan } from "../policy/candidates";
+import {
+  authoritativeExclusion,
+  evaluateCandidate,
+  summarizeForTrace,
+  type DiscoveryCriteria,
+} from "../policy/evaluation";
 import { selectOffer, type OfferSelection } from "../policy/offers";
 import {
   approvalReason,
@@ -206,6 +212,26 @@ class Run {
   }
 }
 
+/**
+ * Map the already-parsed `BuyerIntent` onto the evaluation foundation's
+ * criteria shape (M10.9). Every field here already exists on `BuyerIntent` —
+ * nothing is re-parsed from raw text, and nothing is invented for a field the
+ * buyer never stated (an absent criterion is simply omitted, per
+ * `DiscoveryCriteria`'s own contract). Quantity and product/service subtype
+ * are intentionally NOT included: `evaluateCandidate` has no minimum-order or
+ * productType constraint yet (out of scope this milestone), so passing them
+ * would be a value with no consumer.
+ */
+function criteriaFromIntent(intent: BuyerIntent): DiscoveryCriteria {
+  return {
+    location: intent.deliveryArea,
+    fulfillmentPreference: intent.fulfillmentPreference,
+    deadlineIso: intent.deadline,
+    productType: intent.productType,
+    quantity: intent.quantity,
+  };
+}
+
 async function callTool<I, O>(
   tool: { name: string; run(input: I, ctx: ToolContext): Promise<ToolResult<O>> },
   input: I,
@@ -401,6 +427,65 @@ export async function runBuyerAgent(
   });
   run.reasonAll(plan.notes);
   for (const skipped of plan.skipped) run.reasonAll(skipped.disqualifiers);
+
+  // --- REASON: explicit, safe evaluation gate (M10.11) ---------------------
+  // CandidateAssessment remains the authority for availability, freshness,
+  // verification and fee policy. Evaluation adds exactly one new gate: an
+  // explicit false for the fulfilment method the buyer requested. UNKNOWN,
+  // location and typical turnaround remain advisory and cannot alter toQuery.
+  const assessedBySlug = new Map(plan.assessed.map((a) => [a.candidate.businessSlug, a]));
+  const criteria = criteriaFromIntent(intent);
+  const excludedByEvaluation = new Set<string>();
+  for (const candidate of candidates) {
+    const evaluation = evaluateCandidate(candidate, criteria, now());
+    const assessment = assessedBySlug.get(candidate.businessSlug);
+    const queryable = assessment?.queryable ?? false;
+    const exclusion = authoritativeExclusion(evaluation);
+    const gated = queryable && exclusion !== null;
+    if (gated) excludedByEvaluation.add(candidate.businessSlug);
+    const hasUnknown = Object.values(evaluation.constraints).some((r) => r.status === "UNKNOWN");
+    // Keep the pre-M10.11 comparison visible: an advisory NO_MATCH (for
+    // example typical turnaround) may disagree with planning yet must remain
+    // retained. `gate` below states the actual action taken.
+    const evaluationWouldQuery = evaluation.overall.status !== "EXCLUDED";
+    const gate = gated
+      ? "EXCLUDED"
+      : hasUnknown
+        ? "RETAINED_UNKNOWN"
+        : exclusion || evaluation.overall.status === "EXCLUDED"
+          ? "RETAINED_ADVISORY"
+          : "RETAINED_MATCH";
+    trace.candidateEvaluated(summarizeForTrace(evaluation), {
+      queryable,
+      agreesWithPolicy: queryable === evaluationWouldQuery,
+      gate,
+    });
+
+    if (gated) {
+      run.reason({
+        code: "AUTHORITATIVE_CANDIDATE_MISMATCH",
+        statement: `${candidate.businessName} was not asked for a quote because it explicitly cannot meet a requested product, quantity, or fulfilment constraint.`,
+      });
+    }
+  }
+
+  if (excludedByEvaluation.size > 0) {
+    const retained = plan.toQuery.filter(
+      (item) => !excludedByEvaluation.has(item.candidate.businessSlug),
+    );
+    const excluded = plan.toQuery.filter((item) =>
+      excludedByEvaluation.has(item.candidate.businessSlug),
+    );
+    for (const item of excluded) {
+      item.disqualifiers.push({
+        code: "FULFILMENT_MISMATCH",
+        statement: `${item.candidate.businessName} explicitly does not offer the fulfilment method requested.`,
+      });
+    }
+    plan.toQuery = retained;
+    plan.skipped.push(...excluded);
+    plan.committedFeeUsd = retained.reduce((total, item) => total + item.feeUsd, 0);
+  }
 
   if (plan.toQuery.length === 0) {
     return bail("NO_VIABLE_OFFER", {

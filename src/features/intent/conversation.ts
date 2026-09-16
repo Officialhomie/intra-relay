@@ -14,6 +14,7 @@ import type {
   UserIntent,
   UserIntentField,
 } from "./types";
+import type { CanonicalLocation } from "@/features/locations/lagos";
 
 /**
  * One turn of the conversation (milestone 6 §2–§14, §23–§27, §30; milestone 7
@@ -41,6 +42,13 @@ export interface RunBrief {
   /** A calendar date, `YYYY-MM-DD`. */
   deadline?: string;
   deliveryArea?: string;
+  /** Forwarded to the agent's candidate-evaluation foundation (M10.9) — advisory
+   * and authoritative only for explicit fulfilment mismatches. */
+  fulfillmentPreference?: "pickup" | "delivery";
+  optimization?: OptimizationPreference;
+  budget?: { amount: number; currency: string };
+  productType?: string;
+  canonicalLocation?: CanonicalLocation | null;
 }
 
 export interface ConversationAction {
@@ -95,6 +103,13 @@ function toRunBrief(intent: UserIntent): RunBrief {
   if (intent.colour) brief.colour = intent.colour;
   if (intent.deadline?.iso) brief.deadline = intent.deadline.iso.slice(0, 10);
   if (intent.location) brief.deliveryArea = intent.location;
+  if (intent.fulfillmentPreference === "pickup" || intent.fulfillmentPreference === "delivery") {
+    brief.fulfillmentPreference = intent.fulfillmentPreference;
+  }
+  if (intent.optimization) brief.optimization = intent.optimization;
+  if (intent.budget) brief.budget = intent.budget;
+  if (intent.productType) brief.productType = intent.productType;
+  if (intent.canonicalLocation) brief.canonicalLocation = intent.canonicalLocation;
   return brief;
 }
 

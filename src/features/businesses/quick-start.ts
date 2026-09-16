@@ -136,6 +136,12 @@ export async function quickStartBusiness(
       slug: serviceSlug,
       name: input.serviceName.trim(),
       description: `${input.serviceName.trim()} in ${input.serviceArea.trim()}.`,
+      // Promoted structurally too (M10.8), not just embedded in the
+      // description string — the one fulfilment/location fact this shorter
+      // form actually collects. Pickup/delivery/turnaround aren't asked here,
+      // so they stay null (UNKNOWN), same as any other business until the
+      // supplier or an operator sets them.
+      serviceArea: input.serviceArea.trim(),
       inputSchema: [...template.inputFields],
       // Free to ask until the business decides otherwise.
       queryFeeUsd: "0.0000",

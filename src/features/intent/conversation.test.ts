@@ -84,6 +84,18 @@ describe("Scenario B — conversational entry into a print job", () => {
     });
     expect(go.action.brief?.deadline).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
+
+  it("forwards the accumulated optimization preference and budget into a print run", async () => {
+    const go = await turn(
+      "preference-bridge",
+      "I need 500 A5 full colour flyers under ₦50k, fastest possible, by Friday, delivered to Yaba",
+    );
+    expect(go.action.kind).toBe("START_RUN");
+    expect(go.action.brief).toMatchObject({
+      optimization: "FASTEST",
+      budget: { amount: 50_000, currency: "NGN" },
+    });
+  });
 });
 
 describe("Scenario C — cheapest dinner (intent represented, marketplace NOT built)", () => {

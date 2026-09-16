@@ -1,15 +1,14 @@
+import { randomUUID } from "node:crypto";
+
 import { z } from "zod";
 
 import { getDb } from "@/lib/db/client";
 import { route } from "@/lib/http/handler";
 import { parseJsonBody, requireSessionId } from "@/lib/http/request";
 import { HttpError, ok } from "@/lib/http/response";
-import { recordPilotEvent } from "@/features/analytics/pilot";
-import { handleConversationTurn, resetConversation } from "@/features/intent/conversation";
-import { getConversation } from "@/features/intent/memory";
-import { startAgentRun } from "@/features/agent/run/service";
-import { toAgentRunView } from "@/features/agent/run/view";
-import { listSessionTasksInStates } from "@/features/tasks/repository";
+import { resetConversation } from "@/features/intent/conversation";
+import { handleInboundMessage } from "@/features/conversation/gateway";
+import { normalizeWebInbound } from "@/features/conversation/web-adapter";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +34,9 @@ const GREETING =
 const bodySchema = z
   .object({
     message: z.string().trim().max(2000).optional(),
+    /** Stable per send/retry. Older Web clients may omit it; the adapter then
+     * assigns one so behavior remains backward compatible. */
+    messageId: z.string().trim().min(1).max(200).optional(),
     /** "assisted" uses the LLM layer for the run; falls back to deterministic. */
     mode: z.enum(["assisted", "deterministic"]).optional(),
     reset: z.boolean().optional(),
@@ -43,8 +45,6 @@ const bodySchema = z
     message: "Say what you need.",
     path: ["message"],
   });
-
-const OPEN_TRANSACTION_STATES = ["RECOMMENDED"] as const;
 
 export const POST = route(async (request) => {
   const url = new URL(request.url);
@@ -60,45 +60,28 @@ export const POST = route(async (request) => {
   const message = body.message;
   if (!message) throw new HttpError(422, "MESSAGE_REQUIRED", "Say what you need.");
 
-  const openTasks = await listSessionTasksInStates(db, sessionId, OPEN_TRANSACTION_STATES);
-
-  const firstTurn = (await getConversation(db, sessionId)) === null;
-  const reply = await handleConversationTurn(db, {
-    sessionId,
-    message,
-    hasOpenTransaction: openTasks.length > 0,
-  });
-  if (firstTurn) {
-    void recordPilotEvent(db, { name: "conversation_started", actorKey: sessionId });
-  }
-
-  // Genuine, complete commercial intent — start the real run, seeded with the
-  // brief the conversation accumulated so the agent uses the person's own
-  // values rather than re-reading only the last message.
-  if (reply.action.kind === "START_RUN") {
-    const run = startAgentRun({
-      request: reply.action.request ?? message,
-      briefCorrection: reply.action.brief,
-      buyerSessionId: sessionId,
-      origin: url.origin,
-      mode: body.mode,
-    });
-    void recordPilotEvent(db, {
-      name: "conversation_run_started",
-      actorKey: sessionId,
-      props: { category: reply.action.category ?? null },
-    });
-    return ok(
-      {
-        ...reply,
-        run: toAgentRunView(run),
-      },
-      202,
+  const gateway = await handleInboundMessage(
+    db,
+    normalizeWebInbound({
+      sessionId,
+      messageId: body.messageId ?? request.headers.get("idempotency-key")?.trim() ?? randomUUID(),
+      text: message,
+    }),
+    { origin: url.origin, mode: body.mode },
+  );
+  const result = gateway.result;
+  if (!result.reply) {
+    throw new HttpError(
+      500,
+      "WEB_CONVERSATION_RESULT_INVALID",
+      "The conversation result was invalid.",
     );
   }
-
-  return ok({
-    ...reply,
-    openOrderIds: openTasks.map((task) => task.id),
-  });
+  const data = {
+    ...result.reply,
+    ...(result.run ? { run: result.run } : { openOrderIds: result.openOrderIds ?? [] }),
+    conversationId: result.conversationId,
+    replayed: gateway.replayed,
+  };
+  return ok(data, result.run ? 202 : 200);
 });

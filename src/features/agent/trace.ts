@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { DecisionReason } from "./types";
 import type { AgentRunState } from "./state";
+import type { CandidateEvaluationSummary } from "./policy/evaluation";
 
 /**
  * Structured, replayable trace of one agent run.
@@ -30,6 +31,7 @@ export type TraceEntryKind =
   | "model_tool_selection"
   | "model_decision"
   | "model_fallback"
+  | "candidate_evaluation"
   | "run_finished";
 
 export interface TraceEntry {
@@ -200,6 +202,34 @@ export class AgentTrace {
 
   modelFallback(purpose: string, code: string, detail: string): void {
     this.push({ kind: "model_fallback", label: purpose, detail: `${code}: ${detail}` });
+  }
+
+  /**
+   * The candidate-evaluation foundation's verdict for one candidate (M10.9).
+   * The trace exposes both the evaluation and the action taken. M10.11 permits
+   * only an explicit fulfilment mismatch to exclude; all other evaluation
+   * outcomes remain advisory so they can be observed against planning.
+   * `summary` is already the trimmed, trace-safe shape
+   * (`policy/evaluation.ts`'s `summarizeForTrace`) — nothing here needs its own
+   * redaction beyond the standard pass, since that shape carries no sensitive
+   * fields to begin with.
+   */
+  candidateEvaluated(
+    summary: CandidateEvaluationSummary,
+    policy: {
+      queryable: boolean;
+      agreesWithPolicy: boolean;
+      gate: "EXCLUDED" | "RETAINED_MATCH" | "RETAINED_UNKNOWN" | "RETAINED_ADVISORY";
+    },
+  ): void {
+    this.push({
+      kind: "candidate_evaluation",
+      label: summary.businessSlug,
+      detail: `${summary.overall.status} (${summary.overall.confidence})${
+        summary.reasons.length > 0 ? ` — ${summary.reasons.join("; ")}` : ""
+      }`,
+      data: redact({ ...summary, policy }) as Record<string, unknown>,
+    });
   }
 
   finished(state: AgentRunState, summary: string): void {

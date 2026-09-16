@@ -10,8 +10,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * Receives one Tally `FORM_RESPONSE` webhook delivery for the printing
- * onboarding form (M10.1, ADR-024). This is the ONLY inbound webhook this
- * application accepts — never trust an unsigned request to it.
+ * onboarding form (M10.1, ADR-024). It is one of the application's explicitly
+ * signed webhook boundaries — never trust an unsigned request to it.
  *
  * `TALLY_SIGNING_SECRET` / `TALLY_FORM_ID` are both server-only and required;
  * with either unset this endpoint fails closed (`503`), never falling back
