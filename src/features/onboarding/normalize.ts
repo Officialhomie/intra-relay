@@ -25,6 +25,7 @@ export interface NormalizedService {
   /** Free text as the business typed it, e.g. "₦5,000 per 100". Never parsed into a number here. */
   priceText: string | null;
   notes: string | null;
+  minimumOrder: number | null;
 }
 
 export interface NormalizedOnboarding {
@@ -105,6 +106,11 @@ function normalizeService(
     pricingModel,
     priceText: resolveText(byLabel(fields, labels.price)),
     notes: resolveText(byLabel(fields, labels.notes)),
+    minimumOrder: (() => {
+      const raw = resolveText(byLabel(fields, labels.minimumOrder));
+      const parsed = raw ? Number(raw.replace(/[,_\s]/g, "")) : NaN;
+      return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+    })(),
   };
 }
 

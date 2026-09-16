@@ -1,5 +1,11 @@
 import { readOptimization } from "./optimization";
+import { normalizeLagosArea } from "@/features/locations/lagos";
+import { extractPrintingProductTypes } from "@/features/routes/printing-products";
 import type { UserIntent } from "./types";
+
+function readPrintingProductType(text: string): string | undefined {
+  return extractPrintingProductTypes(text)[0];
+}
 
 /**
  * Pulling structured wants out of plain language (milestone 6 §7).
@@ -225,6 +231,8 @@ export function extractUserIntent(
   const { category, service } = readCategory(text);
   if (category) out.category = category;
   if (service) out.service = service;
+  const productType = readPrintingProductType(text);
+  if (productType) out.productType = productType;
 
   const quantity = readQuantity(text, options.quantityExpected);
   if (quantity !== undefined) out.quantity = quantity;
@@ -239,7 +247,10 @@ export function extractUserIntent(
   if (budget) out.budget = budget;
 
   const location = readLocation(text, now);
-  if (location) out.location = location;
+  if (location) {
+    out.location = location;
+    out.canonicalLocation = normalizeLagosArea(location);
+  }
 
   const deadline = readDeadline(text, now);
   if (deadline) out.deadline = deadline;
