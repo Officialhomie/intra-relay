@@ -298,7 +298,7 @@ describe("ERC-8021 attribution on mainnet attestations (hackathon registration)"
       NETWORK_ENV: "production",
       ATTESTATION_SIGNER_KEY: `0x${"1".repeat(64)}`,
       X402_ATTRIBUTION_TAG: TAG,
-    } as NodeJS.ProcessEnv);
+    } as unknown as NodeJS.ProcessEnv);
     expect(cfg.attributionTag).toBe(TAG);
     expect(cfg.onChain).toBe(true);
   });
@@ -308,7 +308,7 @@ describe("ERC-8021 attribution on mainnet attestations (hackathon registration)"
       NETWORK_ENV: "production",
       ATTESTATION_SIGNER_KEY: `0x${"1".repeat(64)}`,
       X402_ATTRIBUTION_TAG: "not-a-celo-tag",
-    } as NodeJS.ProcessEnv);
+    } as unknown as NodeJS.ProcessEnv);
     expect(cfg.attributionTag).toBeNull();
   });
 
@@ -316,7 +316,7 @@ describe("ERC-8021 attribution on mainnet attestations (hackathon registration)"
     const cfg = readAttestationConfig({
       NETWORK_ENV: "production",
       ATTESTATION_SIGNER_KEY: `0x${"1".repeat(64)}`,
-    } as NodeJS.ProcessEnv);
+    } as unknown as NodeJS.ProcessEnv);
     expect(cfg.attributionTag).toBeNull();
   });
 });
