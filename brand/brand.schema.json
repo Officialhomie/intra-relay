@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intra.local/brand.schema.json",
+  "title": "Intra brand manifest",
+  "type": "object",
+  "required": [
+    "version",
+    "authority",
+    "identity",
+    "colors",
+    "typography",
+    "logoAssets",
+    "illustrations",
+    "iconography",
+    "social",
+    "copy"
+  ],
+  "properties": {
+    "version": { "type": "string" },
+    "auditedAt": { "type": "string", "format": "date" },
+    "authority": { "type": "object" },
+    "identity": { "type": "object" },
+    "colors": { "type": "object" },
+    "typography": { "type": "object" },
+    "logoAssets": { "type": "array", "items": { "type": "object" } },
+    "illustrations": { "type": "object" },
+    "iconography": { "type": "object" },
+    "social": { "type": "object" },
+    "copy": { "type": "object" }
+  },
+  "additionalProperties": true
+}

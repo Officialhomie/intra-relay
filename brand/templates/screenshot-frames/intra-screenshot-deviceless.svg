@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" data-frame="device-less"><rect width="1600" height="900" fill="#faf9f5"/>
+      <g id="editable-screenshot"><rect x="120" y="90" width="1360" height="650" fill="#ffffff" stroke="#dedcd1" stroke-width="3" stroke-dasharray="18 12"/><text x="800" y="400" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="38" font-weight="600" fill="#3d3d3a" text-anchor="middle" letter-spacing="0">[PLACE GENUINE PRODUCT CROP HERE]</text></g>
+      <line x1="120" y1="800" x2="1480" y2="800" stroke="#dedcd1" stroke-width="2"/><g transform="translate(120 818) scale(1.5)">
+  <circle cx="9.5" cy="16" r="4.5" fill="#1f1e1d"/>
+  <circle cx="22.5" cy="16" r="4.5" fill="none" stroke="#1f1e1d" stroke-width="2.2"/>
+  <line x1="14" y1="16" x2="18" y2="16" stroke="#1f1e1d" stroke-width="2.2"/></g><text x="1480" y="852" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="27" font-weight="400" fill="#3d3d3a" text-anchor="end" letter-spacing="0">[CAPTION]</text>
+</svg>

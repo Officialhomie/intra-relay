@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" data-asset="social-profile-dark-safe-area"><rect width="1024" height="1024" fill="#1f1e1d"/><g transform="translate(235.51999999999998 235.51999999999998) scale(17.28)">
+  <circle cx="9.5" cy="16" r="4.5" fill="#faf9f5"/>
+  <circle cx="22.5" cy="16" r="4.5" fill="none" stroke="#faf9f5" stroke-width="2.2"/>
+  <line x1="14" y1="16" x2="18" y2="16" stroke="#faf9f5" stroke-width="2.2"/></g><circle cx="512" cy="512" r="409.6" fill="none" stroke="#7a5300" stroke-width="5.12" stroke-dasharray="25.6 15.36" opacity="0.8"/>
+  <circle cx="512" cy="512" r="307.2" fill="none" stroke="#28563a" stroke-width="5.12" opacity="0.8"/>
+</svg>

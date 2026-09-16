@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350" data-template="portrait"><rect width="1080" height="1350" fill="#faf9f5"/>
+  <rect x="81" y="81" width="918" height="1188" rx="17" fill="none" stroke="#dedcd1" stroke-width="2"/>
+  <circle cx="962.55" cy="109.35000000000001" r="70" fill="#dfe9df" opacity="0.7"/>
+  <g transform="translate(81 81) scale(3.03125)">
+  <circle cx="9.5" cy="16" r="4.5" fill="#1f1e1d"/>
+  <circle cx="22.5" cy="16" r="4.5" fill="none" stroke="#1f1e1d" stroke-width="2.2"/>
+  <line x1="14" y1="16" x2="18" y2="16" stroke="#1f1e1d" stroke-width="2.2"/></g>
+  <g id="editable-content" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" fill="#141413">
+    <text x="81" y="567" font-size="24" font-weight="600" letter-spacing="2">[EYEBROW]</text>
+    <text x="81" y="702" font-family="Iowan Old Style, Palatino Linotype, Palatino, Georgia, serif" font-size="70" font-weight="400" letter-spacing="-1">[HEADLINE]</text>
+    <text x="81" y="797" font-size="24" fill="#3d3d3a">[SUPPORTING DETAIL]</text>
+  </g>
+  <line x1="81" y1="1228.2" x2="999" y2="1228.2" stroke="#dedcd1" stroke-width="2"/>
+  <text x="81" y="1262" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="24" fill="#3d3d3a">Intra</text>
+</svg>

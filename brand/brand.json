@@ -1,0 +1,321 @@
+{
+  "$schema": "./brand.schema.json",
+  "version": "2.0.0",
+  "auditedAt": "2026-09-15",
+  "authority": {
+    "identity": "src/components/brand/Mark.tsx",
+    "faviconAdaptation": "src/app/icon.svg",
+    "colorsAndType": "src/styles/tokens.css",
+    "tailwindMapping": "tailwind.config.ts",
+    "productCopy": "src/lib/site.ts",
+    "visualDecision": "docs/DECISIONS.md#adr-022"
+  },
+  "identity": {
+    "name": "Intra",
+    "case": "Title case",
+    "markName": "The Handoff",
+    "meaning": "A request handed from one party to another: one filled node, one outlined node, joined by one line.",
+    "canonicalViewBox": "0 0 32 32",
+    "canonicalGeometry": {
+      "filledNode": { "cx": 9.5, "cy": 16, "r": 4.5 },
+      "openNode": { "cx": 22.5, "cy": 16, "r": 4.5, "strokeWidth": 2.2 },
+      "connector": { "x1": 14, "y1": 16, "x2": 18, "y2": 16, "strokeWidth": 2.2 }
+    },
+    "minimumSize": {
+      "regularMarkPx": 24,
+      "smallSizeAdaptationPx": 16,
+      "note": "Use the heavier favicon adaptation at 16–20px."
+    },
+    "clearSpace": {
+      "value": 4.5,
+      "unit": "viewBox units",
+      "basis": "One canonical node radius; derived from the geometry."
+    },
+    "wordmark": {
+      "status": "live-text-only",
+      "text": "Intra",
+      "font": "var(--font-sans)",
+      "weight": 600,
+      "tracking": "var(--tracking-tight)",
+      "relationship": "Mark left, 0.5rem gap, vertically centered.",
+      "vectorAsset": null
+    }
+  },
+  "colors": {
+    "core": {
+      "background": {
+        "hex": "#faf9f5",
+        "rgb": "250 249 245",
+        "hsl": "48 33% 97%",
+        "purpose": "Warm ivory page canvas"
+      },
+      "surface": {
+        "hex": "#ffffff",
+        "rgb": "255 255 255",
+        "hsl": "0 0% 100%",
+        "purpose": "Raised content surface"
+      },
+      "surfaceAccent": {
+        "hex": "#f0eee6",
+        "rgb": "240 238 230",
+        "hsl": "48 25% 92%",
+        "purpose": "Quiet warm surface separation"
+      },
+      "sage": {
+        "hex": "#dfe9df",
+        "rgb": "223 233 223",
+        "hsl": "120 19% 89%",
+        "purpose": "Soft trust or supportive accent"
+      },
+      "mist": {
+        "hex": "#ccdbe8",
+        "rgb": "204 219 232",
+        "hsl": "208 38% 85%",
+        "purpose": "Cool informational accent"
+      },
+      "border": {
+        "hex": "#dedcd1",
+        "rgb": "222 220 209",
+        "hsl": "51 16% 85%",
+        "purpose": "Hairline dividers and boundaries"
+      },
+      "borderStrong": {
+        "hex": "#b7b7b5",
+        "rgb": "183 183 181",
+        "hsl": "60 1% 71%",
+        "purpose": "Emphasized boundaries"
+      },
+      "ink": { "hex": "#141413", "rgb": "20 20 19", "hsl": "60 3% 8%", "purpose": "Primary text" },
+      "secondaryInk": {
+        "hex": "#3d3d3a",
+        "rgb": "61 61 58",
+        "hsl": "60 3% 23%",
+        "purpose": "Secondary text"
+      },
+      "muted": {
+        "aliasOf": "secondaryInk",
+        "hex": "#3d3d3a",
+        "purpose": "The implementation has no separate secondary-ink and muted tokens; --color-text-muted serves both roles."
+      },
+      "subtle": {
+        "hex": "#73726c",
+        "rgb": "115 114 108",
+        "hsl": "51 3% 44%",
+        "purpose": "Metadata and quiet labels"
+      },
+      "actionInk": {
+        "hex": "#1f1e1d",
+        "rgb": "31 30 29",
+        "hsl": "30 3% 12%",
+        "purpose": "Primary actions, focus, and the mark"
+      },
+      "actionContrast": {
+        "hex": "#ffffff",
+        "rgb": "255 255 255",
+        "hsl": "0 0% 100%",
+        "purpose": "Text on action ink"
+      },
+      "primaryWash": {
+        "hex": "#e9f0f5",
+        "rgb": "233 240 245",
+        "hsl": "205 38% 94%",
+        "purpose": "Low-emphasis action or selection wash"
+      }
+    },
+    "semantic": {
+      "success": { "hex": "#28563a", "rgb": "40 86 58", "hsl": "143 37% 25%", "wash": "#e3f0e6" },
+      "warning": { "hex": "#7a5300", "rgb": "122 83 0", "hsl": "41 100% 24%", "wash": "#f6ecd6" },
+      "danger": { "hex": "#8a1f1f", "rgb": "138 31 31", "hsl": "0 63% 33%", "wash": "#f5e1e1" },
+      "info": { "hex": "#204b57", "rgb": "32 75 87", "hsl": "193 46% 23%", "wash": "#dce9ec" }
+    },
+    "deprecated": [
+      {
+        "hex": "#0f3e17",
+        "name": "Forest Ink",
+        "source": "ADR-009 and docs/design references",
+        "status": "superseded-by-ADR-022"
+      },
+      {
+        "hex": "#fffefc",
+        "name": "Linen White",
+        "source": "ADR-009 and docs/design references",
+        "status": "superseded-by-ADR-022"
+      }
+    ]
+  },
+  "typography": {
+    "ui": {
+      "token": "--font-sans",
+      "stack": "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
+      "weights": [400, 500, 600]
+    },
+    "display": {
+      "token": "--font-serif",
+      "stack": "Iowan Old Style, Palatino Linotype, Palatino, Georgia, ui-serif, serif",
+      "implementedWeight": 300,
+      "note": "No web font is loaded. Fraunces appears only in historical design discussion and is not implemented."
+    },
+    "mono": {
+      "token": "--font-mono",
+      "stack": "ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace"
+    },
+    "scale": {
+      "xs": "0.75rem",
+      "sm": "0.875rem",
+      "base": "1rem",
+      "lg": "1.125rem",
+      "xl": "1.375rem",
+      "2xl": "1.75rem",
+      "3xl": "2.5rem"
+    },
+    "roles": {
+      "display": "serif, 2.5rem token or responsive 4xl–7xl utility, tight tracking",
+      "title": "serif, 1.75–2.5rem, light/normal",
+      "heading": "serif, 1.375–1.75rem, light/medium",
+      "subheading": "sans, 1–1.125rem, medium",
+      "body": "sans, 1rem, regular, 1.5 line-height",
+      "meta": "sans, 0.75–0.875rem, regular",
+      "eyebrow": "sans, 0.72rem, 600, uppercase, 0.08em tracking",
+      "mono": "mono, 0.75–0.875rem; hashes, codes, addresses, identifiers"
+    }
+  },
+  "logoAssets": [
+    {
+      "path": "logo/intra-mark.svg",
+      "format": "SVG",
+      "background": "transparent",
+      "color": "#1f1e1d",
+      "canonical": true
+    },
+    {
+      "path": "logo/intra-mark-monochrome.svg",
+      "format": "SVG",
+      "background": "transparent",
+      "color": "#000000",
+      "canonical": false
+    },
+    {
+      "path": "logo/intra-mark-reversed.svg",
+      "format": "SVG",
+      "background": "transparent",
+      "color": "#faf9f5",
+      "canonical": false
+    },
+    {
+      "path": "logo/intra-mark-on-ivory.svg",
+      "format": "SVG",
+      "dimensions": "512x512",
+      "background": "#faf9f5",
+      "color": "#1f1e1d"
+    },
+    {
+      "path": "logo/intra-mark-on-ink.svg",
+      "format": "SVG",
+      "dimensions": "512x512",
+      "background": "#1f1e1d",
+      "color": "#faf9f5"
+    },
+    {
+      "path": "logo/png/intra-mark-512.png",
+      "format": "PNG",
+      "dimensions": "512x512",
+      "background": "transparent"
+    },
+    {
+      "path": "logo/png/intra-mark-1024.png",
+      "format": "PNG",
+      "dimensions": "1024x1024",
+      "background": "transparent"
+    },
+    {
+      "path": "logo/png/intra-mark-2048.png",
+      "format": "PNG",
+      "dimensions": "2048x2048",
+      "background": "transparent"
+    }
+  ],
+  "illustrations": {
+    "canonicalSet": [],
+    "status": "missing",
+    "proposedButNotProduced": [
+      "Your decision",
+      "Payment confirmed",
+      "Order handed over",
+      "Waiting on the business",
+      "You're offline",
+      "Nothing needs you",
+      "Set your business up",
+      "This couldn't be completed"
+    ],
+    "source": "docs/frontend-xray/14-LOVABLE-ASSET-PROMPTS.md"
+  },
+  "iconography": {
+    "library": "lucide-react",
+    "installedVersion": "^1.37.0",
+    "standardSizesPx": [12, 14, 16, 20],
+    "defaultStroke": 2,
+    "activeNavigationStroke": 2.5,
+    "color": "currentColor",
+    "accessibility": "Decorative icons use aria-hidden; meaning is paired with text."
+  },
+  "social": {
+    "status": "production-ready-framework",
+    "profiles": "Default to the ivory Handoff mark centered on an ink field; a light alternate is approved. Keep geometry inside the central 60% circle.",
+    "covers": "Use the supplied platform-specific compositions and validate them against the paired safe-area guide before upload.",
+    "postSafeArea": "Keep editable content inside the inset border in the supplied SVG templates.",
+    "storySafeArea": "Keep primary content away from the top and bottom 14% where platform controls commonly sit.",
+    "masterFormats": {
+      "1x1": "social/master-formats/intra-master-1x1-1080x1080.svg",
+      "4x5": "social/master-formats/intra-master-4x5-1080x1350.svg",
+      "16x9": "social/master-formats/intra-master-16x9-1600x900.svg",
+      "9x16": "social/master-formats/intra-master-9x16-1080x1920.svg"
+    },
+    "platforms": ["x", "instagram", "linkedin", "whatsapp", "facebook", "youtube"],
+    "contentTemplates": [
+      "announcement",
+      "feature",
+      "education",
+      "principle",
+      "founder",
+      "case-study",
+      "trust",
+      "event",
+      "cta",
+      "quote"
+    ]
+  },
+  "productionFramework": {
+    "presentationLayouts": [
+      "title",
+      "section",
+      "content",
+      "screenshot",
+      "quote",
+      "architecture",
+      "cta",
+      "blank"
+    ],
+    "screenshotFrames": ["browser", "phone", "deviceless", "caption"],
+    "diagrams": ["request-to-handoff", "buyer-intra-business"],
+    "editableFormat": "SVG",
+    "deliveryFormat": "PNG",
+    "realScreenshotStatus": "required-source-missing",
+    "officialPartnerAssetStatus": "required-source-missing"
+  },
+  "copy": {
+    "productName": "Intra",
+    "tagline": "The trusted business layer for AI-agent commerce",
+    "socialHeadline": "Tell Intra what you need. Get a real price. Keep the final say.",
+    "trustStatement": "Real businesses. Clear quotes. You stay in control.",
+    "agentPromise": "I never send an order or pay for you.",
+    "businessPromise": "You review each request and keep the customer relationship direct.",
+    "handoff": "Order handoff — you send this yourself",
+    "prohibitedClaims": [
+      "Intra guarantees a price, customer, outcome, or supplier quality.",
+      "Intra holds funds, pays the supplier automatically, or sends the final order.",
+      "An attestation proves physical quality, quantity, timeliness, or satisfaction.",
+      "Unavailable Celo, x402, cPay, or identity integrations are live.",
+      "Demo businesses, prices, transactions, or testimonials are real."
+    ]
+  }
+}
