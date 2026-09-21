@@ -30,6 +30,13 @@ interface FakeProvider {
   quote?: Partial<ProviderOffer> | null;
   quoteAcceptError?: { status: number; code: string };
   capabilitiesError?: boolean;
+  // M10.9 — discovery-relevant fulfilment/location facts (M10.8), for the
+  // candidate-evaluation foundation. Undefined means "never declared" (null
+  // on the wire), matching the real capability document exactly.
+  serviceArea?: string | null;
+  pickupAvailable?: boolean | null;
+  deliveryAvailable?: boolean | null;
+  typicalTurnaround?: string | null;
 }
 
 function fakeIntra(
@@ -112,6 +119,12 @@ function fakeIntra(
               available: p.paymentAvailable !== false,
               state: p.paymentAvailable === false ? "PAYMENT_SERVICE_UNAVAILABLE" : "AVAILABLE",
             },
+            serviceArea: p.serviceArea ?? null,
+            fulfillment: {
+              pickupAvailable: p.pickupAvailable ?? null,
+              deliveryAvailable: p.deliveryAvailable ?? null,
+            },
+            typicalTurnaround: p.typicalTurnaround ?? null,
           },
         ],
       });
@@ -273,6 +286,11 @@ function candidate(over: Partial<ProviderCandidate> = {}): ProviderCandidate {
       stale: false,
     },
     payment: { queryFeeUsd: 0, available: true, state: "AVAILABLE" },
+    serviceArea: null,
+    fulfillment: null,
+    typicalTurnaround: null,
+    productTypes: null,
+    minimumOrders: null,
     ...over,
   };
 }
@@ -374,6 +392,13 @@ function offer(over: Partial<ProviderOffer> = {}): ProviderOffer {
 
 const INTENT = parseBuyerIntent(REQUEST, { now: NOW });
 
+function withPreference(
+  optimization: NonNullable<typeof INTENT.optimization>,
+  budget: typeof INTENT.budget = null,
+) {
+  return { ...INTENT, optimization, budget };
+}
+
 describe("offer policy — comparison and selection", () => {
   it("disqualifies an expired quote", () => {
     const scored = selectOffer([offer({ expiresAt: "2026-09-01T08:00:00.000Z" })], INTENT, NOW);
@@ -438,6 +463,62 @@ describe("offer policy — comparison and selection", () => {
     const scored = selectOffer([offer({ fixed: false })], INTENT, NOW);
     expect(scored.uncertainties.join(" ")).toContain("not independently verified");
     expect(scored.uncertainties.join(" ")).toContain("estimate");
+  });
+
+  it("puts the cheapest comparable offer first when explicitly requested", () => {
+    const scored = selectOffer(
+      [
+        offer({ businessSlug: "a", amountMin: 50_000 }),
+        offer({ businessSlug: "b", taskId: "b", amountMin: 40_000 }),
+      ],
+      withPreference("CHEAPEST"),
+      NOW,
+    );
+    expect(scored.selected?.offer.businessSlug).toBe("b");
+    expect(scored.selectionReason).toContain("lowest comparable total price");
+  });
+
+  it("puts the fastest and earliest stated offer first when requested", () => {
+    const offers = [
+      offer({ businessSlug: "slow", taskId: "slow", amountMin: 40_000, turnaround: "48 hours" }),
+      offer({ businessSlug: "fast", taskId: "fast", amountMin: 60_000, turnaround: "6 hours" }),
+    ];
+    expect(selectOffer(offers, withPreference("FASTEST"), NOW).selected?.offer.businessSlug).toBe(
+      "fast",
+    );
+    expect(selectOffer(offers, withPreference("EARLIEST"), NOW).selected?.offer.businessSlug).toBe(
+      "fast",
+    );
+  });
+
+  it("favours a comparable offer within the stated budget without excluding the rest", () => {
+    const scored = selectOffer(
+      [
+        offer({ businessSlug: "over", amountMin: 60_000 }),
+        offer({ businessSlug: "within", taskId: "within", amountMin: 45_000 }),
+      ],
+      withPreference("WITHIN_BUDGET", { amount: 50_000, currency: "NGN" }),
+      NOW,
+    );
+    expect(scored.selected?.offer.businessSlug).toBe("within");
+    expect(scored.eligible).toHaveLength(2);
+  });
+
+  it("keeps balanced ranking when best value, nearest, or immediate availability lacks a stronger safe signal", () => {
+    const offers = [
+      offer({ businessSlug: "fast", taskId: "fast", amountMin: 46_000, turnaround: "6 hours" }),
+      offer({ businessSlug: "slow", taskId: "slow", amountMin: 45_000, turnaround: "48 hours" }),
+    ];
+    const balanced = selectOffer(offers, INTENT, NOW).selected?.offer.businessSlug;
+    expect(
+      selectOffer(offers, withPreference("BEST_VALUE"), NOW).selected?.offer.businessSlug,
+    ).toBe(balanced);
+    expect(selectOffer(offers, withPreference("NEAREST"), NOW).selectionReason).toContain(
+      "Distance is not available",
+    );
+    expect(selectOffer(offers, withPreference("AVAILABLE_NOW"), NOW).selectionReason).toContain(
+      "Immediate availability",
+    );
   });
 });
 
@@ -766,5 +847,159 @@ describe("buyer agent loop (milestone 1)", () => {
     expect(names.filter((n) => AGENT_TOOLS[n as keyof typeof AGENT_TOOLS].mutating).sort()).toEqual(
       ["recordBuyerDecision", "requestQuote"],
     );
+  });
+});
+
+// --- candidate evaluation foundation, wired advisory-only (M10.9) ----------
+
+function evaluationEntries(result: Awaited<ReturnType<typeof runBuyerAgent>>) {
+  return result.trace.entries.filter((e) => e.kind === "candidate_evaluation");
+}
+
+function evaluationFor(result: Awaited<ReturnType<typeof runBuyerAgent>>, businessSlug: string) {
+  const entry = evaluationEntries(result).find((e) => e.label === businessSlug);
+  return entry?.data as
+    | {
+        constraints: Record<string, string>;
+        overall: { status: string; confidence: string };
+        policy: {
+          queryable: boolean;
+          agreesWithPolicy: boolean;
+          gate: "EXCLUDED" | "RETAINED_MATCH" | "RETAINED_UNKNOWN" | "RETAINED_ADVISORY";
+        };
+      }
+    | undefined;
+}
+
+describe("candidate evaluation gating (M10.11)", () => {
+  it("evaluates every discovered matching candidate and retains quote eligibility", async () => {
+    const { fetchImpl } = fakeIntra([
+      {
+        slug: "tolu",
+        name: "Tolu Prints",
+        quote: {},
+        serviceArea: "Yaba, Akoka",
+        pickupAvailable: true,
+        deliveryAvailable: true,
+        typicalTurnaround: "1 working day",
+      },
+    ]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), {
+      ...runOpts(),
+      briefCorrection: { fulfillmentPreference: "delivery", deliveryArea: "Yaba" },
+    });
+
+    expect(result.state).toBe("AWAITING_APPROVAL");
+    expect(evaluationEntries(result)).toHaveLength(1);
+    const evaluation = evaluationFor(result, "tolu")!;
+    expect(evaluation.overall.status).toBe("ELIGIBLE");
+    expect(evaluation.constraints.location).toBe("MATCH");
+    expect(evaluation.constraints.fulfillment).toBe("MATCH");
+    expect(evaluation.constraints.turnaround).toBe("MATCH");
+    expect(evaluation.policy.queryable).toBe(true);
+    expect(evaluation.policy.agreesWithPolicy).toBe(true);
+  });
+
+  it("records location as UNKNOWN when the supplier never declared a service area", async () => {
+    const { fetchImpl } = fakeIntra([{ slug: "tolu", name: "Tolu Prints", quote: {} }]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), {
+      ...runOpts(),
+      briefCorrection: { deliveryArea: "Yaba" },
+    });
+    const evaluation = evaluationFor(result, "tolu")!;
+    expect(evaluation.constraints.location).toBe("UNKNOWN");
+  });
+
+  it("excludes an explicit fulfilment mismatch before requestQuote", async () => {
+    const { fetchImpl } = fakeIntra([
+      {
+        slug: "tolu",
+        name: "Tolu Prints",
+        quote: {},
+        pickupAvailable: true,
+        deliveryAvailable: false,
+      },
+    ]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), {
+      ...runOpts(),
+      briefCorrection: { fulfillmentPreference: "delivery" },
+    });
+
+    const evaluation = evaluationFor(result, "tolu")!;
+    expect(evaluation.constraints.fulfillment).toBe("NO_MATCH");
+    expect(evaluation.overall.status).toBe("EXCLUDED");
+    expect(evaluation.policy.queryable).toBe(true);
+    expect(evaluation.policy.agreesWithPolicy).toBe(false);
+    expect(evaluation.policy.gate).toBe("EXCLUDED");
+    expect(result.requestedQuotes.some((q) => q.businessSlug === "tolu")).toBe(false);
+    expect(result.reasons.some((r) => r.code === "AUTHORITATIVE_CANDIDATE_MISMATCH")).toBe(true);
+  });
+
+  it("records turnaround MATCH when the typical turnaround clearly fits the deadline", async () => {
+    const { fetchImpl } = fakeIntra([
+      { slug: "tolu", name: "Tolu Prints", quote: {}, typicalTurnaround: "1 hour" },
+    ]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), runOpts());
+    expect(evaluationFor(result, "tolu")!.constraints.turnaround).toBe("MATCH");
+  });
+
+  it("records turnaround NO_MATCH when the typical turnaround clearly cannot fit the deadline", async () => {
+    const { fetchImpl } = fakeIntra([
+      { slug: "tolu", name: "Tolu Prints", quote: {}, typicalTurnaround: "3 weeks" },
+    ]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), runOpts());
+    const evaluation = evaluationFor(result, "tolu")!;
+    expect(evaluation.constraints.turnaround).toBe("NO_MATCH");
+    // Location is also unknown in this fixture, so the trace accurately
+    // reports retention on UNKNOWN while preserving the advisory disagreement.
+    expect(evaluation.policy.gate).toBe("RETAINED_UNKNOWN");
+    expect(evaluation.policy.agreesWithPolicy).toBe(false);
+    expect(result.requestedQuotes.some((q) => q.businessSlug === "tolu")).toBe(true);
+  });
+
+  it("records turnaround UNKNOWN when no typical turnaround was declared", async () => {
+    const { fetchImpl } = fakeIntra([{ slug: "tolu", name: "Tolu Prints", quote: {} }]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), runOpts());
+    expect(evaluationFor(result, "tolu")!.constraints.turnaround).toBe("UNKNOWN");
+  });
+
+  it("is NEEDS_CONFIRMATION, not EXCLUDED, when several constraints are UNKNOWN", async () => {
+    const { fetchImpl } = fakeIntra([{ slug: "tolu", name: "Tolu Prints", quote: {} }]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), {
+      ...runOpts(),
+      briefCorrection: { fulfillmentPreference: "delivery", deliveryArea: "Yaba" },
+    });
+    const evaluation = evaluationFor(result, "tolu")!;
+    expect(evaluation.constraints.location).toBe("UNKNOWN");
+    expect(evaluation.constraints.fulfillment).toBe("UNKNOWN");
+    expect(evaluation.constraints.turnaround).toBe("UNKNOWN");
+    expect(evaluation.overall.status).toBe("NEEDS_CONFIRMATION");
+    // Still queried — NEEDS_CONFIRMATION is never a gate.
+    expect(evaluation.policy.agreesWithPolicy).toBe(true);
+    expect(evaluation.policy.gate).toBe("RETAINED_UNKNOWN");
+    expect(result.requestedQuotes.some((q) => q.businessSlug === "tolu")).toBe(true);
+  });
+
+  it("still excludes a candidate today's policy already excludes, for an unrelated hard reason", async () => {
+    const { fetchImpl } = fakeIntra([{ slug: "stale-one", name: "Stale One", stale: true }]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), runOpts());
+    const evaluation = evaluationFor(result, "stale-one")!;
+    expect(evaluation.overall.status).toBe("EXCLUDED");
+    expect(evaluation.policy.queryable).toBe(false);
+    expect(evaluation.policy.agreesWithPolicy).toBe(true); // both exclude it — no disagreement
+    expect(result.state).toBe("NO_VIABLE_OFFER"); // regression: existing policy behaviour is unchanged
+  });
+
+  it("regression: quote requests and comparison are identical to before wiring evaluation in", async () => {
+    const { fetchImpl } = fakeIntra([
+      { slug: "tolu", name: "Tolu Prints", quote: { amountMin: 48_000, turnaround: "24 hours" } },
+      { slug: "yaba", name: "Yaba Copy", quote: { amountMin: 45_000, turnaround: "48 hours" } },
+    ]);
+    const result = await runBuyerAgent(REQUEST, ctxFor(fetchImpl), runOpts());
+    expect(result.state).toBe("AWAITING_APPROVAL");
+    expect(result.offers).toHaveLength(2);
+    expect(result.selection?.selected).not.toBeNull();
+    // The evaluation ran (advisory), but changed nothing about the outcome.
+    expect(evaluationEntries(result)).toHaveLength(2);
   });
 });

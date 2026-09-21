@@ -235,7 +235,7 @@ describe("unsupported / custom service (test scenario 10)", () => {
   });
 });
 
-describe("multiple services and multiple pricing models together (test scenarios 11, 12)", () => {
+describe("multiple services and multiple pricing models together (test scenarios 11, 12; M10.6)", () => {
   it("onboards a business offering several services under different pricing models", async () => {
     const result = await process(
       buildTallyPayload({
@@ -248,7 +248,136 @@ describe("multiple services and multiple pricing models together (test scenarios
       }),
     );
     expect(result.status).toBe("PROCESSED");
+    // The route now genuinely represents all three products (M10.6) rather
+    // than silently creating a single generic route and discarding the rest.
+    const productTypeField = (
+      result.route!.inputSchema as { key: string; options?: string[] }[]
+    ).find((f) => f.key === "productType");
+    expect(productTypeField?.options).toEqual(
+      expect.arrayContaining(["business_cards", "banners", "large_format"]),
+    );
+    // Disagreeing pricing models can't all live on one route.pricingModel —
+    // the route falls back to the honest QUOTE_REQUIRED rather than guessing
+    // FIXED or STARTING_FROM, and this is now surfaced for an operator to see
+    // (previously silently dropped — that was the exact gap this milestone closes).
+    expect(result.route!.pricingModel).toBe("QUOTE_REQUIRED");
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].message).toMatch(/different pricing models/i);
+  });
+
+  it("services that unanimously agree on a pricing model set the route to that model", async () => {
+    const result = await process(
+      buildTallyPayload({
+        businessName: "Same Price Prints",
+        services: [
+          { label: "Flyers", pricingModel: "Starting from a price", priceText: "N15,000" },
+          { label: "Posters", pricingModel: "Starting from a price", priceText: "N20,000" },
+        ],
+      }),
+    );
+    expect(result.status).toBe("PROCESSED");
+    expect(result.route!.pricingModel).toBe("STARTING_FROM");
     expect(result.issues).toHaveLength(0);
+  });
+});
+
+describe("the route's productType options faithfully represent what was submitted (M10.6)", () => {
+  it("a single-service submission still gets a productType field with its one product", async () => {
+    const result = await process(
+      buildTallyPayload({
+        businessName: "Solo Flyer Prints",
+        services: [
+          { label: "Flyers", pricingModel: "Starting from a price", priceText: "N15,000" },
+        ],
+      }),
+    );
+    const productTypeField = (
+      result.route!.inputSchema as { key: string; options?: string[]; required: boolean }[]
+    ).find((f) => f.key === "productType");
+    expect(productTypeField).toMatchObject({ options: ["flyers"], required: false });
+  });
+
+  it("a free-text 'Other' service is flagged for operator review, not fabricated into a product type", async () => {
+    const result = await process(
+      buildTallyPayload({
+        businessName: "Canvas Prints Two",
+        services: [
+          { label: "Canvas printing", pricingModel: "Starting from a price", priceText: "N8,000" },
+        ],
+      }),
+    );
+    const productTypeField = (
+      result.route!.inputSchema as { key: string; options?: string[] }[]
+    ).find((f) => f.key === "productType");
+    expect(productTypeField?.options).toEqual([]);
+    expect(result.issues.some((i) => i.message.includes("Canvas printing"))).toBe(true);
+  });
+
+  it("the route stays DRAFT after enrichment — activation is untouched", async () => {
+    const result = await process(buildTallyPayload({ businessName: "Draft Check Prints" }));
+    expect(result.route!.status).toBe("DRAFT");
+  });
+});
+
+describe("fulfilment/location/turnaround data promoted onto the route (M10.8)", () => {
+  it("promotes service area, pickup, delivery, and typical turnaround as submitted", async () => {
+    const result = await process(
+      buildTallyPayload({
+        businessName: "Promoted Data Prints",
+        serviceArea: "Yaba and Akoka",
+        pickupAvailable: "Yes",
+        deliveryAvailable: "No",
+        turnaround: "3 working days",
+      }),
+    );
+    expect(result.route!.serviceArea).toBe("Yaba and Akoka");
+    expect(result.route!.pickupAvailable).toBe(true);
+    expect(result.route!.deliveryAvailable).toBe(false);
+    expect(result.route!.typicalTurnaround).toBe("3 working days");
+  });
+
+  it("keeps an unanswered pickup/delivery/turnaround question as UNKNOWN (null), never coerced to false", async () => {
+    const result = await process(
+      buildTallyPayload({
+        businessName: "Unanswered Fields Prints",
+        pickupAvailable: null,
+        deliveryAvailable: null,
+        turnaround: null,
+      }),
+    );
+    expect(result.route!.pickupAvailable).toBeNull();
+    expect(result.route!.deliveryAvailable).toBeNull();
+    expect(result.route!.typicalTurnaround).toBeNull();
+    // Explicit, since `null` and `false` both look "falsy" — this is the exact
+    // mistake M10.8 Part E forbids.
+    expect(result.route!.pickupAvailable).not.toBe(false);
+    expect(result.route!.deliveryAvailable).not.toBe(false);
+  });
+
+  it("records an explicit 'No' as false — distinct from never having answered", async () => {
+    const result = await process(
+      buildTallyPayload({
+        businessName: "Explicit No Prints",
+        pickupAvailable: "No",
+        deliveryAvailable: "No",
+      }),
+    );
+    expect(result.route!.pickupAvailable).toBe(false);
+    expect(result.route!.deliveryAvailable).toBe(false);
+  });
+
+  it("survives a webhook replay unchanged (idempotency untouched by the new fields)", async () => {
+    const payload = buildTallyPayload({
+      businessName: "Replay Promoted Prints",
+      submissionId: "sub-replay-promoted-1",
+      serviceArea: "Surulere",
+      turnaround: "Same day",
+    });
+    const first = await process(payload);
+    const second = await process(payload);
+    expect(second.status).toBe("REPLAYED");
+    expect(second.route!.serviceArea).toBe(first.route!.serviceArea);
+    expect(second.route!.typicalTurnaround).toBe(first.route!.typicalTurnaround);
   });
 });
 

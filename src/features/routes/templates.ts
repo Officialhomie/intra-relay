@@ -141,8 +141,25 @@ export const SERVICE_TEMPLATES: readonly ServiceTemplate[] = [
   },
 ] as const;
 
+/** Every template for a category, in catalogue order (M10.6). Empty array for
+ * a category with none — never falls back to "other" the way the single-
+ * template lookups below do, since "there are several to choose from" and
+ * "there are none" are different answers. */
+export function getTemplatesForCategory(category: BusinessCategory): ServiceTemplate[] {
+  return SERVICE_TEMPLATES.filter((template) => template.category === category);
+}
+
+/** The one template a single-route flow (quick-start, legacy onboarding)
+ * should use for a category — the first match, or the general "other"
+ * template if the category has none of its own. This is the exact behaviour
+ * `getTemplateForCategory` always had; new code should prefer this name. */
+export function defaultTemplateFor(category: BusinessCategory): ServiceTemplate {
+  return getTemplatesForCategory(category)[0] ?? SERVICE_TEMPLATES[4];
+}
+
+/** @deprecated Use `defaultTemplateFor` — same behaviour, clearer name now
+ * that `getTemplatesForCategory` (many) also exists (M10.6). Kept so existing
+ * single-route callers do not need to change until they choose to. */
 export function getTemplateForCategory(category: BusinessCategory): ServiceTemplate {
-  return (
-    SERVICE_TEMPLATES.find((template) => template.category === category) ?? SERVICE_TEMPLATES[4]
-  );
+  return defaultTemplateFor(category);
 }

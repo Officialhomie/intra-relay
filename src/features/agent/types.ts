@@ -7,6 +7,9 @@
  * separation is what makes the demo honest (PRODUCT_VISION §3.1 "channel-neutral").
  */
 
+import type { OptimizationPreference } from "@/features/intent/types";
+import type { CanonicalLocation } from "@/features/locations/lagos";
+
 /** What the human asked for, parsed into the flyer-printing brief (ADR-001). */
 export interface BuyerIntent {
   raw: string;
@@ -16,6 +19,19 @@ export interface BuyerIntent {
   size: string | null;
   colour: string | null;
   deliveryArea: string | null;
+  /**
+   * How the buyer wants to receive it, when they said (M10.9). Feeds the
+   * candidate-evaluation foundation's fulfilment constraint
+   * (`agent/policy/evaluation.ts`) — advisory only, does not affect quote
+   * eligibility yet.
+   */
+  fulfillmentPreference: "pickup" | "delivery" | null;
+  /** Explicit conversational ranking preference. Null preserves balanced default ranking. */
+  optimization: OptimizationPreference | null;
+  /** Buyer-stated commercial ceiling. It ranks offers; it does not reject an estimate. */
+  budget: { amount: number; currency: string } | null;
+  productType: string | null;
+  canonicalLocation: CanonicalLocation | null;
   /** Hard cap on agent query-fee spend for this run, in USD. */
   maxQueryFeeUsd: number;
 }
@@ -48,6 +64,17 @@ export interface ProviderCandidate {
     available: boolean;
     state: string;
   } | null;
+  /**
+   * Discovery-relevant fulfilment/location facts (M10.8). `null` until the
+   * capability document has been read (same convention as `availability` /
+   * `freshness` / `payment` above) — never inferred, never defaulted.
+   */
+  serviceArea: string | null;
+  fulfillment: { pickupAvailable: boolean | null; deliveryAvailable: boolean | null } | null;
+  /** How fast this business typically COMPLETES a job — not `responseSlaMinutes`. */
+  typicalTurnaround: string | null;
+  productTypes: string[] | null;
+  minimumOrders: Record<string, number> | null;
 }
 
 /** A quote that actually came back from a human. Post-quote. */

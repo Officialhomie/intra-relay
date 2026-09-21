@@ -2,7 +2,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createTestDatabase } from "@/lib/db/testing";
-import { __resetConversations } from "@/features/intent/memory";
 
 import { POST } from "./route";
 
@@ -20,18 +19,16 @@ const SESSION = "session-conv-http-1";
 
 beforeEach(async () => {
   ({ close } = await createTestDatabase());
-  __resetConversations();
 });
 afterEach(async () => {
   await close();
-  __resetConversations();
 });
 
-function turn(message: string, session = SESSION) {
+function turn(message: string, session = SESSION, messageId?: string) {
   return new Request("http://localhost/api/conversation", {
     method: "POST",
     headers: { "content-type": "application/json", "x-session-id": session },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, ...(messageId ? { messageId } : {}) }),
   });
 }
 
@@ -85,5 +82,22 @@ describe("start a new request", () => {
   it("rejects an empty turn", async () => {
     const res = await json(await conversation(turn("")));
     expect(res.status).toBe(400);
+  });
+});
+
+describe("Web adapter replay safety", () => {
+  it("replays a repeated Web message through the gateway without adding turns twice", async () => {
+    const messageId = "web-message-replay-001";
+    const first = await json(await conversation(turn("I need 500 flyers", SESSION, messageId)));
+    const replay = await json(await conversation(turn("I need 500 flyers", SESSION, messageId)));
+
+    expect(first.status).toBe(200);
+    expect((first.body.data as { replayed: boolean }).replayed).toBe(false);
+    expect((replay.body.data as { replayed: boolean }).replayed).toBe(true);
+
+    const { getDb } = await import("@/lib/db/client");
+    const { getConversation } = await import("@/features/intent/memory");
+    const state = await getConversation(await getDb(), SESSION);
+    expect(state?.turns).toHaveLength(2);
   });
 });

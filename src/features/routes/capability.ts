@@ -74,6 +74,11 @@ function inputSchemaDescriptor(fields: RouteInputField[]) {
       type: "string",
       required: field.required,
       example: field.example,
+      // Present only for a closed-choice field (M10.6) — e.g. which printing
+      // products this specific business supports. Omitted (not an empty
+      // array) for a free-text field, so an agent can tell "any value" from
+      // "no options were recorded".
+      ...(field.options && field.options.length > 0 ? { options: field.options } : {}),
     })),
   };
 }
@@ -122,11 +127,27 @@ export interface RouteCapability {
     comparable: boolean;
     caveat: string;
   };
-  /** Quote SLA / response expectation (FR-ROUTE-001). */
+  /** Quote SLA / response expectation (FR-ROUTE-001). How fast the supplier
+   * REPLIES with a quote — never conflate with `typicalTurnaround` below,
+   * which is how fast they complete the job once accepted (M10.7 §11). */
   quoteSla: {
     responseWithinMinutes: number;
     expectation: string;
   };
+  /**
+   * Discovery-relevant fulfilment/location facts (M10.8), promoted from Tally
+   * onboarding rather than discarded (M10.3 G4). Every field is `null` when
+   * the supplier never declared it — never coerced to `false` or a guessed
+   * value (M10.7 §2, §9). `serviceArea` is free text, e.g. "Yaba, Akoka".
+   * `typicalTurnaround` is free text, e.g. "2 working days", and is a
+   * DIFFERENT fact from `quoteSla` above.
+   */
+  serviceArea: string | null;
+  fulfillment: {
+    pickupAvailable: boolean | null;
+    deliveryAvailable: boolean | null;
+  };
+  typicalTurnaround: string | null;
   endpoint: string;
   quoteEndpoint: string;
   inputSchema: ReturnType<typeof inputSchemaDescriptor>;
@@ -152,6 +173,10 @@ export interface RouteCapability {
   };
   payoutAddress: string;
   responseSlaMinutes: number;
+  /** Canonical product types this route explicitly declares, or null when legacy data lacks them. */
+  productTypes: string[] | null;
+  /** Numeric minimum by canonical product type; null means never declared. */
+  minimumOrders: Record<string, number> | null;
   finalOrderPolicy: typeof FINAL_ORDER_POLICY;
   /** How the buyer completes the order. Always present; describes the mechanism. */
   handoff: typeof ORDER_HANDOFF & { channelType: string };
@@ -270,6 +295,12 @@ export async function buildBusinessCapabilities(
           expectation:
             "No synchronous quote. A valid request is recorded and a supplier responds out of band, normally within responseWithinMinutes.",
         },
+        serviceArea: route.serviceArea,
+        fulfillment: {
+          pickupAvailable: route.pickupAvailable,
+          deliveryAvailable: route.deliveryAvailable,
+        },
+        typicalTurnaround: route.typicalTurnaround,
         endpoint: route.endpoint,
         quoteEndpoint: `/v1/${business.slug}/${route.slug}/quote`,
         inputSchema: inputSchemaDescriptor(
@@ -302,6 +333,13 @@ export async function buildBusinessCapabilities(
         },
         payoutAddress: route.payoutAddress,
         responseSlaMinutes: route.responseSlaMinutes,
+        productTypes: (() => {
+          const field = Array.isArray(route.inputSchema)
+            ? route.inputSchema.find((input) => input.key === "productType")
+            : undefined;
+          return field?.options && field.options.length > 0 ? field.options : null;
+        })(),
+        minimumOrders: route.minimumOrders ?? null,
         finalOrderPolicy: FINAL_ORDER_POLICY,
         handoff: { ...ORDER_HANDOFF, channelType: business.contactChannelType },
         ...(contact ? { orderContact: contact } : {}),

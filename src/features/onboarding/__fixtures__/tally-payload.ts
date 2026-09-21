@@ -29,6 +29,7 @@ export interface ServiceAnswer {
   pricingModel?: PricingModelLabel;
   priceText?: string;
   notes?: string;
+  minimumOrder?: number;
 }
 
 export interface BuildTallyPayloadOptions {
@@ -42,8 +43,10 @@ export interface BuildTallyPayloadOptions {
   altContact?: string | null;
   city?: string | null;
   serviceArea?: string | null;
-  pickupAvailable?: "Yes" | "No";
-  deliveryAvailable?: "Yes" | "No";
+  /** `null` simulates the question being left unanswered (never selected),
+   * distinct from omitting the key entirely (which defaults to "Yes"). */
+  pickupAvailable?: "Yes" | "No" | null;
+  deliveryAvailable?: "Yes" | "No" | null;
   services?: ServiceAnswer[];
   turnaround?: string | null;
   responseTime?: "Within 30 minutes" | "Within 2 hours" | "Same day" | "Next working day";
@@ -107,6 +110,7 @@ export function buildTallyPayload(opts: BuildTallyPayloadOptions = {}): TallyWeb
       ]),
       field(labels.price, "INPUT_TEXT", s.priceText ?? null),
       field(labels.notes, "TEXTAREA", s.notes ?? null),
+      field(labels.minimumOrder, "NUMBER", s.minimumOrder ?? null),
     ];
   });
 
@@ -126,15 +130,21 @@ export function buildTallyPayload(opts: BuildTallyPayloadOptions = {}): TallyWeb
     field(L.alt_contact, "INPUT_TEXT", withDefault("altContact", null)),
     field(L.city, "INPUT_TEXT", withDefault("city", "Lagos")),
     field(L.service_area, "INPUT_TEXT", withDefault("serviceArea", "Yaba and Akoka")),
-    choiceField(L.pickup_available, [opts.pickupAvailable ?? "Yes"], ["Yes", "No"]),
-    choiceField(L.delivery_available, [opts.deliveryAvailable ?? "Yes"], ["Yes", "No"]),
+    (() => {
+      const pickup = withDefault("pickupAvailable", "Yes" as "Yes" | "No" | null);
+      return choiceField(L.pickup_available, pickup ? [pickup] : [], ["Yes", "No"]);
+    })(),
+    (() => {
+      const delivery = withDefault("deliveryAvailable", "Yes" as "Yes" | "No" | null);
+      return choiceField(L.delivery_available, delivery ? [delivery] : [], ["Yes", "No"]);
+    })(),
     choiceField(
       L.services_offered,
       services.map((s) => s.label),
       serviceUniverse,
     ),
     ...serviceFields,
-    field(L.turnaround, "INPUT_TEXT", opts.turnaround ?? "2 working days"),
+    field(L.turnaround, "INPUT_TEXT", withDefault("turnaround", "2 working days")),
     choiceField(
       L.response_time,
       [opts.responseTime ?? "Within 2 hours"],

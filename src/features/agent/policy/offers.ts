@@ -40,6 +40,68 @@ function money(currency: string, amount: number): string {
   return `${currency} ${amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
 
+function sameComparableCurrency(a: ScoredOffer, b: ScoredOffer): boolean {
+  return a.offer.currency === b.offer.currency;
+}
+
+function preferenceComparator(
+  intent: BuyerIntent,
+): ((a: ScoredOffer, b: ScoredOffer) => number) | null {
+  switch (intent.optimization) {
+    case "CHEAPEST":
+      return (a, b) => (sameComparableCurrency(a, b) ? a.totalMin - b.totalMin : 0);
+    case "FASTEST":
+    case "EARLIEST":
+      return (a, b) => {
+        if (a.turnaroundHours === null || b.turnaroundHours === null) return 0;
+        return a.turnaroundHours - b.turnaroundHours;
+      };
+    case "WITHIN_BUDGET":
+      return (a, b) => {
+        const budget = intent.budget;
+        if (!budget || a.offer.currency !== budget.currency || b.offer.currency !== budget.currency)
+          return 0;
+        const aWithin = a.totalMin <= budget.amount;
+        const bWithin = b.totalMin <= budget.amount;
+        if (aWithin !== bWithin) return aWithin ? -1 : 1;
+        return aWithin ? a.totalMin - b.totalMin : 0;
+      };
+    // BEST_VALUE intentionally keeps the balanced score. AVAILABLE_NOW has no
+    // offer-level immediate-availability fact, and NEAREST has no trustworthy
+    // distance signal. Both must retain the default rather than invent one.
+    case "BEST_VALUE":
+    case "AVAILABLE_NOW":
+    case "NEAREST":
+    default:
+      return null;
+  }
+}
+
+function preferenceExplanation(intent: BuyerIntent, selected: ScoredOffer): string | null {
+  switch (intent.optimization) {
+    case "CHEAPEST":
+      return "Chosen because it has the lowest comparable total price.";
+    case "FASTEST":
+      return "Chosen because it has the fastest stated turnaround.";
+    case "EARLIEST":
+      return "Chosen because it has the earliest stated completion time.";
+    case "WITHIN_BUDGET":
+      return intent.budget &&
+        selected.offer.currency === intent.budget.currency &&
+        selected.totalMin <= intent.budget.amount
+        ? "Chosen because it is within the stated budget."
+        : "No comparable offer could be confirmed within the stated budget, so the balanced ranking was retained.";
+    case "BEST_VALUE":
+      return "Ranked using Intra's balanced best-value comparison.";
+    case "AVAILABLE_NOW":
+      return "Immediate availability is not stated on comparable offers, so the balanced ranking was retained.";
+    case "NEAREST":
+      return "Distance is not available from the declared areas, so the balanced ranking was retained.";
+    default:
+      return null;
+  }
+}
+
 export function scoreOffer(
   offer: ProviderOffer,
   intent: BuyerIntent,
@@ -179,9 +241,13 @@ export function selectOffer(
   intent: BuyerIntent,
   now: Date = new Date(),
 ): OfferSelection {
+  const comparator = preferenceComparator(intent);
   const ranked = offers
     .map((offer) => scoreOffer(offer, intent, now))
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => {
+      const preferred = comparator?.(a, b) ?? 0;
+      return preferred !== 0 ? preferred : b.score - a.score;
+    });
   const eligible = ranked.filter((item) => item.eligible);
   const selected = eligible[0] ?? null;
 
@@ -238,11 +304,16 @@ export function selectOffer(
     ...(selected.offer.expiresAt === null ? ["No expiry was given with this quote."] : []),
   ];
 
+  const preference = preferenceExplanation(intent, selected);
+  if (preference) {
+    selected.reasons.push({ code: "BUYER_PREFERENCE", statement: preference });
+  }
+
   return {
     ranked,
     eligible,
     selected,
-    selectionReason: `${parts.join(" — ")}.`,
+    selectionReason: `${parts.join(" — ")}.${preference ? ` ${preference}` : ""}`,
     uncertainties,
   };
 }

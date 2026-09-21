@@ -7,6 +7,7 @@
  * transaction, never mutates commercial terms, never authorises payment — those
  * remain the deterministic system's job (CLAUDE.md §4.3, milestone 6 §6, §31).
  */
+import type { CanonicalLocation } from "@/features/locations/lagos";
 
 /**
  * How a message relates to commerce. Ordered from "just talking" to "acting on
@@ -65,6 +66,8 @@ export interface UserIntent {
   category?: string;
   /** The specific service or product ("flyers", "used iPhone 12"). */
   service?: string;
+  /** Canonical printing subtype, only when explicitly recognised. */
+  productType?: string;
   quantity?: number;
   /** Paper size for a print job ("A5"). */
   size?: string;
@@ -74,6 +77,7 @@ export interface UserIntent {
   budget?: { amount: number; currency: string };
   /** Where the person is, or wants the work done / delivered. */
   location?: string;
+  canonicalLocation?: CanonicalLocation | null;
   /** A deadline phrase as said ("by Friday"), plus an ISO date if resolvable. */
   deadline?: { phrase: string; iso: string | null };
   /** They explicitly need it available/open right now. */

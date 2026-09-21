@@ -51,7 +51,17 @@ type Phase = "idle" | "starting" | "working" | "deciding" | "correcting";
 export function AgentConsole({
   initialRun,
   embedded = false,
-}: { initialRun?: AgentRun; embedded?: boolean } = {}) {
+  onRunChange,
+}: {
+  initialRun?: AgentRun;
+  embedded?: boolean;
+  /** Reports every run update (initial mount and every poll) to a parent
+   *  that keeps its own persistent view of the current run — e.g. the
+   *  workspace header, which must never fall behind this console's own
+   *  polling. This console still owns polling/decide/reconnect entirely;
+   *  the callback only mirrors state outward. */
+  onRunChange?: (run: AgentRun) => void;
+} = {}) {
   const [request, setRequest] = useState("");
   const [run, setRun] = useState<AgentRun | null>(initialRun ?? null);
   const [phase, setPhase] = useState<Phase>(initialRun?.status === "RUNNING" ? "working" : "idle");
@@ -79,6 +89,14 @@ export function AgentConsole({
   }, []);
 
   useEffect(() => stopPolling, [stopPolling]);
+
+  // Mirror every run update outward — initial mount and each poll alike —
+  // so a parent-level status surface never falls behind this console's own
+  // state. Purely observational: nothing here feeds back into this console.
+  useEffect(() => {
+    if (run) onRunChange?.(run);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run]);
 
   // When the conversation layer starts the run, pick it up and poll to settle.
   useEffect(() => {
@@ -286,23 +304,34 @@ export function AgentConsole({
             {reconnecting ? "Reconnecting to the agent." : run.headline}
           </p>
 
-          <Card as="section" className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <CardTitle>{busy ? run.headline : "How it went"}</CardTitle>
-              {reconnecting ? (
-                <span className="inline-flex items-center gap-1.5 text-xs text-warning">
-                  <Wifi aria-hidden className="size-3.5" />
-                  Reconnecting…
-                </span>
-              ) : busy ? (
-                <Loader2
-                  aria-hidden
-                  className="size-4 animate-spin text-primary motion-reduce:animate-none"
-                />
-              ) : null}
-            </div>
-            <StageList stages={run.stages} />
-          </Card>
+          {/* Embedded in the conversation, this run's stage progress is
+              already the workspace's persistent header (AgentWorkspaceHeader)
+              — showing it again here would be the exact duplication this
+              redesign removes. Standalone usage keeps its own card. */}
+          {!embedded ? (
+            <Card as="section" className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle>{busy ? run.headline : "How it went"}</CardTitle>
+                {reconnecting ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs text-warning">
+                    <Wifi aria-hidden className="size-3.5" />
+                    Reconnecting…
+                  </span>
+                ) : busy ? (
+                  <Loader2
+                    aria-hidden
+                    className="size-4 animate-spin text-primary motion-reduce:animate-none"
+                  />
+                ) : null}
+              </div>
+              <StageList stages={run.stages} />
+            </Card>
+          ) : reconnecting ? (
+            <span className="inline-flex items-center gap-1.5 text-xs text-warning">
+              <Wifi aria-hidden className="size-3.5" />
+              Reconnecting…
+            </span>
+          ) : null}
 
           {needsClarification && run.clarification ? (
             <Callout tone="info" title="One thing before I ask anyone">

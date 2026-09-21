@@ -100,17 +100,20 @@ export function servicePricingLabels(service: string): {
   pricingModel: string;
   price: string;
   notes: string;
+  minimumOrder: string;
 } {
   if (service === "Other") {
     return {
       pricingModel: "How do you price the other service(s) you print?",
       price: "What's the price?",
       notes: "Minimum order, and what changes the price?",
+      minimumOrder: "What's the minimum order quantity?",
     };
   }
   return {
     pricingModel: `How do you price ${service}?`,
     price: `What's the price for ${service}?`,
     notes: `Minimum order, and what changes the price, for ${service}?`,
+    minimumOrder: `What's the minimum order quantity for ${service}?`,
   };
 }

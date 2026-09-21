@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1512" height="256" viewBox="0 0 1512 256" data-variant="company-positioning"><rect width="1512" height="256" fill="#1f1e1d"/>
+      <rect x="1120" width="392" height="256" fill="#204b57" opacity="0.45"/>
+      <g id="protected-brand"><g transform="translate(285 67) scale(2.1875)">
+  <circle cx="9.5" cy="16" r="4.5" fill="#faf9f5"/>
+  <circle cx="22.5" cy="16" r="4.5" fill="none" stroke="#faf9f5" stroke-width="2.2"/>
+  <line x1="14" y1="16" x2="18" y2="16" stroke="#faf9f5" stroke-width="2.2"/></g></g>
+      <g id="editable-content">
+        <text x="379" y="112" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="46" font-weight="600" fill="#faf9f5" text-anchor="start" letter-spacing="0">Intra</text>
+        <text x="285" y="174" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="27" font-weight="400" fill="#faf9f5" text-anchor="start" letter-spacing="0">The trusted business layer for AI-agent commerce</text>
+      </g>
+</svg>

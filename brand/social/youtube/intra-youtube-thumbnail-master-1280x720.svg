@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" data-master-format="landscape"><rect width="1280" height="720" fill="#faf9f5"/>
+    <rect x="0" y="0" width="205" height="115" fill="#ccdbe8" opacity="0.75"/>
+    <line x1="54" y1="158" x2="54" y2="666" stroke="#dedcd1" stroke-width="2"/>
+    <g id="protected-brand"><g transform="translate(54 54) scale(1.90625)">
+  <circle cx="9.5" cy="16" r="4.5" fill="#1f1e1d"/>
+  <circle cx="22.5" cy="16" r="4.5" fill="none" stroke="#1f1e1d" stroke-width="2.2"/>
+  <line x1="14" y1="16" x2="18" y2="16" stroke="#1f1e1d" stroke-width="2.2"/></g></g>
+    <g id="editable-content">
+      <text id="eyebrow" x="136" y="94" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="24" font-weight="600" fill="#141413" text-anchor="start" letter-spacing="2">[VIDEO SERIES]</text>
+      <text id="headline" x="88" y="346" font-family="Iowan Old Style, Palatino Linotype, Palatino, Georgia, ui-serif, serif" font-size="52" font-weight="400" fill="#141413" text-anchor="start" letter-spacing="-1">[VIDEO TITLE]</text>
+      <text id="headline-line-2" x="88" y="406" font-family="Iowan Old Style, Palatino Linotype, Palatino, Georgia, ui-serif, serif" font-size="52" font-weight="400" fill="#141413" text-anchor="start" letter-spacing="-1">[SECOND LINE]</text>
+      <text id="supporting-detail" x="88" y="445" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="28" font-weight="400" fill="#3d3d3a" text-anchor="start" letter-spacing="0">[ONE CLEAR DETAIL]</text>
+    </g>
+    <line x1="88" y1="624" x2="1226" y2="624" stroke="#dedcd1" stroke-width="2"/>
+    <text x="1226" y="666" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="28" font-weight="500" fill="#3d3d3a" text-anchor="end" letter-spacing="0">Intra</text>
+</svg>

@@ -1,5 +1,11 @@
 import { readOptimization } from "./optimization";
+import { normalizeLagosArea } from "@/features/locations/lagos";
+import { extractPrintingProductTypes } from "@/features/routes/printing-products";
 import type { UserIntent } from "./types";
+
+function readPrintingProductType(text: string): string | undefined {
+  return extractPrintingProductTypes(text)[0];
+}
 
 /**
  * Pulling structured wants out of plain language (milestone 6 §7).
@@ -154,7 +160,10 @@ const CATEGORY_KEYWORDS: ReadonlyArray<{ re: RegExp; category: string; service?:
   },
   { re: /\b(poster|banner|business card)s?\b/i, category: "printing" },
   { re: /\b(design|graphic|logo|artwork)\b/i, category: "design" },
-  { re: /\b(food|dinner|lunch|eat|hungry|restaurant|jollof|catering|meal)\b/i, category: "food" },
+  {
+    re: /\b(food|dinner|lunch|eat|hungry|restaurant|jollof|catering|meal|cake|cakes|pastry|pastries|bakery|baker|bake|small chops|puff\s?puff)\b/i,
+    category: "food",
+  },
   // "deliver to X" / "delivered to X" is a fulfilment instruction on another
   // brief, not a request for a delivery service — match only the service sense.
   {
@@ -222,6 +231,8 @@ export function extractUserIntent(
   const { category, service } = readCategory(text);
   if (category) out.category = category;
   if (service) out.service = service;
+  const productType = readPrintingProductType(text);
+  if (productType) out.productType = productType;
 
   const quantity = readQuantity(text, options.quantityExpected);
   if (quantity !== undefined) out.quantity = quantity;
@@ -236,7 +247,10 @@ export function extractUserIntent(
   if (budget) out.budget = budget;
 
   const location = readLocation(text, now);
-  if (location) out.location = location;
+  if (location) {
+    out.location = location;
+    out.canonicalLocation = normalizeLagosArea(location);
+  }
 
   const deadline = readDeadline(text, now);
   if (deadline) out.deadline = deadline;

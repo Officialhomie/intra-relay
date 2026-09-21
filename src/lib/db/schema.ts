@@ -143,6 +143,30 @@ export const quoteRoutes = pgTable(
     priceAmount: numeric("price_amount", { precision: 14, scale: 2 }),
     /** What the published amount buys, e.g. "per page". Null for a flat job price. */
     priceUnit: text("price_unit"),
+    /**
+     * Discovery-relevant fulfilment/location facts (M10.8), promoted from Tally
+     * onboarding (`onboarding/normalize.ts`) instead of being discarded into
+     * `onboarding_submissions.normalizedData` (M10.3 G4). Free text / tri-state
+     * booleans, deliberately not geocoded or normalised into an enum — null
+     * always means "never declared", never coerced to false or a guessed area
+     * (M10.7 §2, §9). `serviceArea` is areas served, e.g. "Yaba, Akoka".
+     */
+    serviceArea: text("service_area"),
+    pickupAvailable: boolean("pickup_available"),
+    deliveryAvailable: boolean("delivery_available"),
+    /**
+     * How long this business typically takes to COMPLETE a job once accepted —
+     * NOT the same fact as `responseSlaMinutes` below, which is how fast they
+     * reply WITH a quote (M10.7 §11 explicitly warns against conflating the
+     * two). Free text, e.g. "2 working days"; parsed on read via
+     * `quotes/normalize.ts`'s `normalizeTurnaround`, never stored pre-parsed.
+     */
+    typicalTurnaround: text("typical_turnaround"),
+    /** Per canonical product type, declared numeric minimum quantity. Null is unknown. */
+    minimumOrders: jsonb("minimum_orders").$type<Record<string, number>>(),
+    /** M10.15 reviewed location facts. Raw serviceArea remains the legacy source. */
+    canonicalDeliveryCoverage: jsonb("canonical_delivery_coverage").$type<unknown>(),
+    canonicalPickupPoint: jsonb("canonical_pickup_point").$type<unknown>(),
     payoutAddress: text("payout_address").notNull(),
     endpoint: text("endpoint").notNull(),
     status: routeStatusEnum("status").notNull().default("DRAFT"),
@@ -632,6 +656,42 @@ export const onboardingSubmissions = pgTable(
   },
   (table) => [index("onboarding_submissions_status_idx").on(table.status)],
 );
+
+/**
+ * Durable channel-independent conversation (M10.4/M10.16, ADR-025).
+ *
+ * This remains the replacement for the earlier in-memory `globalThis` store:
+ * state survives a fresh serverless instance. `sessionId` is now the internal
+ * conversation key; Web buyers retain their existing session id while other
+ * adapters use a deterministic opaque key. `intent` remains the canonical
+ * accumulated buyer `UserIntent`; `workflowState` holds only provisional
+ * application facts for other workflows. `turns` is capped by the application.
+ * The small summary/pending/action fields are navigation metadata, never a
+ * competing copy of an accepted business, route, task, quote, or commitment.
+ */
+export const conversationSessions = pgTable("conversation_sessions", {
+  sessionId: text("session_id").primaryKey(),
+  /** Channel-independent identity bound by the conversation gateway (M10.16).
+   * Defaults preserve direct/internal callers created before the gateway. */
+  actorRole: text("actor_role").notNull().default("buyer"),
+  actorExternalUserId: text("actor_external_user_id"),
+  businessId: text("business_id").references(() => businesses.id),
+  channel: text("channel").notNull().default("web"),
+  externalConversationId: text("external_conversation_id"),
+  intent: jsonb("intent").$type<Record<string, unknown>>().notNull(),
+  lastIntentKind: text("last_intent_kind"),
+  turns: jsonb("turns")
+    .$type<{ role: "user" | "assistant"; text: string; at: string }[]>()
+    .notNull(),
+  /** Provisional application state (for example business-onboarding facts),
+   * never a second copy of an accepted domain entity. */
+  workflowState: jsonb("workflow_state").$type<Record<string, unknown>>(),
+  pendingQuestion: text("pending_question"),
+  lastAction: text("last_action"),
+  summary: text("summary"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
 
 export const businessesRelations = relations(businesses, ({ many }) => ({
   routes: many(quoteRoutes),
